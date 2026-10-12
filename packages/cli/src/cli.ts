@@ -25,10 +25,13 @@ const deps: Deps = {
 };
 
 // SIGINT: finish the current step, leave a consistent state (spec A9).
-process.on('SIGINT', () => {
+const requestStop = (): void => {
   if (deps.cancel.cancelled) process.exit(130);
   deps.cancel.cancelled = true;
-});
+};
+process.on('SIGINT', requestStop);
+// launchd stops the collector with SIGTERM.
+process.on('SIGTERM', requestStop);
 
 main(process.argv.slice(2), deps).then(
   (code) => {

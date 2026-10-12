@@ -13,6 +13,7 @@ import {
 import type { GlobalOptions } from './command-support.js';
 import { accountAddCommand, accountListCommand, accountRemoveCommand, loginCommand } from './commands-accounts.js';
 import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, envServiceCommand } from './commands-env.js';
+import { collectorRunCommand, dashCommand, notifyCommand, topCommand } from './commands-collector.js';
 import { closeInput } from './prompter.js';
 import { resolveConfigPath } from './config/paths.js';
 import type { Deps } from './deps.js';
@@ -192,6 +193,37 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .option('-n, --lines <n>', 'number of lines', (v) => Number(v), 50)
     .option('-f, --follow', 'keep printing new lines (not with --json)')
     .action((name: string, o: { lines: number; follow?: boolean }) => run(() => envLogsCommand(deps, globals(), name, { lines: o.lines, follow: o.follow === true }))());
+
+  const collector = program.command('collector').description('The collector service (telemetry, samplers, alerts)');
+  collector
+    .command('run')
+    .description('Run the collector in the foreground (used by launchd and for debugging)')
+    .action(run(() => collectorRunCommand(deps, globals())));
+
+  program
+    .command('dash')
+    .description('Dashboard snapshot (sessions, tokens, cost, CPU/RAM); --follow streams updates')
+    .option('--range <range>', '1h | 24h | 7d | 30d', '24h')
+    .option('--account <name>', 'only this account')
+    .option('--env <name>', 'only this environment')
+    .option('--model <name>', 'only this model')
+    .option('--follow', 'stream a snapshot every sampleIntervalSeconds (NDJSON with --json)')
+    .action(
+      run(() => {
+        const o = program.commands.find((c) => c.name() === 'dash')!.opts<{ range: string; account?: string; env?: string; model?: string; follow?: boolean }>();
+        return dashCommand(deps, globals(), { range: o.range, account: o.account, env: o.env, model: o.model, follow: o.follow === true });
+      }),
+    );
+  program
+    .command('top')
+    .description('The dashboard as a refreshing terminal table (works over SSH)')
+    .option('--once', 'print once and exit')
+    .action(run(() => topCommand(deps, globals(), { once: program.commands.find((c) => c.name() === 'top')!.opts<{ once?: boolean }>().once === true })));
+  program
+    .command('notify')
+    .description('Notifications')
+    .option('--test', 'send a test notification')
+    .action(run(() => notifyCommand(deps, globals(), { test: program.commands.find((c) => c.name() === 'notify')!.opts<{ test?: boolean }>().test === true })));
 
   program
     .command('version')

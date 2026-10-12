@@ -9,7 +9,7 @@
     "packages/cli"
   ],
   "engines": {
-    "node": ">=20.11"
+    "node": ">=22.13"
   },
   "scripts": {
     "gen": "npm run gen -w @devhost/contract",

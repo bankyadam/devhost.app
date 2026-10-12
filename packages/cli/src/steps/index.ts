@@ -1,6 +1,7 @@
 import type { DevhostConfig } from '@devhost/contract';
 import { UsageError } from '../errors.js';
 import { claudeBinaryStep, accountsClaudeStep } from './claude.js';
+import { collectorStep } from './collector.js';
 import { dockerSteps } from './docker.js';
 import { envSteps } from './env.js';
 import { gitStep } from './git.js';
@@ -28,6 +29,7 @@ export function buildSteps(config: DevhostConfig, extra: (config: DevhostConfig)
     accountsClaudeStep,
     routingStep,
     gitStep,
+    collectorStep,
     ...envSteps(config),
     ...extra(config),
   ];

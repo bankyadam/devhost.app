@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.notify.schema.json",
+  "title": "NotifyData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sent",
+    "provider",
+    "topic"
+  ],
+  "properties": {
+    "sent": {
+      "type": "boolean"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "topic": {
+      "type": "string",
+      "description": "Masked: the topic works like a password."
+    }
+  }
+}
