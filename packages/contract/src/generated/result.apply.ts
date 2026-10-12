@@ -28,4 +28,8 @@ export interface ApplyData {
    * Things a human should look at that did not stop the run.
    */
   warnings?: string[];
+  /**
+   * uninstall: things devhost deliberately left in place.
+   */
+  kept?: string[];
 }

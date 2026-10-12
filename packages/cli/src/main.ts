@@ -14,6 +14,7 @@ import type { GlobalOptions } from './command-support.js';
 import { accountAddCommand, accountListCommand, accountRemoveCommand, loginCommand } from './commands-accounts.js';
 import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, envServiceCommand } from './commands-env.js';
 import { collectorRunCommand, dashCommand, notifyCommand, topCommand } from './commands-collector.js';
+import { doctorCommand, statusCommand, uninstallCommand } from './commands-doctor.js';
 import { closeInput } from './prompter.js';
 import { resolveConfigPath } from './config/paths.js';
 import type { Deps } from './deps.js';
@@ -224,6 +225,21 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .description('Notifications')
     .option('--test', 'send a test notification')
     .action(run(() => notifyCommand(deps, globals(), { test: program.commands.find((c) => c.name() === 'notify')!.opts<{ test?: boolean }>().test === true })));
+
+  program.command('doctor').description('Read-only health checks with one-line fixes; exit 1 on any failure').action(run(() => doctorCommand(deps, globals())));
+  program.command('status').description('One-screen summary').action(run(() => statusCommand(deps, globals())));
+  program
+    .command('uninstall')
+    .description('Remove services, shell/git blocks and generated files; never projects, Claude config dirs or credentials')
+    .option('--keep-packages', 'do not uninstall Homebrew packages')
+    .option('--purge-data', 'also delete the collector database')
+    .option('--dry-run', 'print what would be removed, including every sudo command')
+    .action(
+      run(() => {
+        const o = program.commands.find((c) => c.name() === 'uninstall')!.opts<{ keepPackages?: boolean; purgeData?: boolean; dryRun?: boolean }>();
+        return uninstallCommand(deps, globals(), { keepPackages: o.keepPackages === true, purgeData: o.purgeData === true, dryRun: o.dryRun === true });
+      }),
+    );
 
   program
     .command('version')

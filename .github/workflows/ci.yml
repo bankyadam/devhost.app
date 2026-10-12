@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.x
           cache: npm
       - run: npm ci
 
@@ -43,6 +43,7 @@ jobs:
           CLI="$GITHUB_WORKSPACE/packages/cli/dist/cli.js"
           node "$CLI" init --yes --hostname ci-mini
           node "$CLI" apply --dry-run
+          node "$CLI" uninstall --dry-run
           # --json must be NDJSON ending in a result event.
           node "$CLI" apply --dry-run --json | tail -n 1 | node -e '
             const l = require("fs").readFileSync(0, "utf8");

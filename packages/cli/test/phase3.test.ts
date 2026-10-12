@@ -125,7 +125,7 @@ describe('environments', () => {
     expect(envrc).toContain('export DEVHOST_PORT_BASE=3000');
     expect(envrc).toContain('OTEL_RESOURCE_ATTRIBUTES="devhost.account=business,devhost.env=acme-api"');
     expect(await readFile(join(dir, '.git', 'info', 'exclude'), 'utf8')).toContain('.envrc');
-    expect(mac.runner.lines()).toContain(`git clone git@github.com:acme/api.git ${dir}`);
+    expect(mac.runner.lines()).toContain(`git clone -- git@github.com:acme/api.git ${dir}`);
 
     // Trust ran through a pty with the right answers, and the server was stopped with Ctrl+C.
     const trust = mac.runner.spawned.find((s) => s.call.command === 'script')!;

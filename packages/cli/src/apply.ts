@@ -47,7 +47,7 @@ export async function runSteps(
       }
 
       await step.apply(ctx);
-      if (!exec.dryRun) {
+      if (!exec.dryRun && step.verify !== false) {
         const after = await step.check(ctx);
         if (after.state === 'todo') {
           throw new DevhostError(

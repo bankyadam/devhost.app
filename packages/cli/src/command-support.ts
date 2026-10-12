@@ -14,12 +14,16 @@ export interface GlobalOptions {
 }
 
 /** A short command: compute data, then print it as an envelope (--json) or as text. */
-export async function short<T>(deps: Deps, g: GlobalOptions, work: () => Promise<{ data: T; human: string }>): Promise<number> {
+export async function short<T>(
+  deps: Deps,
+  g: GlobalOptions,
+  work: () => Promise<{ data: T; human: string; /** Exit code when the command ran fine but its answer is "not OK" (doctor). */ exit?: number }>,
+): Promise<number> {
   try {
-    const { data, human } = await work();
-    if (g.json) writeEnvelope(deps, true, data);
+    const { data, human, exit } = await work();
+    if (g.json) writeEnvelope(deps, exit === undefined || exit === 0, data);
     else deps.stdout.write(`${human.endsWith('\n') ? human : `${human}\n`}`);
-    return ExitCode.Ok;
+    return exit ?? ExitCode.Ok;
   } catch (err) {
     if (g.json) writeEnvelope(deps, false, null, errorEntries(err));
     else writeHumanError(deps, err);
