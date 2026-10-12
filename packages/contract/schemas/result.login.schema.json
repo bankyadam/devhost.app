@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.login.schema.json",
+  "title": "LoginData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "account",
+    "loggedIn"
+  ],
+  "properties": {
+    "account": {
+      "type": "string"
+    },
+    "loggedIn": {
+      "type": "boolean"
+    },
+    "trusted": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Environment directories whose workspace trust and Remote Control confirmation were accepted."
+    },
+    "restarted": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Environments whose service was (re)started."
+    },
+    "remaining": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Human steps still open."
+    }
+  }
+}

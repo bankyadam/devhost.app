@@ -1,44 +1,21 @@
 import YAML, { stringify } from 'yaml';
-import { CONTRACT_VERSION, ExitCode, type ApplyData } from '@devhost/contract';
+import { CONTRACT_VERSION, type ApplyData } from '@devhost/contract';
 import { readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { runSteps } from './apply.js';
 import { loadConfig, validateData } from './config/load.js';
+import { editConfigFile } from './config/edit.js';
+import { missingPortBases } from './ports.js';
+import { long, newExecutor, newStepContext, short, type GlobalOptions } from './command-support.js';
+import type { DevhostConfig } from '@devhost/contract';
 import { getByPointer, parsePointer, parseValue, setByPointer } from './config/pointer.js';
 import type { Deps } from './deps.js';
 import { ConfigError, DevhostError, UsageError } from './errors.js';
 import { backupFile } from './fsutil.js';
 import { runInit, type InitOptions } from './init/init.js';
-import { writeEnvelope, writeHumanError, writeResultEvent, errorEntries, exitCodeFor } from './output.js';
 import { packageJsonPath } from './paths.js';
-import { HumanReporter, NdjsonReporter, type Reporter } from './reporter.js';
-import { Executor } from './runner/executor.js';
+import { type Executor } from './runner/executor.js';
 import { buildSteps, selectSteps } from './steps/index.js';
-
-export interface GlobalOptions {
-  json: boolean;
-  verbose: boolean;
-  yes: boolean;
-  configPath: string;
-}
-
-/** A short command: compute data, then print it as an envelope (--json) or as text. */
-async function short<T>(
-  deps: Deps,
-  g: GlobalOptions,
-  work: () => Promise<{ data: T; human: string }>,
-): Promise<number> {
-  try {
-    const { data, human } = await work();
-    if (g.json) writeEnvelope(deps, true, data);
-    else deps.stdout.write(`${human.endsWith('\n') ? human : `${human}\n`}`);
-    return ExitCode.Ok;
-  } catch (err) {
-    if (g.json) writeEnvelope(deps, false, null, errorEntries(err));
-    else writeHumanError(deps, err);
-    return exitCodeFor(err);
-  }
-}
 
 export function cliVersion(): string {
   return (JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version: string }).version;
@@ -135,7 +112,7 @@ export interface ApplyOptions {
   only: string[];
 }
 
-function formatHumanSummary(data: ApplyData): string[] {
+export function formatApplySummary(data: ApplyData): string[] {
   const lines: string[] = [];
   if (data.dryRun) {
     lines.push('', data.plan.length === 0 ? 'Dry run: nothing to do.' : 'Dry run plan (nothing was changed):');
@@ -148,42 +125,39 @@ function formatHumanSummary(data: ApplyData): string[] {
   return lines;
 }
 
-export async function applyCommand(deps: Deps, g: GlobalOptions, opts: ApplyOptions): Promise<number> {
-  const reporter: Reporter = g.json
-    ? new NdjsonReporter(deps.stdout)
-    : new HumanReporter(deps.stdout, deps.stderr, g.verbose);
-  try {
-    const { config } = await loadConfig(g.configPath);
-    const steps = selectSteps(buildSteps(config), opts.only);
-    const exec = new Executor(deps.runner, reporter, {
-      dryRun: opts.dryRun,
-      verbose: g.verbose,
-      interactiveSudo: deps.stdinIsTTY && !g.json,
-      now: deps.now,
-    });
-    const outcome = await runSteps(steps, { config, home: deps.home, user: deps.user, exec, configPath: g.configPath }, reporter, deps.cancel);
-
-    if (outcome.cancelled) {
-      const errors = [{ code: 'cancelled', message: 'cancelled after the current step' }];
-      if (g.json) writeResultEvent(deps, false, outcome.data, errors);
-      else deps.stdout.write('Cancelled after the current step; state is consistent. Re-run `devhost apply` to continue.\n');
-      return ExitCode.Cancelled;
-    }
-    if (outcome.error) {
-      const errors = errorEntries(outcome.error);
-      if (g.json) writeResultEvent(deps, false, outcome.data, errors);
-      else {
-        for (const line of formatHumanSummary(outcome.data)) deps.stdout.write(`${line}\n`);
-        writeHumanError(deps, outcome.error);
+/** Allocate missing environment port blocks and persist them (spec A7.9). */
+export async function withPortBases(config: DevhostConfig, g: GlobalOptions, deps: Deps, exec: Executor): Promise<DevhostConfig> {
+  const missing = missingPortBases(config);
+  if (missing.size === 0) return config;
+  const envs = config.environments ?? [];
+  if (exec.dryRun) {
+    const copy = structuredClone(config);
+    for (const e of copy.environments ?? []) {
+      const base = missing.get(e.name);
+      if (base !== undefined) {
+        e.portBase = base;
+        exec.plan.push({ stepId: `env.${e.name}`, action: `set environments/${e.name}/portBase to ${base} in ${g.configPath}`, sudo: false });
       }
-      return exitCodeFor(outcome.error);
     }
-    if (g.json) writeResultEvent(deps, true, outcome.data);
-    else for (const line of formatHumanSummary(outcome.data)) deps.stdout.write(`${line}\n`);
-    return ExitCode.Ok;
-  } catch (err) {
-    if (g.json) writeResultEvent(deps, false, null, errorEntries(err));
-    else writeHumanError(deps, err);
-    return exitCodeFor(err);
+    return copy;
   }
+  const { config: updated } = await editConfigFile(g.configPath, deps.now(), (doc) => {
+    envs.forEach((e, i) => {
+      const base = missing.get(e.name);
+      if (base !== undefined) setByPointer(doc, ['environments', String(i), 'portBase'], base);
+    });
+  });
+  return updated;
+}
+
+export async function applyCommand(deps: Deps, g: GlobalOptions, opts: ApplyOptions): Promise<number> {
+  return long(deps, g, async (reporter) => {
+    const loaded = await loadConfig(g.configPath);
+    const exec = newExecutor(deps, g, reporter, opts.dryRun);
+    const config = await withPortBases(loaded.config, g, deps, exec);
+    const steps = selectSteps(buildSteps(config), opts.only);
+    const ctx = newStepContext(deps, g, config, exec);
+    const outcome = await runSteps(steps, ctx, reporter, deps.cancel);
+    return { ok: outcome.error === null, data: outcome.data, error: outcome.error, cancelled: outcome.cancelled, human: formatApplySummary(outcome.data) };
+  });
 }

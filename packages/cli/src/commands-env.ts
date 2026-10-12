@@ -1,0 +1,257 @@
+import { readFile, stat } from 'node:fs/promises';
+import type { DevhostConfig, EnvChangeData, EnvListData, EnvLogsData } from '@devhost/contract';
+import { runSteps } from './apply.js';
+import { long, newExecutor, newReporter, newStepContext, short, type GlobalOptions } from './command-support.js';
+import { composeProject, envDir, environmentsOf, findAccount, rcLabel, rcLogPath, type Account, type Environment } from './config/accounts.js';
+import { appendTo, editConfigFile, removeFrom } from './config/edit.js';
+import { loadConfig } from './config/load.js';
+import type { Deps } from './deps.js';
+import { DevhostError, UsageError } from './errors.js';
+import { daemonInstalled, daemonState, plistPath, removeDaemon } from './launchd.js';
+import { acceptWorkspace, authStatus, type LoginContext } from './login.js';
+import { allocatePortBase } from './ports.js';
+import { makePrompter } from './prompter.js';
+import type { Executor } from './runner/executor.js';
+import { buildSteps, selectSteps } from './steps/index.js';
+
+function findEnv(config: DevhostConfig, name: string): { env: Environment; account: Account } {
+  const env = environmentsOf(config).find((e) => e.name === name);
+  if (!env) throw new UsageError(`no environment named "${name}"`, 'See `devhost env list`.');
+  const account = findAccount(config, env.account);
+  if (!account) throw new UsageError(`environment "${name}" refers to the unknown account "${env.account}"`);
+  return { env, account };
+}
+
+async function serviceInfo(exec: Executor, env: Environment): Promise<EnvListData['environments'][number]['service']> {
+  const label = rcLabel(env.account, env.name);
+  if (env.remoteControl?.enabled === false) return { label, state: 'disabled', pid: null };
+  const st = await daemonState(exec, label);
+  if (st.running) return { label, state: 'running', pid: st.pid };
+  return { label, state: (await daemonInstalled(exec, label)) ? 'stopped' : 'not-installed', pid: null };
+}
+
+export function envListCommand(deps: Deps, g: GlobalOptions): Promise<number> {
+  return short<EnvListData>(deps, g, async () => {
+    const { config } = await loadConfig(g.configPath);
+    const exec = newExecutor(deps, g, newReporter(deps, g), false);
+    const environments: EnvListData['environments'] = [];
+    for (const e of environmentsOf(config)) {
+      const a = findAccount(config, e.account);
+      if (!a) continue;
+      const dir = envDir(a, e, deps.home);
+      environments.push({
+        name: e.name,
+        account: e.account,
+        dir,
+        dirExists: (await exec.query('test', ['-d', dir])).code === 0,
+        portBase: e.portBase ?? null,
+        remoteControl: { enabled: e.remoteControl?.enabled !== false, spawn: e.remoteControl?.spawn ?? 'worktree', permissionMode: e.remoteControl?.permissionMode ?? 'acceptEdits' },
+        compose: e.compose ?? 'auto',
+        service: await serviceInfo(exec, e),
+      });
+    }
+    const human =
+      environments.length === 0
+        ? 'No environments yet. Create one with `devhost env create --account <a> --name <n> [--repo <url>]`.'
+        : ['NAME\tACCOUNT\tPORTS\tSERVICE\tDIR', ...environments.map((e) => [e.name, e.account, e.portBase === null ? '-' : `${e.portBase}-${e.portBase + 99}`, e.service.state, e.dir].join('\t'))].join('\n');
+    return { data: { environments }, human };
+  });
+}
+
+export interface EnvCreateOptions {
+  account: string;
+  name: string;
+  repo?: string;
+  noRc: boolean;
+  compose: 'auto' | 'off';
+  spawn?: string;
+  permissionMode?: string;
+}
+
+export function envCreateCommand(deps: Deps, g: GlobalOptions, opts: EnvCreateOptions): Promise<number> {
+  return long(deps, g, async (reporter) => {
+    const loaded = await loadConfig(g.configPath);
+    const account = findAccount(loaded.config, opts.account);
+    if (!account) {
+      throw new UsageError(`account "${opts.account}" does not exist`, `Add it first: devhost account add --name ${opts.account} --git-email <email>`);
+    }
+    if (environmentsOf(loaded.config).some((e) => e.name === opts.name)) throw new UsageError(`environment "${opts.name}" already exists`);
+
+    const portBase = allocatePortBase(loaded.config, account);
+    const entry = {
+      name: opts.name,
+      account: opts.account,
+      ...(opts.repo ? { repo: opts.repo } : {}),
+      portBase,
+      remoteControl: { enabled: !opts.noRc, spawn: opts.spawn ?? 'worktree', permissionMode: opts.permissionMode ?? 'acceptEdits' },
+      compose: opts.compose,
+    };
+    reporter.step('config', 'start', `add environment ${opts.name} to ${g.configPath}`);
+    const { config } = await editConfigFile(g.configPath, deps.now(), (doc) => appendTo(doc, 'environments', entry));
+    reporter.step('config', 'changed', `port block ${portBase}-${portBase + 99}`);
+
+    const exec = newExecutor(deps, g, reporter, false);
+    const prompter = makePrompter(deps, g.json, g.yes);
+    const loggedIn = (await authStatus({ exec, deps }, account)).loggedIn;
+    if (opts.noRc === false && loggedIn !== true) {
+      exec.warn(`Account "${opts.account}" is not logged in, so workspace trust was not accepted. Run \`devhost login ${opts.account}\`.`);
+    }
+    const loginCtx: LoginContext = {
+      deps,
+      config,
+      account,
+      exec,
+      reporter,
+      prompter,
+      interactive: deps.stdinIsTTY && !g.json,
+      idleMs: Number(deps.env['DEVHOST_TRUST_IDLE_MS']) || undefined,
+      stepContext: () => newStepContext(deps, g, config, exec),
+    };
+    const ctx = newStepContext(deps, g, config, exec, {
+      beforeService: async (info) => {
+        if (loggedIn !== true) return;
+        reporter.step(`trust.${info.name}`, 'start', info.dir);
+        const ok = await acceptWorkspace(loginCtx, info);
+        reporter.step(`trust.${info.name}`, ok ? 'ok' : 'skipped', ok ? undefined : 'declined; the service will exit until the directory is trusted');
+      },
+    });
+    const outcome = await runSteps(selectSteps(buildSteps(config), [`env.${opts.name}`]), ctx, reporter, deps.cancel);
+    const dir = envDir(account, { name: opts.name } as Environment, deps.home);
+    const data: EnvChangeData = {
+      name: opts.name,
+      account: opts.account,
+      action: 'created',
+      dir,
+      portBase,
+      steps: outcome.data.steps.map(({ id, status, message }) => ({ id, status, ...(message ? { message } : {}) })),
+      ...(exec.warnings.length > 0 ? { warnings: exec.warnings } : {}),
+    };
+    return {
+      ok: outcome.error === null,
+      data,
+      error: outcome.error,
+      cancelled: outcome.cancelled,
+      human: ['', `✅ Environment ${opts.account}/${opts.name} ready in ${dir} (ports ${portBase}-${portBase + 99}).`],
+    };
+  });
+}
+
+async function unpushedWork(exec: Executor, dir: string): Promise<{ commits: string[]; uncommitted: boolean }> {
+  const log = await exec.query('git', ['-C', dir, 'log', '--branches', '--not', '--remotes', '--oneline']);
+  const status = await exec.query('git', ['-C', dir, 'status', '--porcelain']);
+  return { commits: log.code === 0 ? log.stdout.split('\n').filter(Boolean) : [], uncommitted: status.code === 0 && status.stdout.trim() !== '' };
+}
+
+export interface EnvDeleteOptions {
+  deleteFiles: boolean;
+  confirmName?: string;
+}
+
+export function envDeleteCommand(deps: Deps, g: GlobalOptions, name: string, opts: EnvDeleteOptions): Promise<number> {
+  return long(deps, g, async (reporter) => {
+    const loaded = await loadConfig(g.configPath);
+    const { env, account } = findEnv(loaded.config, name);
+    const dir = envDir(account, env, deps.home);
+    const exec = newExecutor(deps, g, reporter, false);
+    const dirExists = (await exec.query('test', ['-d', dir])).code === 0;
+    const unpushed = dirExists ? await unpushedWork(exec, dir) : { commits: [], uncommitted: false };
+
+    if (opts.deleteFiles && dirExists) {
+      reporter.log('warn', `--delete-files will remove ${dir}`);
+      if (unpushed.commits.length > 0) reporter.log('warn', `Unpushed commits:\n  ${unpushed.commits.join('\n  ')}`);
+      if (unpushed.uncommitted) reporter.log('warn', 'There are uncommitted changes.');
+      const typed = opts.confirmName ?? (await makePrompter(deps, g.json, false).input('confirm-name', `Type the environment name "${name}" to delete its files:`));
+      if (typed !== name) throw new UsageError('the typed name does not match; nothing was deleted');
+    } else if (!(await makePrompter(deps, g.json, g.yes).confirm('confirm-delete', `Stop and remove environment ${account.name}/${name}? Files stay on disk.`))) {
+      throw new UsageError('cancelled; nothing was deleted');
+    }
+
+    const ctx = newStepContext(deps, g, loaded.config, exec);
+    exec.beginStep(`env.${name}`);
+    reporter.step(`env.${name}`, 'start', 'stop services');
+    if (dirExists) {
+      await exec.exec('docker', ['compose', '-p', composeProject(name), 'down'], { cwd: dir, allowFailure: true, reason: 'stop compose services' });
+    }
+    await removeDaemon(ctx, rcLabel(account.name, name));
+    reporter.step(`env.${name}`, 'changed', 'service removed');
+
+    await editConfigFile(g.configPath, deps.now(), (doc) => removeFrom(doc, 'environments', (e) => e['name'] === name));
+    reporter.step('config', 'changed', `removed ${name}`);
+
+    let filesDeleted = false;
+    if (opts.deleteFiles && dirExists) {
+      await exec.remove(dir, { recursive: true });
+      filesDeleted = true;
+      reporter.step('files', 'changed', `deleted ${dir}`);
+    }
+    const data: EnvChangeData = { name, account: account.name, action: 'deleted', dir, unpushed, filesDeleted };
+    return { ok: true, data, human: ['', `✅ Environment ${name} removed.${filesDeleted ? '' : ` Files kept in ${dir}.`}`] };
+  });
+}
+
+export function envServiceCommand(deps: Deps, g: GlobalOptions, name: string, action: 'start' | 'stop' | 'restart'): Promise<number> {
+  return long(deps, g, async (reporter) => {
+    const { config } = await loadConfig(g.configPath);
+    const { env } = findEnv(config, name);
+    if (env.remoteControl?.enabled === false) throw new UsageError(`environment "${name}" has Remote Control disabled`);
+    const exec = newExecutor(deps, g, reporter, false);
+    const label = rcLabel(env.account, name);
+    const state = await daemonState(exec, label);
+    const plist = plistPath(label);
+
+    reporter.step(`env.${name}`, 'start', action);
+    if (action === 'stop') {
+      if (state.loaded) await exec.exec('launchctl', ['bootout', `system/${label}`], { sudo: true, reason: `stop ${label}` });
+    } else {
+      if (!state.loaded) {
+        if ((await exec.readText(plist)) === null) throw new DevhostError(`${label} is not installed`, 'service-not-installed', 1, 'Run `devhost apply` to install it.');
+        await exec.exec('launchctl', ['bootstrap', 'system', plist], { sudo: true, reason: `load ${label}` });
+      } else {
+        await exec.exec('launchctl', ['kickstart', ...(action === 'restart' ? ['-k'] : []), `system/${label}`], { sudo: true, reason: `${action} ${label}` });
+      }
+      const up = await exec.waitFor(async () => (await daemonState(exec, label)).running, 10, 1000);
+      if (!up) throw new DevhostError(`${label} did not come up`, 'service-not-running', 1, `Check the log: devhost env logs ${name}`);
+    }
+    reporter.step(`env.${name}`, 'changed', `${action} done`);
+    const data: EnvChangeData = { name, account: env.account, action: action === 'start' ? 'started' : action === 'stop' ? 'stopped' : 'restarted' };
+    const note = action === 'stop' ? ' It stays stopped until `devhost env start` or the next reboot.' : '';
+    return { ok: true, data, human: ['', `✅ ${name}: ${data.action}.${note}`] };
+  });
+}
+
+export interface EnvLogsOptions {
+  lines: number;
+  follow: boolean;
+}
+
+export async function envLogsCommand(deps: Deps, g: GlobalOptions, name: string, opts: EnvLogsOptions): Promise<number> {
+  const code = await short<EnvLogsData>(deps, g, async () => {
+    const { config } = await loadConfig(g.configPath);
+    const { env } = findEnv(config, name);
+    const path = rcLogPath(deps.home, env.account, name);
+    let text: string;
+    try {
+      text = await readFile(path, 'utf8');
+    } catch {
+      throw new DevhostError(`no log yet: ${path}`, 'no-log', 1, 'The service has not started. See `devhost env list`.');
+    }
+    const lines = text.split('\n').filter((l, i, all) => l !== '' || i < all.length - 1).slice(-opts.lines);
+    return { data: { name, path, lines }, human: lines.join('\n') };
+  });
+  if (code !== 0 || !opts.follow || g.json) return code;
+
+  // --follow: poll for appended data until cancelled.
+  const path = rcLogPath(deps.home, findEnv((await loadConfig(g.configPath)).config, name).env.account, name);
+  let offset = (await stat(path)).size;
+  while (!deps.cancel.cancelled) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const size = (await stat(path)).size;
+    if (size > offset) {
+      const chunk = (await readFile(path, 'utf8')).slice(offset);
+      deps.stdout.write(chunk);
+    }
+    offset = size;
+  }
+  return 0;
+}
+
