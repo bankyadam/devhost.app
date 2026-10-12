@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.config-validate.schema.json",
+  "title": "ConfigValidateData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["valid", "path"],
+  "properties": {
+    "valid": { "type": "boolean" },
+    "path": { "type": "string" }
+  }
+}

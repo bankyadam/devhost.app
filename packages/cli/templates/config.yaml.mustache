@@ -1,0 +1,68 @@
+# devhost configuration. Safe to keep in git (it holds no secrets), except that
+# the ntfy topic below works like a password: anyone who knows it can read your
+# notifications. Change it or keep the file private if that matters to you.
+#
+# Edit by hand or with `devhost config set`, then run `devhost apply`.
+
+machine:
+  hostname: {{hostname}}
+  # true = devhost sets the value. false = devhost leaves the setting alone.
+  power: { neverSleep: true, autoRestartAfterPowerLoss: true, wakeOnLan: true }
+
+accounts: []                         # managed by `devhost account ...`
+# Example entries as written by `devhost account add`:
+#  - name: personal
+#    default: true                    # uses Claude Code default config dir, CLAUDE_CONFIG_DIR unset
+#    configDir: null
+#    root: ~/work/personal
+#    portRange: [3000, 3999]          # allocated automatically: next free 1000-port block from 3000
+#    git: { name: "Your Name", email: "you@example.com" }
+#    alerts: { dailyCostUsd: null }   # estimate; null = no alert
+#  - name: business
+#    default: false
+#    configDir: ~/.claude-business
+#    root: ~/work/business
+#    portRange: [4000, 4999]
+#    git: { name: "Your Name", email: "you@work.example" }
+#    alerts: { dailyCostUsd: 50 }
+
+environments: []                     # managed by `devhost env ...`, editable by hand
+# Example entry:
+#  - name: acme-api
+#    account: business
+#    repo: git@github.com:acme/api.git    # omit for `git init`
+#    portBase: 4100                       # allocated automatically if omitted: 100-port block inside portRange
+#    remoteControl: { enabled: true, spawn: worktree, permissionMode: acceptEdits }
+#    compose: auto                        # auto (start if compose file exists) | off
+
+packages:
+  brew: [git, gh, tmux, mosh, direnv, jq, ripgrep, mise]
+  cask: []
+  extra: []                          # raw Brewfile lines, appended verbatim
+
+runtimes: { node: lts, python: "3.12", ruby: "3.3", php: "8.3" }   # via mise
+
+docker: { runtime: {{dockerRuntime}}, cpu: 6, memoryGiB: 16, diskGiB: 200 }   # colima | orbstack | none
+
+network: { tailscale: {{tailscale}}, ssh: true }
+
+claude:
+  install: brew                      # brew | native
+  settings:                          # merged into each account's user settings.json
+    remoteControlAtStartup: true
+    inputNeededNotifEnabled: true
+    agentPushNotifEnabled: true
+    permissions:
+      defaultMode: acceptEdits
+      ask: ["Bash(git commit *)", "Bash(git push *)"]
+
+collector:
+  port: 4318                         # OTLP/HTTP + hook receiver, bound to 127.0.0.1 only
+  sampleIntervalSeconds: 5
+  retention: { rawDays: 7, rollupDays: 365 }
+  alerts:
+    memoryPercent: 90
+    diskFreePercent: 15              # per-account cost alerts live on the account entry
+  authCheckMinutes: 60
+
+notify: { provider: ntfy, topic: "{{topic}}" }

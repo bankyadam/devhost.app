@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Generated contract files are up to date
+        run: |
+          npm run gen
+          git diff --exit-code -- packages/contract/src/generated
+
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: shellcheck
+        run: |
+          command -v shellcheck >/dev/null || { [ "$RUNNER_OS" = macOS ] && brew install shellcheck || sudo apt-get install -y shellcheck; }
+          shellcheck bootstrap.sh
+
+      - name: apply --dry-run smoke test (macOS only)
+        if: runner.os == 'macOS'
+        run: |
+          export HOME="$(mktemp -d)"
+          CLI="$GITHUB_WORKSPACE/packages/cli/dist/cli.js"
+          node "$CLI" init --yes --hostname ci-mini
+          node "$CLI" apply --dry-run
+          # --json must be NDJSON ending in a result event.
+          node "$CLI" apply --dry-run --json | tail -n 1 | node -e '
+            const l = require("fs").readFileSync(0, "utf8");
+            const e = JSON.parse(l);
+            if (e.type !== "result" || e.ok !== true || e.data.dryRun !== true) { console.error(l); process.exit(1); }'

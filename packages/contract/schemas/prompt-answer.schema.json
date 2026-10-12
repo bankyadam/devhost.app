@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/prompt-answer.schema.json",
+  "title": "PromptAnswer",
+  "description": "One line written to stdin to answer a prompt event (spec A9).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "value"],
+  "properties": {
+    "id": { "type": "string" },
+    "value": { "type": ["string", "boolean"] }
+  }
+}
