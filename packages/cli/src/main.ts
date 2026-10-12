@@ -9,11 +9,14 @@ import {
   configValidateCommand,
   initCommand,
   versionCommand,
-  type GlobalOptions,
 } from './commands.js';
+import type { GlobalOptions } from './command-support.js';
+import { accountAddCommand, accountListCommand, accountRemoveCommand, loginCommand } from './commands-accounts.js';
+import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, envServiceCommand } from './commands-env.js';
+import { closeInput } from './prompter.js';
 import { resolveConfigPath } from './config/paths.js';
 import type { Deps } from './deps.js';
-import { writeEnvelope, writeHumanError } from './output.js';
+import { errorEntries, exitCodeFor, writeEnvelope, writeHumanError } from './output.js';
 import { UsageError } from './errors.js';
 
 interface RootOpts {
@@ -25,6 +28,14 @@ interface RootOpts {
 
 /** Entry point shared by bin and tests: parse argv, run the command, return the exit code. */
 export async function main(argv: string[], deps: Deps): Promise<number> {
+  try {
+    return await mainInner(argv, deps);
+  } finally {
+    closeInput(deps);
+  }
+}
+
+async function mainInner(argv: string[], deps: Deps): Promise<number> {
   let exit: number | undefined;
   const run = (fn: () => Promise<number>): (() => Promise<void>) => async () => {
     exit = await fn();
@@ -107,6 +118,81 @@ export async function main(argv: string[], deps: Deps): Promise<number> {
     .description('Open the config in $EDITOR and validate it afterwards')
     .action(run(() => configEditCommand(deps, globals())));
 
+  const account = program.command('account').description('Manage Claude accounts');
+  account
+    .command('list')
+    .description('List accounts with login state and environment count')
+    .action(run(() => accountListCommand(deps, globals())));
+  account
+    .command('add')
+    .description('Add an account: config, settings, routing, git identity, then login')
+    .requiredOption('--name <name>', 'account name (slug)')
+    .requiredOption('--git-email <email>', 'git email for repositories under the account root')
+    .option('--git-name <name>', 'git author name')
+    .option('--default', 'use Claude Code\'s default config dir (only one account may)')
+    .option('--daily-cost-alert <usd>', 'alert when the estimated daily cost passes this', (v) => Number(v))
+    .option('--no-login', 'skip the login flow; doctor will report the account as not logged in')
+    .option('--force-default-switch', 'not supported in v1')
+    .action(
+      run(() => {
+        const o = account.commands.find((c) => c.name() === 'add')!.opts<{ name: string; gitEmail: string; gitName?: string; default?: boolean; dailyCostAlert?: number; login: boolean; forceDefaultSwitch?: boolean }>();
+        return accountAddCommand(deps, globals(), {
+          name: o.name,
+          gitEmail: o.gitEmail,
+          gitName: o.gitName,
+          default: o.default === true,
+          dailyCostAlert: o.dailyCostAlert,
+          noLogin: !o.login,
+          forceDefaultSwitch: o.forceDefaultSwitch === true,
+        });
+      }),
+    );
+  account
+    .command('remove <name>')
+    .description('Remove an account (refused while it has environments); never deletes files or credentials')
+    .option('--logout', 'also run `claude auth logout` for the account')
+    .action((name: string, o: { logout?: boolean }) => run(() => accountRemoveCommand(deps, globals(), name, { logout: o.logout === true }))());
+
+  program
+    .command('login <account>')
+    .description('Sign in an account, accept workspace trust for its environments, restart their services')
+    .action((name: string) => run(() => loginCommand(deps, globals(), name))());
+
+  const env = program.command('env').description('Manage environments (one project each)');
+  env.command('list').description('List environments and their Remote Control service state').action(run(() => envListCommand(deps, globals())));
+  env
+    .command('create')
+    .description('Create an environment: repo, ports, .envrc, compose, Remote Control service')
+    .requiredOption('--account <account>', 'owning account')
+    .requiredOption('--name <name>', 'environment name (slug)')
+    .option('--repo <url>', 'git repository to clone (omit for git init)')
+    .option('--no-rc', 'do not install a Remote Control service')
+    .option('--compose <mode>', 'auto | off', 'auto')
+    .option('--spawn <mode>', 'worktree | same-dir')
+    .option('--permission-mode <mode>', 'permission mode for Remote Control sessions')
+    .action(
+      run(() => {
+        const o = env.commands.find((c) => c.name() === 'create')!.opts<{ account: string; name: string; repo?: string; rc: boolean; compose: string; spawn?: string; permissionMode?: string }>();
+        if (o.compose !== 'auto' && o.compose !== 'off') throw new UsageError('--compose must be auto or off');
+        return envCreateCommand(deps, globals(), { account: o.account, name: o.name, repo: o.repo, noRc: !o.rc, compose: o.compose, spawn: o.spawn, permissionMode: o.permissionMode });
+      }),
+    );
+  env
+    .command('delete <name>')
+    .description('Stop and remove an environment; files stay unless --delete-files')
+    .option('--delete-files', 'also delete the project directory (typed confirmation required)')
+    .option('--confirm-name <name>', 'the typed confirmation, for scripts')
+    .action((name: string, o: { deleteFiles?: boolean; confirmName?: string }) => run(() => envDeleteCommand(deps, globals(), name, { deleteFiles: o.deleteFiles === true, confirmName: o.confirmName }))());
+  for (const action of ['start', 'stop', 'restart'] as const) {
+    env.command(`${action} <name>`).description(`${action[0]!.toUpperCase()}${action.slice(1)} an environment's Remote Control service`).action((name: string) => run(() => envServiceCommand(deps, globals(), name, action))());
+  }
+  env
+    .command('logs <name>')
+    .description('Show the Remote Control service log')
+    .option('-n, --lines <n>', 'number of lines', (v) => Number(v), 50)
+    .option('-f, --follow', 'keep printing new lines (not with --json)')
+    .action((name: string, o: { lines: number; follow?: boolean }) => run(() => envLogsCommand(deps, globals(), name, { lines: o.lines, follow: o.follow === true }))());
+
   program
     .command('version')
     .description('Print CLI and contract versions')
@@ -122,9 +208,9 @@ export async function main(argv: string[], deps: Deps): Promise<number> {
       return ExitCode.Usage;
     }
     const g = globals();
-    if (g.json) writeEnvelope(deps, false, null, [{ code: 'internal', message: err instanceof Error ? err.message : String(err) }]);
+    if (g.json) writeEnvelope(deps, false, null, errorEntries(err));
     else writeHumanError(deps, err);
-    return ExitCode.ChecksFailed;
+    return exitCodeFor(err);
   }
   return exit ?? ExitCode.Ok;
 }

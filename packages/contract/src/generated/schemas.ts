@@ -637,6 +637,157 @@ export const schemas = {
       }
     }
   },
+  "result.account-change": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.account-change.schema.json",
+    "title": "AccountChangeData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "name",
+      "action"
+    ],
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "added",
+          "removed"
+        ]
+      },
+      "portRange": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        },
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "configDir": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "root": {
+        "type": "string"
+      },
+      "loggedIn": {
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "steps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "status"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "changed",
+                "skipped",
+                "failed"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "kept": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Paths devhost deliberately did not delete."
+      }
+    }
+  },
+  "result.account-list": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.account-list.schema.json",
+    "title": "AccountListData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "accounts"
+    ],
+    "properties": {
+      "accounts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "default",
+            "configDir",
+            "root",
+            "portRange",
+            "loggedIn",
+            "environments"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "default": {
+              "type": "boolean"
+            },
+            "configDir": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "root": {
+              "type": "string"
+            },
+            "portRange": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "loggedIn": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "null when it could not be determined."
+            },
+            "credentialStore": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "keychain, file or null when unknown."
+            },
+            "environments": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    }
+  },
   "result.apply": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://devhost.app/schemas/result.apply.schema.json",
@@ -789,6 +940,223 @@ export const schemas = {
       }
     }
   },
+  "result.env-change": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.env-change.schema.json",
+    "title": "EnvChangeData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "name",
+      "action"
+    ],
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "account": {
+        "type": "string"
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "created",
+          "deleted",
+          "started",
+          "stopped",
+          "restarted"
+        ]
+      },
+      "dir": {
+        "type": "string"
+      },
+      "portBase": {
+        "type": "integer"
+      },
+      "steps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "status"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "changed",
+                "skipped",
+                "failed"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "unpushed": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "commits",
+          "uncommitted"
+        ],
+        "properties": {
+          "commits": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "uncommitted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "filesDeleted": {
+        "type": "boolean"
+      },
+      "warnings": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "result.env-list": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.env-list.schema.json",
+    "title": "EnvListData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "environments"
+    ],
+    "properties": {
+      "environments": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "account",
+            "dir",
+            "portBase",
+            "remoteControl",
+            "compose",
+            "service"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "account": {
+              "type": "string"
+            },
+            "dir": {
+              "type": "string"
+            },
+            "dirExists": {
+              "type": "boolean"
+            },
+            "portBase": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "remoteControl": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "spawn",
+                "permissionMode"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "spawn": {
+                  "type": "string"
+                },
+                "permissionMode": {
+                  "type": "string"
+                }
+              }
+            },
+            "compose": {
+              "type": "string"
+            },
+            "service": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "label",
+                "state",
+                "pid"
+              ],
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "running",
+                    "stopped",
+                    "not-installed",
+                    "disabled"
+                  ]
+                },
+                "pid": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "result.env-logs": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.env-logs.schema.json",
+    "title": "EnvLogsData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "name",
+      "path",
+      "lines"
+    ],
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string"
+      },
+      "lines": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
   "result.init": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://devhost.app/schemas/result.init.schema.json",
@@ -818,6 +1186,46 @@ export const schemas = {
           "string",
           "null"
         ]
+      }
+    }
+  },
+  "result.login": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.login.schema.json",
+    "title": "LoginData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "account",
+      "loggedIn"
+    ],
+    "properties": {
+      "account": {
+        "type": "string"
+      },
+      "loggedIn": {
+        "type": "boolean"
+      },
+      "trusted": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Environment directories whose workspace trust and Remote Control confirmation were accepted."
+      },
+      "restarted": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Environments whose service was (re)started."
+      },
+      "remaining": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Human steps still open."
       }
     }
   },

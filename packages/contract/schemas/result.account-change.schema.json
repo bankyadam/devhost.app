@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.account-change.schema.json",
+  "title": "AccountChangeData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "action"
+  ],
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "added",
+        "removed"
+      ]
+    },
+    "portRange": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "configDir": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "root": {
+      "type": "string"
+    },
+    "loggedIn": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "changed",
+              "skipped",
+              "failed"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "kept": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Paths devhost deliberately did not delete."
+    }
+  }
+}

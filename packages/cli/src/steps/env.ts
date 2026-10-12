@@ -1,0 +1,170 @@
+import { join } from 'node:path';
+import type { DevhostConfig } from '@devhost/contract';
+import {
+  accountEnv,
+  accountsOf,
+  composeProject,
+  effectiveClaudeDir,
+  envDir,
+  environmentsOf,
+  rcLabel,
+  rcLogPath,
+  type Account,
+  type Environment,
+} from '../config/accounts.js';
+import { applyDaemon, checkDaemon, daemonInstalled, removeDaemon, serviceEnv, type DaemonSpec } from '../launchd.js';
+import { toolPath } from '../state.js';
+import { ok, todo, type EnvInfo, type Step, type StepContext } from './types.js';
+
+export const COMPOSE_FILES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
+
+export function envrcFor(account: string, env: string, portBase: number): string {
+  return [
+    '# Managed by devhost; excluded from git via .git/info/exclude.',
+    'source_up_if_exists                       # inherits the account\'s CLAUDE_CONFIG_DIR',
+    `export DEVHOST_PORT_BASE=${portBase}`,
+    `export OTEL_RESOURCE_ATTRIBUTES="devhost.account=${account},devhost.env=${env}"`,
+    '',
+  ].join('\n');
+}
+
+export function envInfoOf(a: Account, e: Environment, home: string): EnvInfo {
+  return {
+    name: e.name,
+    account: a.name,
+    dir: envDir(a, e, home),
+    claudeConfigDir: accountEnv(a, home)['CLAUDE_CONFIG_DIR'] ?? null,
+    spawn: e.remoteControl?.spawn ?? 'worktree',
+    permissionMode: e.remoteControl?.permissionMode ?? 'acceptEdits',
+  };
+}
+
+export async function rcSpec(ctx: StepContext, a: Account, e: Environment): Promise<DaemonSpec> {
+  const info = envInfoOf(a, e, ctx.home);
+  const claude = await toolPath(ctx.exec, ctx.home, 'claudePath', 'claude', '/opt/homebrew/bin/claude');
+  return {
+    label: rcLabel(a.name, e.name),
+    args: [claude, 'remote-control', '--name', `${a.name}-${e.name}`, '--spawn', info.spawn, '--permission-mode', info.permissionMode],
+    workingDirectory: info.dir,
+    env: serviceEnv(ctx.home, {
+      ...accountEnv(a, ctx.home),
+      DEVHOST_PORT_BASE: String(e.portBase ?? 0),
+      OTEL_RESOURCE_ATTRIBUTES: `devhost.account=${a.name},devhost.env=${e.name}`,
+    }),
+    logPath: rcLogPath(ctx.home, a.name, e.name),
+    throttle: 30,
+  };
+}
+
+/** Best effort: Claude Code keeps `projects[<dir>].hasTrustDialogAccepted` in its state file. */
+export async function workspaceTrusted(ctx: StepContext, a: Account, dir: string): Promise<boolean> {
+  const stateFile = a.configDir ? join(effectiveClaudeDir(a, ctx.home), '.claude.json') : join(ctx.home, '.claude.json');
+  const text = await ctx.exec.readText(stateFile);
+  if (text === null) return false;
+  try {
+    const projects = (JSON.parse(text) as { projects?: Record<string, { hasTrustDialogAccepted?: boolean }> }).projects ?? {};
+    let p = dir;
+    for (;;) {
+      if (projects[p]?.hasTrustDialogAccepted === true) return true;
+      const parent = p.slice(0, p.lastIndexOf('/'));
+      if (parent === '' || parent === p) return false;
+      p = parent;
+    }
+  } catch {
+    return false;
+  }
+}
+
+async function composeFile(ctx: StepContext, dir: string): Promise<string | null> {
+  for (const f of COMPOSE_FILES) {
+    if ((await ctx.exec.readText(join(dir, f))) !== null) return join(dir, f);
+  }
+  return null;
+}
+
+async function composeUp(ctx: StepContext, e: Environment, dir: string): Promise<boolean> {
+  const running = await ctx.exec.query('docker', ['compose', '-p', composeProject(e.name), 'ps', '-q', '--status', 'running'], { cwd: dir });
+  const all = await ctx.exec.query('docker', ['compose', '-p', composeProject(e.name), 'ps', '-q', '-a'], { cwd: dir });
+  const count = (s: string): number => s.split('\n').filter(Boolean).length;
+  return running.code === 0 && count(running.stdout) > 0 && count(running.stdout) === count(all.stdout);
+}
+
+async function isGitRepo(ctx: StepContext, dir: string): Promise<boolean> {
+  return (await ctx.exec.query('git', ['-C', dir, 'rev-parse', '--git-dir'])).code === 0;
+}
+
+export function envStep(a: Account, e: Environment): Step {
+  const id = `env.${e.name}`;
+  return {
+    id,
+    description: `Environment ${a.name}/${e.name}: repo, ports, compose, Remote Control service`,
+    async check(ctx) {
+      const dir = envDir(a, e, ctx.home);
+      const problems: string[] = [];
+      const rcEnabled = e.remoteControl?.enabled !== false;
+
+      if (!(await isGitRepo(ctx, dir))) problems.push(`${dir} is not a git repository`);
+      else {
+        const base = e.portBase ?? 0;
+        if ((await ctx.exec.readText(join(dir, '.envrc'))) !== envrcFor(a.name, e.name, base)) problems.push('.envrc');
+        else if (!/Found RC allowed 0/.test((await ctx.exec.query('direnv', ['status'], { cwd: dir })).stdout)) problems.push('.envrc is not allowed in direnv');
+        const exclude = (await ctx.exec.readText(join(dir, '.git', 'info', 'exclude'))) ?? '';
+        if (!exclude.split('\n').includes('.envrc')) problems.push('.envrc is not git-excluded');
+        if (e.compose !== 'off' && (await composeFile(ctx, dir)) && !(await composeUp(ctx, e, dir))) problems.push('compose services are not up');
+      }
+
+      if (rcEnabled) {
+        const svc = await checkDaemon(ctx, await rcSpec(ctx, a, e));
+        if (svc.state === 'todo') problems.push(svc.reason);
+        else if (!(await workspaceTrusted(ctx, a, dir))) {
+          ctx.exec.warn(`${a.name}/${e.name}: workspace trust is not recorded; if the service exits with "Workspace not trusted", run \`devhost login ${a.name}\`.`);
+        }
+      } else if (await daemonInstalled(ctx.exec, rcLabel(a.name, e.name))) {
+        problems.push('the Remote Control service should be removed (remoteControl.enabled is false)');
+      }
+      return problems.length === 0 ? ok() : todo(problems.join('; '));
+    },
+    async apply(ctx) {
+      const { exec } = ctx;
+      const dir = envDir(a, e, ctx.home);
+      const base = e.portBase ?? 0;
+
+      if (!(await isGitRepo(ctx, dir))) {
+        if (e.repo && (await exec.query('test', ['-d', dir])).code !== 0) {
+          await exec.mkdirp(join(dir, '..'));
+          await exec.exec('git', ['clone', e.repo, dir], { reason: `clone ${e.repo}` });
+        } else {
+          await exec.mkdirp(dir);
+          await exec.exec('git', ['init', dir]);
+        }
+      }
+      await exec.writeText(join(dir, '.envrc'), envrcFor(a.name, e.name, base), { description: `write ${join(dir, '.envrc')}` });
+      const excludeFile = join(dir, '.git', 'info', 'exclude');
+      const exclude = (await exec.readText(excludeFile)) ?? '';
+      if (!exclude.split('\n').includes('.envrc')) {
+        await exec.mkdirp(join(dir, '.git', 'info'));
+        await exec.writeText(excludeFile, `${exclude}${exclude === '' || exclude.endsWith('\n') ? '' : '\n'}.envrc\n`, { description: `exclude .envrc in ${excludeFile}` });
+      }
+      await exec.exec('direnv', ['allow', dir]);
+
+      if (e.compose !== 'off' && (await composeFile(ctx, dir))) {
+        await exec.exec('docker', ['compose', '-p', composeProject(e.name), 'up', '-d'], { cwd: dir, reason: 'start the environment\'s compose services' });
+      }
+
+      if (e.remoteControl?.enabled === false) {
+        await removeDaemon(ctx, rcLabel(a.name, e.name));
+        return;
+      }
+      if (ctx.beforeService) await ctx.beforeService(envInfoOf(a, e, ctx.home));
+      await applyDaemon(ctx, await rcSpec(ctx, a, e));
+    },
+  };
+}
+
+export function envSteps(config: DevhostConfig): Step[] {
+  return environmentsOf(config).flatMap((e) => {
+    const a = accountsOf(config).find((x) => x.name === e.account);
+    return a ? [envStep(a, e)] : [];
+  });
+}
+

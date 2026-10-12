@@ -69,6 +69,11 @@ export interface FakeState {
   direnvAllowed: Set<string>;
   /** Directories that exist (besides the real filesystem). */
   dirs: Set<string>;
+  /** Logged-in config dirs; the default account is 'default'. */
+  loggedIn: Set<string>;
+  composeUp: Set<string>;
+  /** Output of `git log --branches --not --remotes --oneline` per directory. */
+  unpushed: Map<string, string>;
 }
 
 const BREWED = ['git', 'claude', 'colima', 'docker', 'tailscale', 'direnv', 'mise', 'curl'];
@@ -92,10 +97,13 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     tailscale: null,
     direnvAllowed: new Set(),
     dirs: new Set(),
+    loggedIn: new Set(),
+    composeUp: new Set(),
+    unpushed: new Map(),
     ...initial,
   };
   const runner = new MockRunner();
-  const dispatch = (call: { command: string; args: string[] }) => {
+  const dispatch = (call: { command: string; args: string[]; opts?: { env?: Record<string, string>; cwd?: string } }) => {
     const line = strip([call.command, ...call.args].join(' '));
     let m: RegExpExecArray | null;
     if ((m = /^scutil --get (\w+)$/.exec(line))) {
@@ -186,8 +194,55 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       state.direnvAllowed.add(m[1]!);
       return {};
     }
+    const key = call.opts?.env?.['CLAUDE_CONFIG_DIR'] ?? 'default';
+    if (line === '/opt/homebrew/bin/claude auth status') return { code: state.loggedIn.has(key) ? 0 : 1, stdout: '{}' };
+    if (line === '/opt/homebrew/bin/claude auth logout') {
+      state.loggedIn.delete(key);
+      return {};
+    }
+    if ((m = /^git init (\S+)$/.exec(line))) {
+      mkdirSync(join(m[1]!, '.git', 'info'), { recursive: true });
+      return {};
+    }
+    if ((m = /^git clone (\S+) (\S+)$/.exec(line))) {
+      mkdirSync(join(m[2]!, '.git', 'info'), { recursive: true });
+      return {};
+    }
+    if ((m = /^git -C (\S+) rev-parse --git-dir$/.exec(line))) return { code: existsSync(join(m[1]!, '.git')) ? 0 : 128 };
+    if ((m = /^git -C (\S+) log --branches --not --remotes --oneline$/.exec(line))) return { stdout: state.unpushed.get(m[1]!) ?? '' };
+    if ((m = /^git -C (\S+) status --porcelain$/.exec(line))) return { stdout: '' };
+    if ((m = /^docker compose -p (\S+) up -d$/.exec(line))) {
+      state.composeUp.add(m[1]!);
+      return {};
+    }
+    if ((m = /^docker compose -p (\S+) down$/.exec(line))) {
+      state.composeUp.delete(m[1]!);
+      return {};
+    }
+    if ((m = /^docker compose -p (\S+) ps -q/.exec(line))) return { stdout: state.composeUp.has(m[1]!) ? 'abc123\n' : '' };
     return { code: 127, stderr: `unexpected command in test: ${line}` };
   };
   runner.on(/.*/, dispatch);
+  // `claude auth login`: prints a URL, wants the code on stdin, then the account is logged in.
+  runner.onSpawn(/^\/opt\/homebrew\/bin\/claude auth login$/, (p, call) => {
+    p.emit('Opening browser to sign in…\nIf it does not open, visit:\nhttps://claude.ai/oauth/authorize?code=true&x=1\nPaste code here if prompted > ');
+    p.onWrite((data) => {
+      state.loggedIn.add(call.opts?.env?.['CLAUDE_CONFIG_DIR'] ?? 'default');
+      p.emit('Login successful\n');
+      p.exit(0);
+      void data;
+    });
+  });
+  // `claude remote-control` under a pty: asks for trust, then for the one-time Remote Control confirmation.
+  runner.onSpawn(/^script -q \/dev\/null \/opt\/homebrew\/bin\/claude remote-control/, (p, call) => {
+    const answers: string[] = [];
+    p.emit(`Trust ${call.opts?.cwd}? [y/N] `);
+    p.onWrite((data) => {
+      if (data === '\u0003') return p.exit(0);
+      answers.push(data);
+      if (answers.length === 1) p.emit('\nEnable Remote Control? (y/n) ');
+      else p.emit('\nRemote Control server running.\n');
+    });
+  });
   return { runner, state };
 }
