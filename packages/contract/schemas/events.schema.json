@@ -7,58 +7,145 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "id", "status"],
+      "required": [
+        "type",
+        "id",
+        "status"
+      ],
       "properties": {
-        "type": { "const": "step" },
-        "id": { "type": "string" },
-        "status": { "type": "string", "enum": ["start", "ok", "changed", "skipped", "failed"] },
-        "message": { "type": "string" }
+        "type": {
+          "const": "step"
+        },
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "start",
+            "ok",
+            "changed",
+            "skipped",
+            "failed"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
       }
     },
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "level", "message"],
+      "required": [
+        "type",
+        "level",
+        "message"
+      ],
       "properties": {
-        "type": { "const": "log" },
-        "level": { "type": "string", "enum": ["info", "warn", "error"] },
-        "message": { "type": "string" }
+        "type": {
+          "const": "log"
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "info",
+            "warn",
+            "error"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
       }
     },
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "id", "kind", "message"],
+      "required": [
+        "type",
+        "id",
+        "kind",
+        "message"
+      ],
       "properties": {
-        "type": { "const": "prompt" },
-        "id": { "type": "string" },
-        "kind": { "type": "string", "enum": ["open-url", "input", "confirm"] },
-        "url": { "type": "string" },
-        "message": { "type": "string" }
+        "type": {
+          "const": "prompt"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "open-url",
+            "input",
+            "confirm"
+          ]
+        },
+        "url": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
       }
     },
     {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "ok", "data"],
+      "required": [
+        "type",
+        "ok",
+        "data"
+      ],
       "properties": {
-        "type": { "const": "result" },
-        "ok": { "type": "boolean" },
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "type": "boolean"
+        },
         "data": {},
         "errors": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["code", "message"],
+            "required": [
+              "code",
+              "message"
+            ],
             "properties": {
-              "code": { "type": "string" },
-              "message": { "type": "string" },
-              "hint": { "type": "string" },
-              "path": { "type": "string" }
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "hint": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
             }
           }
         }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "const": "snapshot"
+        },
+        "data": {}
       }
     }
   ]

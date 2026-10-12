@@ -32,4 +32,8 @@ export type Event =
         hint?: string;
         path?: string;
       }[];
+    }
+  | {
+      type: 'snapshot';
+      data: unknown;
     };

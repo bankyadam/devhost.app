@@ -1,0 +1,114 @@
+import type { Db } from './db.js';
+import type { Notifier, Priority } from './notify.js';
+
+export interface AlertThresholds {
+  memoryPercent: number;
+  diskFreePercent: number;
+  /** account → daily cost threshold (USD) or null. */
+  dailyCostUsd: Map<string, number | null>;
+}
+
+export interface AlertInputs {
+  memPct: number | null;
+  diskFreePct: number | null;
+  /** account → estimated cost since local midnight. */
+  costToday: Map<string, number>;
+  /** environment → Remote Control service restarts in the last 10 minutes. */
+  restarts: Map<string, number>;
+  /** account → login valid? (absent = unknown). */
+  auth: Map<string, boolean>;
+}
+
+const MEM_WINDOW_MS = 5 * 60_000;
+const AUTH_REMINDER_MS = 24 * 3_600_000;
+export const RESTART_LIMIT = 3;
+export const RESTART_WINDOW_MS = 10 * 60_000;
+
+interface StoredAlert {
+  active: number;
+  since: number;
+  last_notified: number;
+  message: string;
+}
+
+/**
+ * One notification per condition per state change (spec A10.5), plus a 24 h reminder
+ * while a login stays broken (A10.4). State lives in SQLite so a collector restart
+ * does not repeat notifications.
+ */
+export class AlertEngine {
+  constructor(
+    private readonly db: Db,
+    private readonly notifier: Notifier,
+    private readonly now: () => number,
+    private readonly log: (msg: string) => void = () => undefined,
+  ) {}
+
+  async evaluate(thresholds: AlertThresholds, input: AlertInputs): Promise<void> {
+    const now = this.now();
+
+    // Memory: above the limit for 5 minutes in a row.
+    if (input.memPct !== null) {
+      const overKey = 'mem_over_since';
+      if (input.memPct > thresholds.memoryPercent) {
+        if (this.db.kvGet(overKey) === null) this.db.kvSet(overKey, String(now), now);
+      } else if (this.db.kvGet(overKey) !== null) {
+        this.db.run('DELETE FROM kv WHERE key = ?', overKey);
+      }
+      const since = Number(this.db.kvGet(overKey) ?? now);
+      const active = this.db.kvGet(overKey) !== null && now - since >= MEM_WINDOW_MS;
+      await this.set('memory', active, `Memory above ${thresholds.memoryPercent}% for 5 min (now ${input.memPct.toFixed(0)}%)`, 'Memory back below the limit', 'high');
+    }
+
+    if (input.diskFreePct !== null) {
+      await this.set('disk', input.diskFreePct < thresholds.diskFreePercent, `Free disk space is ${input.diskFreePct.toFixed(1)}% (limit ${thresholds.diskFreePercent}%)`, 'Free disk space is back above the limit', 'high');
+    }
+
+    for (const [account, limit] of thresholds.dailyCostUsd) {
+      if (limit === null) continue;
+      const cost = input.costToday.get(account) ?? 0;
+      await this.set(`cost:${account}`, cost >= limit, `Estimated cost today for ${account} is $${cost.toFixed(2)} (limit $${limit}). This is an API-equivalent estimate, not billed money.`, `Estimated cost for ${account} is below its limit again (new day)`, 'default');
+    }
+
+    for (const [env, count] of input.restarts) {
+      await this.set(`restarts:${env}`, count > RESTART_LIMIT, `Remote Control service ${env} restarted ${count} times in 10 min`, `Remote Control service ${env} is stable again`, 'high');
+    }
+
+    for (const [account, valid] of input.auth) {
+      await this.set(`auth:${account}`, !valid, `Claude login not valid: ${account}. Run: devhost login ${account}`, `Claude login for ${account} is valid again`, 'high', AUTH_REMINDER_MS);
+    }
+  }
+
+  /** Current active conditions, for the dashboard. */
+  active(): { id: string; message: string; since: number }[] {
+    return this.db.all<{ id: string; message: string; since: number }>('SELECT id, message, since FROM alert_state WHERE active = 1 ORDER BY since');
+  }
+
+  private async set(id: string, active: boolean, onMessage: string, offMessage: string, priority: Priority, reminderMs?: number): Promise<void> {
+    const now = this.now();
+    const prev = this.db.get<StoredAlert>('SELECT active, since, last_notified, message FROM alert_state WHERE id = ?', id);
+    const was = prev?.active === 1;
+    if (active === was) {
+      if (active && reminderMs !== undefined && prev && now - prev.last_notified >= reminderMs) {
+        await this.send(id, `Reminder: ${onMessage}`, priority);
+        this.db.run('UPDATE alert_state SET last_notified = ? WHERE id = ?', now, id);
+      }
+      return;
+    }
+    if (!active && !prev) return; // never alerted, nothing to recover from
+    const message = active ? onMessage : offMessage;
+    this.db.run(
+      'INSERT INTO alert_state (id, active, since, last_notified, message) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET active = excluded.active, since = excluded.since, last_notified = excluded.last_notified, message = excluded.message',
+      id, active ? 1 : 0, now, now, message,
+    );
+    await this.send(id, message, active ? priority : 'low', !active);
+  }
+
+  private async send(id: string, message: string, priority: Priority, recovered = false): Promise<void> {
+    try {
+      await this.notifier.send({ title: `devhost: ${id.split(':')[0]}`, message, priority, tags: [recovered ? 'white_check_mark' : 'warning'] });
+    } catch (err) {
+      this.log(`notification failed (${id}): ${(err as Error).message}`);
+    }
+  }
+}

@@ -611,6 +611,20 @@ export const schemas = {
             }
           }
         }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "data"
+        ],
+        "properties": {
+          "type": {
+            "const": "snapshot"
+          },
+          "data": {}
+        }
       }
     ]
   },
@@ -940,6 +954,471 @@ export const schemas = {
       }
     }
   },
+  "result.dash": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.dash.schema.json",
+    "title": "DashData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "generatedAt",
+      "range",
+      "host",
+      "collector",
+      "alerts",
+      "accounts",
+      "environments",
+      "sessions",
+      "usage",
+      "limits"
+    ],
+    "properties": {
+      "generatedAt": {
+        "type": "integer",
+        "description": "Unix ms."
+      },
+      "range": {
+        "type": "string",
+        "enum": [
+          "1h",
+          "24h",
+          "7d",
+          "30d"
+        ]
+      },
+      "host": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "online",
+          "uptimeSeconds",
+          "cpuPercent",
+          "memPercent",
+          "memTotalBytes",
+          "diskFreePercent",
+          "diskFreeBytes",
+          "docker",
+          "tailscale"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "online": {
+            "type": "boolean",
+            "description": "True when the collector sampled in the last minute."
+          },
+          "uptimeSeconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cpuPercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "memPercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "memTotalBytes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "diskFreePercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "diskFreeBytes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "docker": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "unknown"
+            ]
+          },
+          "tailscale": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "state",
+              "dnsName"
+            ],
+            "properties": {
+              "state": {
+                "type": "string"
+              },
+              "dnsName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "collector": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "lastSampleAt",
+          "lastOtelAt",
+          "lastHookAt",
+          "dbSizeBytes",
+          "schemaVersion"
+        ],
+        "properties": {
+          "lastSampleAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lastOtelAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lastHookAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "dbSizeBytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "schemaVersion": {
+            "type": "integer"
+          }
+        }
+      },
+      "alerts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "message",
+            "since"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "since": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "accounts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "loggedIn",
+            "lastAuthCheckAt",
+            "today",
+            "week",
+            "dailyCostAlertUsd"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "loggedIn": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "lastAuthCheckAt": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "today": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "tokens",
+                "costUsd"
+              ],
+              "properties": {
+                "tokens": {
+                  "type": "number"
+                },
+                "costUsd": {
+                  "type": "number"
+                }
+              }
+            },
+            "week": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "tokens",
+                "costUsd"
+              ],
+              "properties": {
+                "tokens": {
+                  "type": "number"
+                },
+                "costUsd": {
+                  "type": "number"
+                }
+              }
+            },
+            "dailyCostAlertUsd": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        }
+      },
+      "environments": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "account",
+            "name",
+            "service",
+            "cpuPercent",
+            "rssBytes",
+            "containerCpuPercent",
+            "containerMemBytes",
+            "portBase",
+            "diskBytes",
+            "activeSessions"
+          ],
+          "properties": {
+            "account": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "service": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "state",
+                "pid"
+              ],
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "running",
+                    "stopped",
+                    "unknown",
+                    "disabled"
+                  ]
+                },
+                "pid": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "cpuPercent": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "rssBytes": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "containerCpuPercent": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "containerMemBytes": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "portBase": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "diskBytes": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "activeSessions": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "sessions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "account",
+            "env",
+            "state",
+            "startedAt",
+            "lastActivityAt",
+            "tokensToday",
+            "costToday",
+            "cpuPercent",
+            "rssBytes"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "account": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "env": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "running",
+                "waiting",
+                "idle",
+                "ended"
+              ]
+            },
+            "startedAt": {
+              "type": "integer"
+            },
+            "lastActivityAt": {
+              "type": "integer"
+            },
+            "tokensToday": {
+              "type": "number"
+            },
+            "costToday": {
+              "type": "number"
+            },
+            "cpuPercent": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "rssBytes": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        }
+      },
+      "usage": {
+        "type": "array",
+        "description": "Time buckets, one row per account and bucket start.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ts",
+            "account",
+            "input",
+            "output",
+            "cacheRead",
+            "cacheCreation",
+            "costUsd"
+          ],
+          "properties": {
+            "ts": {
+              "type": "integer"
+            },
+            "account": {
+              "type": "string"
+            },
+            "input": {
+              "type": "number"
+            },
+            "output": {
+              "type": "number"
+            },
+            "cacheRead": {
+              "type": "number"
+            },
+            "cacheCreation": {
+              "type": "number"
+            },
+            "costUsd": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "limits": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Known limits to show next to the numbers (spec A10.7)."
+      }
+    }
+  },
   "result.env-change": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://devhost.app/schemas/result.env-change.schema.json",
@@ -1226,6 +1705,30 @@ export const schemas = {
           "type": "string"
         },
         "description": "Human steps still open."
+      }
+    }
+  },
+  "result.notify": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.notify.schema.json",
+    "title": "NotifyData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "sent",
+      "provider",
+      "topic"
+    ],
+    "properties": {
+      "sent": {
+        "type": "boolean"
+      },
+      "provider": {
+        "type": "string"
+      },
+      "topic": {
+        "type": "string",
+        "description": "Masked: the topic works like a password."
       }
     }
   },
