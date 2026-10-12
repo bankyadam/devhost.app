@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.init.schema.json",
+  "title": "InitData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["path", "created", "hostname"],
+  "properties": {
+    "path": { "type": "string" },
+    "created": { "type": "boolean" },
+    "hostname": { "type": "string" },
+    "overwritten": { "type": "boolean" },
+    "backup": { "type": ["string", "null"] }
+  }
+}

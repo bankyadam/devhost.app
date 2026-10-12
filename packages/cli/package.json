@@ -1,0 +1,23 @@
+{
+  "name": "@devhost/cli",
+  "version": "0.1.0",
+  "description": "devhost CLI and collector: turns an Apple Silicon Mac mini into a headless Claude Code dev server",
+  "type": "module",
+  "bin": {
+    "devhost": "dist/cli.js"
+  },
+  "main": "dist/main.js",
+  "files": ["dist", "templates"],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@devhost/contract": "0.1.0",
+    "commander": "^12.1.0",
+    "mustache": "^4.2.0",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/mustache": "^4.2.5"
+  }
+}

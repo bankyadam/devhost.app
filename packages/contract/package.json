@@ -1,0 +1,23 @@
+{
+  "name": "@devhost/contract",
+  "version": "0.1.0",
+  "description": "JSON Schemas (config, command outputs, events) and generated TypeScript types shared by the devhost CLI and the desktop app",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schemas/*": "./schemas/*"
+  },
+  "files": ["dist", "schemas"],
+  "scripts": {
+    "gen": "node scripts/gen.mjs",
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  }
+}

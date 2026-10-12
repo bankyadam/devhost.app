@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/envelope.schema.json",
+  "title": "Envelope",
+  "description": "Output of every short command with --json (spec A9).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "ok", "data", "errors"],
+  "properties": {
+    "contractVersion": { "type": "integer", "const": 1 },
+    "ok": { "type": "boolean" },
+    "data": {},
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "hint": { "type": "string" },
+          "path": { "type": "string" }
+        }
+      }
+    }
+  }
+}

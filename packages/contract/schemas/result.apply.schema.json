@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.apply.schema.json",
+  "title": "ApplyData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dryRun", "changed", "steps", "plan"],
+  "properties": {
+    "dryRun": { "type": "boolean" },
+    "changed": { "type": "boolean", "description": "True when at least one step changed (or, in dry-run, would change) the system." },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string" },
+          "status": { "type": "string", "enum": ["ok", "changed", "skipped", "failed"] },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "plan": {
+      "type": "array",
+      "description": "Every mutating action a dry-run would perform, in order. Sudo commands are flagged.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["stepId", "action", "sudo"],
+        "properties": {
+          "stepId": { "type": "string" },
+          "action": { "type": "string", "description": "Shell command or file write description." },
+          "sudo": { "type": "boolean" },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,416 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/config.schema.json",
+  "title": "DevhostConfig",
+  "description": "~/.config/devhost/config.yaml (spec A6)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "machine",
+    "notify"
+  ],
+  "properties": {
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hostname"
+      ],
+      "properties": {
+        "hostname": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$",
+          "default": "macmini"
+        },
+        "power": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {},
+          "properties": {
+            "neverSleep": {
+              "type": "boolean",
+              "default": true
+            },
+            "autoRestartAfterPowerLoss": {
+              "type": "boolean",
+              "default": true
+            },
+            "wakeOnLan": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      }
+    },
+    "accounts": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "root",
+          "portRange",
+          "git"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}$"
+          },
+          "default": {
+            "type": "boolean",
+            "default": false
+          },
+          "configDir": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "root": {
+            "type": "string",
+            "minLength": 1
+          },
+          "portRange": {
+            "type": "array",
+            "items": [
+              {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 65535
+              },
+              {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 65535
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2,
+            "additionalItems": false
+          },
+          "git": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "email"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "email": {
+                "type": "string",
+                "minLength": 3
+              }
+            }
+          },
+          "alerts": {
+            "type": "object",
+            "additionalProperties": false,
+            "default": {},
+            "properties": {
+              "dailyCostUsd": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "default": null
+              }
+            }
+          }
+        }
+      }
+    },
+    "environments": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "account"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,47}$"
+          },
+          "account": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}$"
+          },
+          "repo": {
+            "type": "string",
+            "minLength": 1
+          },
+          "portBase": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 65535
+          },
+          "remoteControl": {
+            "type": "object",
+            "additionalProperties": false,
+            "default": {},
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "spawn": {
+                "type": "string",
+                "enum": [
+                  "worktree",
+                  "same-dir"
+                ],
+                "default": "worktree"
+              },
+              "permissionMode": {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "acceptEdits",
+                  "plan",
+                  "auto",
+                  "dontAsk",
+                  "bypassPermissions"
+                ],
+                "default": "acceptEdits"
+              }
+            }
+          },
+          "compose": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "off"
+            ],
+            "default": "auto"
+          }
+        }
+      }
+    },
+    "packages": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "brew": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9@._+/-]+$"
+          },
+          "default": [
+            "git",
+            "gh",
+            "tmux",
+            "mosh",
+            "direnv",
+            "jq",
+            "ripgrep",
+            "mise"
+          ]
+        },
+        "cask": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9@._+/-]+$"
+          },
+          "default": []
+        },
+        "extra": {
+          "type": "array",
+          "description": "Raw Brewfile lines appended verbatim.",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      }
+    },
+    "runtimes": {
+      "type": "object",
+      "description": "Tool name to version, installed via mise.",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      },
+      "default": {
+        "node": "lts",
+        "python": "3.12",
+        "ruby": "3.3",
+        "php": "8.3"
+      }
+    },
+    "docker": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "colima",
+            "orbstack",
+            "none"
+          ],
+          "default": "colima"
+        },
+        "cpu": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 6
+        },
+        "memoryGiB": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 16
+        },
+        "diskGiB": {
+          "type": "integer",
+          "minimum": 10,
+          "default": 200
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "tailscale": {
+          "type": "boolean",
+          "default": true
+        },
+        "ssh": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "claude": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "install": {
+          "type": "string",
+          "enum": [
+            "brew",
+            "native"
+          ],
+          "default": "brew"
+        },
+        "settings": {
+          "type": "object",
+          "description": "Merged into each account's user settings.json.",
+          "additionalProperties": true,
+          "default": {
+            "remoteControlAtStartup": true,
+            "inputNeededNotifEnabled": true,
+            "agentPushNotifEnabled": true,
+            "permissions": {
+              "defaultMode": "acceptEdits",
+              "ask": [
+                "Bash(git commit *)",
+                "Bash(git push *)"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "collector": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535,
+          "default": 4318
+        },
+        "sampleIntervalSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5
+        },
+        "retention": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {},
+          "properties": {
+            "rawDays": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 7
+            },
+            "rollupDays": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 365
+            }
+          }
+        },
+        "alerts": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {},
+          "properties": {
+            "memoryPercent": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 90
+            },
+            "diskFreePercent": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 15
+            }
+          }
+        },
+        "authCheckMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 60
+        }
+      }
+    },
+    "notify": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": [
+            "ntfy"
+          ],
+          "default": "ntfy"
+        },
+        "topic": {
+          "type": "string",
+          "minLength": 8
+        }
+      }
+    }
+  }
+}
