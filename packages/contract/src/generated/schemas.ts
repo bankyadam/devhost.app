@@ -915,6 +915,25 @@ export const schemas = {
       "value": {}
     }
   },
+  "result.config-raw": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.config-raw.schema.json",
+    "title": "ConfigRawData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "path",
+      "text"
+    ],
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "text": {
+        "type": "string"
+      }
+    }
+  },
   "result.config-set": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://devhost.app/schemas/result.config-set.schema.json",
@@ -977,7 +996,8 @@ export const schemas = {
       "environments",
       "sessions",
       "usage",
-      "limits"
+      "limits",
+      "models"
     ],
     "properties": {
       "generatedAt": {
@@ -1423,6 +1443,13 @@ export const schemas = {
           "type": "string"
         },
         "description": "Known limits to show next to the numbers (spec A10.7)."
+      },
+      "models": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Models seen in the selected range, for the model filter."
       }
     }
   },

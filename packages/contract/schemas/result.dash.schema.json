@@ -14,7 +14,8 @@
     "environments",
     "sessions",
     "usage",
-    "limits"
+    "limits",
+    "models"
   ],
   "properties": {
     "generatedAt": {
@@ -460,6 +461,13 @@
         "type": "string"
       },
       "description": "Known limits to show next to the numbers (spec A10.7)."
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Models seen in the selected range, for the model filter."
     }
   }
 }

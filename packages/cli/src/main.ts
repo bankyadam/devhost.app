@@ -5,6 +5,8 @@ import {
   cliVersion,
   configEditCommand,
   configGetCommand,
+  configPutCommand,
+  configRawCommand,
   configSetCommand,
   configValidateCommand,
   initCommand,
@@ -13,7 +15,7 @@ import {
 import type { GlobalOptions } from './command-support.js';
 import { accountAddCommand, accountListCommand, accountRemoveCommand, loginCommand } from './commands-accounts.js';
 import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, envServiceCommand } from './commands-env.js';
-import { collectorRunCommand, dashCommand, notifyCommand, topCommand } from './commands-collector.js';
+import { collectorLogsCommand, collectorRunCommand, dashCommand, notifyCommand, topCommand } from './commands-collector.js';
 import { doctorCommand, statusCommand, uninstallCommand } from './commands-doctor.js';
 import { closeInput } from './prompter.js';
 import { resolveConfigPath } from './config/paths.js';
@@ -113,8 +115,11 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .action((pointer: string, value: string) => run(() => configSetCommand(deps, globals(), pointer, value))());
   config
     .command('validate')
-    .description('Validate the config file')
-    .action(run(() => configValidateCommand(deps, globals())));
+    .description('Validate the config file, or with --stdin a candidate document')
+    .option('--stdin', 'read the YAML to validate from stdin')
+    .action(run(() => configValidateCommand(deps, globals(), { stdin: config.commands.find((c) => c.name() === 'validate')!.opts<{ stdin?: boolean }>().stdin === true })));
+  config.command('raw').description('Print the config file as it is on disk (comments included)').action(run(() => configRawCommand(deps, globals())));
+  config.command('put').description('Replace the config with the YAML on stdin, if it validates (a backup is kept)').action(run(() => configPutCommand(deps, globals())));
   config
     .command('edit')
     .description('Open the config in $EDITOR and validate it afterwards')
@@ -200,6 +205,11 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .command('run')
     .description('Run the collector in the foreground (used by launchd and for debugging)')
     .action(run(() => collectorRunCommand(deps, globals())));
+  collector
+    .command('logs')
+    .description('Show the collector log')
+    .option('-n, --lines <n>', 'number of lines', (v) => Number(v), 50)
+    .action(run(() => collectorLogsCommand(deps, globals(), { lines: collector.commands.find((c) => c.name() === 'logs')!.opts<{ lines: number }>().lines })));
 
   program
     .command('dash')

@@ -7,7 +7,7 @@ You never sit at the Mac mini: work happens through Claude Code Remote Control (
 | Part | What | Status |
 | --- | --- | --- |
 | A | `devhost` CLI + collector (runs on the Mac mini) | **implemented** (phases 1–5), not yet run on a real Mac |
-| B | devhost Desktop (macOS app on the MacBook) | not started; Part A already exposes everything it needs as `--json` commands |
+| B | devhost Desktop (macOS app on the MacBook) | **implemented**, not yet built or run on a real Mac |
 
 ## Quick start
 
@@ -57,6 +57,8 @@ The environment now shows up in the Claude app under the `business` account, and
 
 Global flags: `--json`, `--verbose`, `--yes`, `--config <path>`.
 
+Also available for the desktop app (same contract): `config raw` (the file with comments), `config put` (replace from stdin, only if valid), `config validate --stdin`, `collector logs`, and `dash` includes the list of models seen.
+
 ## What `apply` sets up
 
 | Step | Does |
@@ -96,11 +98,32 @@ Every command takes `--json`. Short commands print `{ "contractVersion": 1, "ok"
 
 Schemas live in `packages/contract/schemas/*.schema.json`; the TypeScript types are generated (`npm run gen`) and committed; CI fails on drift.
 
+## devhost Desktop (Part B)
+
+A macOS app for the MacBook that configures and controls the Mac mini and shows one dashboard across all Claude accounts. It replaces typing `devhost` commands over SSH; it does not replace the Claude app for talking to sessions.
+
+- **No server component.** Every operation is `ssh <host> /opt/homebrew/bin/devhost <command> --json` through the system `ssh`, over Tailscale, using your `~/.ssh/config`, agent and keys (`BatchMode`, one multiplexed connection per host via `ControlMaster`/`ControlPersist`). Long commands stream NDJSON; prompt answers (login code, workspace trust, typed confirmations) are written to the command's stdin, never onto a command line. The app stores only the host name and UI preferences (no credentials, no keys, no telemetry copies).
+- **Screens.** Dashboard (health, per-account totals with the cost-alert meter, usage chart by account or token type with a table view, environments panel, live sessions table with waiting-for-input highlighted, filters, session actions); Environments (start/stop/restart, logs, create wizard, delete with typed confirmation); Accounts (new-account wizard that continues into the login, re-login with the browser step, remove); Configuration (form generated from the config schema plus a YAML tab, live validation by the CLI on the Mac mini, invalid configs cannot be saved, then dry-run diff → confirm → live apply; steps needing `sudo` open a Terminal window so the app never sees the password); Doctor and logs; menu bar item (status dot, sessions waiting, quick links).
+- **Compatibility.** On connect it runs `devhost version --json` and refuses a different contract major with a clear message. An unreachable Mac mini is shown as such, the last data stays visible, and the app reconnects by itself.
+- **Safety.** The webview can only ask the Rust shell for `devhost <known subcommand> ...` on the configured host, three fixed Terminal actions (`devhost …`, a shell in a project directory, `claude --resume <id>`), `code --remote` and http(s) URLs. Quoting and validation live in `packages/app/core` with unit tests (hostile hosts, directories, arguments).
+- **Session actions.** *Open in claude.ai/code* opens the session list (the page lists Remote Control sessions by name, `<account>-<env>`); *Terminal: resume* runs `claude --resume <id>` in the environment directory with the account's direnv environment; *VS Code* appears only if the `code` CLI is found; *Dev server* opens `http://<host>:<port base>`.
+
+Requirements: Apple Silicon Mac on macOS 26 or later (the bundle's minimum), Node 22, Rust (stable), `ssh` access to the Mac mini. Apple Silicon only (`aarch64-apple-darwin`), no signing or notarization (personal local builds).
+
+```sh
+npm ci && npm run build:core
+npm run dev -w @devhost/app            # UI in a browser against a built-in demo host (no ssh)
+npm run tauri -w @devhost/app dev      # the real app
+npm run tauri:build -w @devhost/app    # → packages/app/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/devhost.app
+```
+
+What was verified without a Mac: 55 UI tests that drive the screens against the **real CLI** (in-process, on the fake Mac) including both wizards, login and trust prompts, delete confirmations, the config → dry-run → apply flow, the sudo → Terminal path, reconnect after an outage and the version refusal; 13 Rust tests for the shell logic; and the Tauri crate type-checks for `aarch64-apple-darwin` (`cargo check`, with a stub C compiler for one Objective-C helper because the check ran on Linux). **Not verified**: building and running the bundled app on macOS 26, the real `ssh` round trip, the tray item and the Terminal/VS Code launchers.
+
 ## Development
 
 ```sh
 npm ci
-npm run check      # lint + typecheck + tests
+npm run check      # lint + typecheck + tests (TypeScript and Rust)
 npm run build
 npm run gen        # after editing a schema
 ```
@@ -114,7 +137,11 @@ packages/
   cli/        devhost CLI and collector
     src/{main.ts, commands*.ts, apply.ts, config/, steps/, runner/, collector/, doctor/, init/}
     templates/  config.yaml, Brewfile, launchd.plist, CLAUDE.md
-  app/        Part B (not started)
+  app/        devhost Desktop (Part B): Tauri v2 + React
+    src/        transport/ (Tauri + demo), client/ (typed devhost --json calls), screens/, ui/, lib/
+    core/       devhost-core: ssh command building, quoting, validation (pure Rust, tested everywhere)
+    src-tauri/  the Tauri shell around the system ssh
+    test/       tests that run the real CLI behind the app
 ```
 
 ## Verified against the docs (spec A14)

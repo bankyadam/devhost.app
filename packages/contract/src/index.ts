@@ -6,7 +6,8 @@ export * from './generated/types.js';
 export { schemas, type SchemaName };
 
 /** Version of the --json contract (spec A9). Bump the major on breaking changes. */
-export const CONTRACT_VERSION = 1;
+import { CONTRACT_VERSION as VERSION } from './lite.js';
+export const CONTRACT_VERSION = VERSION;
 
 /** Process exit codes (spec A9). */
 export const ExitCode = {

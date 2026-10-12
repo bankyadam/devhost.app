@@ -218,6 +218,10 @@ export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now:
         rssBytes: fresh ? live.rss_bytes : null,
       };
     }),
+    models: db.all<{ model: string }>(
+      `SELECT DISTINCT model FROM (SELECT model, ts AS t FROM usage WHERE ts >= ? UNION ALL SELECT model, hour AS t FROM rollup_usage WHERE hour >= ?) WHERE model <> '' ORDER BY model`,
+      from, from,
+    ).map((r) => r.model),
     usage: [...series.values()].sort((a, b) => a.ts - b.ts || a.account.localeCompare(b.account)),
     limits: KNOWN_LIMITS,
   };

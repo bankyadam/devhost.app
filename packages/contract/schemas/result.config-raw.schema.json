@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.config-raw.schema.json",
+  "title": "ConfigRawData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "path",
+    "text"
+  ],
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    }
+  }
+}

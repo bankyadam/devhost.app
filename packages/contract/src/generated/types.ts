@@ -7,6 +7,7 @@ export type { AccountChangeData } from './result.account-change.js';
 export type { AccountListData } from './result.account-list.js';
 export type { ApplyData } from './result.apply.js';
 export type { ConfigGetData } from './result.config-get.js';
+export type { ConfigRawData } from './result.config-raw.js';
 export type { ConfigSetData } from './result.config-set.js';
 export type { ConfigValidateData } from './result.config-validate.js';
 export type { DashData } from './result.dash.js';
