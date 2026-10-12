@@ -8,18 +8,31 @@ export function brewfilePath(home: string): string {
   return join(devhostConfigDir(home), 'Brewfile');
 }
 
-/** brew formulae from the config; mise is added when runtimes are requested. */
-export function brewFormulae(config: DevhostConfig): string[] {
+const unique = (xs: string[]): string[] => [...new Set(xs)];
+
+/**
+ * Everything devhost needs installed: the user's list plus what the configured
+ * features require (mise for runtimes, direnv for accounts, a Docker runtime,
+ * Tailscale, Claude Code).
+ */
+export function requiredPackages(config: DevhostConfig): { brew: string[]; cask: string[] } {
   const brew = [...(config.packages?.brew ?? [])];
-  const wantsRuntimes = Object.keys(config.runtimes ?? {}).length > 0;
-  if (wantsRuntimes && !brew.includes('mise')) brew.push('mise');
-  return brew;
+  const cask = [...(config.packages?.cask ?? [])];
+  if (Object.keys(config.runtimes ?? {}).length > 0) brew.push('mise');
+  if ((config.accounts ?? []).length > 0) brew.push('direnv');
+  if (config.docker?.runtime === 'colima') brew.push('colima', 'docker', 'docker-compose', 'docker-buildx');
+  if (config.docker?.runtime === 'orbstack') cask.push('orbstack');
+  if (config.network?.tailscale) brew.push('tailscale');
+  if (config.claude?.install === 'brew') cask.push('claude-code');
+  return { brew: unique(brew), cask: unique(cask) };
 }
+
+export const brewFormulae = (config: DevhostConfig): string[] => requiredPackages(config).brew;
 
 export async function renderBrewfile(config: DevhostConfig): Promise<string> {
   return renderTemplate('Brewfile', {
-    brew: brewFormulae(config),
-    cask: config.packages?.cask ?? [],
+    brew: requiredPackages(config).brew,
+    cask: requiredPackages(config).cask,
     extra: config.packages?.extra ?? [],
   });
 }

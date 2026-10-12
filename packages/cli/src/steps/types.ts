@@ -4,7 +4,27 @@ import type { Executor } from '../runner/executor.js';
 export interface StepContext {
   config: DevhostConfig;
   home: string;
+  /** macOS account that runs services. */
+  user: string;
   exec: Executor;
+  /** Absolute path of the config file (the collector service needs it). */
+  configPath: string;
+  /** Restrict account-scoped steps to one account (used by `account add`). */
+  onlyAccount?: string;
+  /**
+   * Called right before an environment's Remote Control service is installed.
+   * `env create` and `login` use it to accept workspace trust interactively.
+   */
+  beforeService?: (info: EnvInfo) => Promise<void>;
+}
+
+export interface EnvInfo {
+  name: string;
+  account: string;
+  dir: string;
+  claudeConfigDir: string | null;
+  spawn: string;
+  permissionMode: string;
 }
 
 export type CheckResult =

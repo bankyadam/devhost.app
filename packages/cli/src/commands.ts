@@ -13,7 +13,7 @@ import { writeEnvelope, writeHumanError, writeResultEvent, errorEntries, exitCod
 import { packageJsonPath } from './paths.js';
 import { HumanReporter, NdjsonReporter, type Reporter } from './reporter.js';
 import { Executor } from './runner/executor.js';
-import { allSteps, selectSteps } from './steps/index.js';
+import { buildSteps, selectSteps } from './steps/index.js';
 
 export interface GlobalOptions {
   json: boolean;
@@ -154,14 +154,14 @@ export async function applyCommand(deps: Deps, g: GlobalOptions, opts: ApplyOpti
     : new HumanReporter(deps.stdout, deps.stderr, g.verbose);
   try {
     const { config } = await loadConfig(g.configPath);
-    const steps = selectSteps(allSteps, opts.only);
+    const steps = selectSteps(buildSteps(config), opts.only);
     const exec = new Executor(deps.runner, reporter, {
       dryRun: opts.dryRun,
       verbose: g.verbose,
       interactiveSudo: deps.stdinIsTTY && !g.json,
       now: deps.now,
     });
-    const outcome = await runSteps(steps, { config, home: deps.home, exec }, reporter, deps.cancel);
+    const outcome = await runSteps(steps, { config, home: deps.home, user: deps.user, exec, configPath: g.configPath }, reporter, deps.cancel);
 
     if (outcome.cancelled) {
       const errors = [{ code: 'cancelled', message: 'cancelled after the current step' }];

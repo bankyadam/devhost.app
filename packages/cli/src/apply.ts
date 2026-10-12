@@ -76,6 +76,7 @@ export async function runSteps(
       changed: results.some((r) => r.status === 'changed'),
       steps: results,
       plan: exec.plan,
+      ...(exec.warnings.length > 0 ? { warnings: exec.warnings } : {}),
     },
     error,
     cancelled,

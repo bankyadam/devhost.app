@@ -87,9 +87,17 @@ export interface DevhostConfig {
       diskFreePercent?: number;
     };
     authCheckMinutes?: number;
+    /**
+     * Also verify logins with a cheap `claude -p` call (costs a few tokens per check), for the case that `claude auth status` stays green for an expired login.
+     */
+    authProbe?: boolean;
   };
   notify: {
     provider?: 'ntfy';
     topic: string;
+    /**
+     * ntfy server base URL.
+     */
+    server?: string;
   };
 }

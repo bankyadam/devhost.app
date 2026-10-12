@@ -6,6 +6,8 @@ export interface RunOptions {
   timeoutMs?: number;
   /** Child inherits the terminal (editor, sudo password prompt). Output is not captured. */
   interactive?: boolean;
+  /** Variables removed from the child's environment (e.g. CLAUDE_CONFIG_DIR for the default account). */
+  unsetEnv?: string[];
 }
 
 export interface RunResult {
@@ -22,4 +24,15 @@ export interface RunResult {
  */
 export interface Runner {
   run(command: string, args: string[], opts?: RunOptions): Promise<RunResult>;
+  /** Start a long-lived child whose output is streamed and whose stdin can be written (login, trust prompts). */
+  spawn(command: string, args: string[], opts?: RunOptions): SpawnedProcess;
+}
+
+export interface SpawnedProcess {
+  /** stdout and stderr, merged, as they arrive. */
+  onData(cb: (chunk: string) => void): void;
+  write(data: string): void;
+  kill(signal?: NodeJS.Signals): void;
+  /** Resolves with the exit code (127 when the command does not exist). */
+  wait(): Promise<number>;
 }

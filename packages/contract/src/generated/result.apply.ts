@@ -24,4 +24,8 @@ export interface ApplyData {
     sudo: boolean;
     reason?: string;
   }[];
+  /**
+   * Things a human should look at that did not stop the run.
+   */
+  warnings?: string[];
 }

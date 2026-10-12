@@ -392,6 +392,11 @@ export const schemas = {
             "type": "integer",
             "minimum": 1,
             "default": 60
+          },
+          "authProbe": {
+            "type": "boolean",
+            "description": "Also verify logins with a cheap `claude -p` call (costs a few tokens per check), for the case that `claude auth status` stays green for an expired login.",
+            "default": false
           }
         }
       },
@@ -412,6 +417,11 @@ export const schemas = {
           "topic": {
             "type": "string",
             "minLength": 8
+          },
+          "server": {
+            "type": "string",
+            "description": "ntfy server base URL.",
+            "default": "https://ntfy.sh"
           }
         }
       }
@@ -706,6 +716,13 @@ export const schemas = {
             }
           }
         }
+      },
+      "warnings": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Things a human should look at that did not stop the run."
       }
     }
   },

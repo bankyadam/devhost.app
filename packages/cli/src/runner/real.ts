@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import type { RunOptions, RunResult, Runner } from './types.js';
+import type { RunOptions, RunResult, Runner, SpawnedProcess } from './types.js';
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -8,10 +8,7 @@ export class RealRunner implements Runner {
 
   run(command: string, args: string[], opts: RunOptions = {}): Promise<RunResult> {
     return new Promise((resolve) => {
-      const env: Record<string, string> = {};
-      for (const [k, v] of Object.entries({ ...this.baseEnv, ...opts.env })) {
-        if (v !== undefined) env[k] = v;
-      }
+      const env = this.childEnv(opts);
       const child = spawn(command, args, {
         env,
         cwd: opts.cwd,
@@ -51,5 +48,33 @@ export class RealRunner implements Runner {
         child.stdin.end(opts.input ?? '');
       }
     });
+  }
+
+  private childEnv(opts: RunOptions): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries({ ...this.baseEnv, ...opts.env })) {
+      if (v !== undefined) env[k] = v;
+    }
+    for (const k of opts.unsetEnv ?? []) delete env[k];
+    return env;
+  }
+
+  spawn(command: string, args: string[], opts: RunOptions = {}): SpawnedProcess {
+    const child = spawn(command, args, { env: this.childEnv(opts), cwd: opts.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+    const listeners: ((chunk: string) => void)[] = [];
+    const emit = (d: Buffer): void => listeners.forEach((l) => l(d.toString('utf8')));
+    child.stdout.on('data', emit);
+    child.stderr.on('data', emit);
+    child.stdin.on('error', () => undefined);
+    const done = new Promise<number>((resolve) => {
+      child.on('error', (err: NodeJS.ErrnoException) => resolve(err.code === 'ENOENT' ? 127 : 126));
+      child.on('close', (code, signal) => resolve(code ?? (signal ? 128 : 1)));
+    });
+    return {
+      onData: (cb) => void listeners.push(cb),
+      write: (data) => void child.stdin.write(data),
+      kill: (signal = 'SIGTERM') => void child.kill(signal),
+      wait: () => done,
+    };
   }
 }

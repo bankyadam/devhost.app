@@ -1,19 +1,33 @@
 import { join } from 'node:path';
 import type { DevhostConfig } from '@devhost/contract';
-import { readBlock, upsertBlock } from './shellblock.js';
+import { accountsOf, claudeConfigDir } from '../config/accounts.js';
+import { shellQuote } from './routing.js';
+import { hashBlock } from './shellblock.js';
 import { ok, todo, type Step } from './types.js';
 
 /**
  * Body of the managed ~/.zshrc block. Later phases add the direnv hook and
  * the claude-<account> aliases here; everything shares one block.
  */
-export function shellBlockBody(config: DevhostConfig): string[] {
+export function shellBlockBody(config: DevhostConfig, home: string): string[] {
   const body = [
     '# Managed by devhost. Change ~/.config/devhost/config.yaml and run `devhost apply`.',
     '[ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"',
   ];
   if (Object.keys(config.runtimes ?? {}).length > 0) {
     body.push('command -v mise >/dev/null 2>&1 && eval "$(mise activate zsh)"');
+  }
+  const accounts = accountsOf(config);
+  if (accounts.length > 0) {
+    body.push('command -v direnv >/dev/null 2>&1 && eval "$(direnv hook zsh)"');
+    for (const a of accounts) {
+      const dir = claudeConfigDir(a, home);
+      body.push(
+        dir
+          ? `alias claude-${a.name}='CLAUDE_CONFIG_DIR=${shellQuote(dir)} claude'`
+          : `alias claude-${a.name}='env -u CLAUDE_CONFIG_DIR claude'`,
+      );
+    }
   }
   return body;
 }
@@ -24,15 +38,15 @@ export const shellStep: Step = {
   async check({ config, home, exec }) {
     const file = join(home, '.zshrc');
     const text = (await exec.readText(file)) ?? '';
-    const current = readBlock(text, file);
-    const want = shellBlockBody(config);
+    const current = hashBlock.read(text, file);
+    const want = shellBlockBody(config, home);
     if (current === null) return todo('the devhost block is missing');
     return current.join('\n') === want.join('\n') ? ok() : todo('the devhost block is out of date');
   },
   async apply({ config, home, exec }) {
     const file = join(home, '.zshrc');
     const text = (await exec.readText(file)) ?? '';
-    await exec.writeText(file, upsertBlock(text, shellBlockBody(config), file), {
+    await exec.writeText(file, hashBlock.upsert(text, shellBlockBody(config, home), file), {
       description: `update the devhost block in ${file}`,
     });
   },

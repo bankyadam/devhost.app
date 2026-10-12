@@ -1,6 +1,7 @@
 import type { ApplyData } from '@devhost/contract';
+import { mkdir, rm } from 'node:fs/promises';
 import { CommandError, HumanActionRequired } from '../errors.js';
-import { writeTextWithBackup, readTextIfExists } from '../fsutil.js';
+import { backupFile, readTextIfExists, writeTextWithBackup } from '../fsutil.js';
 import type { Reporter } from '../reporter.js';
 import type { RunOptions, RunResult, Runner } from './types.js';
 
@@ -20,6 +21,8 @@ export interface ExecutorOptions {
   /** Password prompts are possible (stdin is a terminal and output is not JSON). */
   interactiveSudo: boolean;
   now: () => Date;
+  /** Replaceable so tests do not wait. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -29,6 +32,8 @@ export interface ExecutorOptions {
  */
 export class Executor {
   readonly plan: PlanEntry[] = [];
+  /** Things a human should look at that did not stop the run. */
+  readonly warnings: string[] = [];
   private stepId = '';
 
   constructor(
@@ -75,6 +80,43 @@ export class Executor {
     }
     if (result.code !== 0 && !opts.allowFailure) throw new CommandError(line, result.code, result.stderr);
     return result;
+  }
+
+  warn(message: string): void {
+    if (!this.warnings.includes(message)) this.warnings.push(message);
+    this.reporter.log('warn', message);
+  }
+
+  async sleep(ms: number): Promise<void> {
+    if (this.opts.dryRun) return;
+    await (this.opts.sleep ?? ((n: number) => new Promise<void>((r) => setTimeout(r, n))))(ms);
+  }
+
+  /** Poll `probe` until it returns true (a dry-run returns true immediately). */
+  async waitFor(probe: () => Promise<boolean>, attempts = 10, delayMs = 1000): Promise<boolean> {
+    if (this.opts.dryRun) return true;
+    for (let i = 0; i < attempts; i++) {
+      if (await probe()) return true;
+      await this.sleep(delayMs);
+    }
+    return false;
+  }
+
+  async mkdirp(path: string, opts: { mode?: number } = {}): Promise<void> {
+    this.plan.push({ stepId: this.stepId, action: `mkdir -p ${path}`, sudo: false });
+    if (this.opts.dryRun) return;
+    await mkdir(path, { recursive: true, mode: opts.mode });
+  }
+
+  /** Remove a file or directory tree. The caller is responsible for having confirmed it. */
+  async remove(path: string, opts: { recursive?: boolean; backup?: boolean } = {}): Promise<void> {
+    this.plan.push({ stepId: this.stepId, action: `remove ${path}`, sudo: false });
+    if (this.opts.dryRun) return;
+    if (opts.backup) {
+      const text = await readTextIfExists(path);
+      if (text !== null) await backupFile(path, this.opts.now());
+    }
+    await rm(path, { recursive: opts.recursive === true, force: true });
   }
 
   async readText(path: string): Promise<string | null> {

@@ -4,21 +4,49 @@
   "title": "ApplyData",
   "type": "object",
   "additionalProperties": false,
-  "required": ["dryRun", "changed", "steps", "plan"],
+  "required": [
+    "dryRun",
+    "changed",
+    "steps",
+    "plan"
+  ],
   "properties": {
-    "dryRun": { "type": "boolean" },
-    "changed": { "type": "boolean", "description": "True when at least one step changed (or, in dry-run, would change) the system." },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "changed": {
+      "type": "boolean",
+      "description": "True when at least one step changed (or, in dry-run, would change) the system."
+    },
     "steps": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "description", "status"],
+        "required": [
+          "id",
+          "description",
+          "status"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "description": { "type": "string" },
-          "status": { "type": "string", "enum": ["ok", "changed", "skipped", "failed"] },
-          "message": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "changed",
+              "skipped",
+              "failed"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
         }
       }
     },
@@ -28,14 +56,34 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["stepId", "action", "sudo"],
+        "required": [
+          "stepId",
+          "action",
+          "sudo"
+        ],
         "properties": {
-          "stepId": { "type": "string" },
-          "action": { "type": "string", "description": "Shell command or file write description." },
-          "sudo": { "type": "boolean" },
-          "reason": { "type": "string" }
+          "stepId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "description": "Shell command or file write description."
+          },
+          "sudo": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
         }
       }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Things a human should look at that did not stop the run."
     }
   }
 }

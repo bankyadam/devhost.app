@@ -13,6 +13,8 @@ export interface Deps {
   stdoutIsTTY: boolean;
   env: Record<string, string | undefined>;
   home: string;
+  /** The macOS account that runs services (LaunchDaemon UserName). */
+  user: string;
   runner: Runner;
   now: () => Date;
   /** Set by the SIGINT handler; long-running commands stop after the current step. */
