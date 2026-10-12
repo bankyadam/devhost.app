@@ -1,0 +1,32 @@
+{
+  "name": "@devhost/app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "devhost Desktop: Tauri v2 + React app that controls the devhost Mac mini over ssh",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "tauri": "tauri",
+    "tauri:build": "tauri build --target aarch64-apple-darwin --bundles app",
+    "test:rust": "cargo test --manifest-path core/Cargo.toml"
+  },
+  "dependencies": {
+    "@devhost/contract": "0.1.0",
+    "@tauri-apps/api": "^2.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "vite": "^5.4.11"
+  }
+}

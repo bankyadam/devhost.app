@@ -1,0 +1,8 @@
+[package]
+name = "devhost-core"
+version = "0.1.0"
+edition = "2021"
+description = "Pure logic of the devhost desktop shell: ssh command construction, quoting, validation, line framing. No GUI dependencies, so it is tested everywhere."
+license = "UNLICENSED"
+
+[dependencies]

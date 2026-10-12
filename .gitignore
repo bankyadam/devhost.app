@@ -4,3 +4,5 @@ dist/
 coverage/
 .DS_Store
 *.devhost-bak-*
+target/
+packages/app/src-tauri/gen/

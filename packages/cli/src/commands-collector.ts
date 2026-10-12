@@ -1,7 +1,10 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { hostname } from 'node:os';
-import type { DashData, DevhostConfig, NotifyData } from '@devhost/contract';
+import { join } from 'node:path';
+import type { DashData, DevhostConfig, EnvLogsData, NotifyData } from '@devhost/contract';
+import { logsDir } from './config/accounts.js';
+import { readTextIfExists } from './fsutil.js';
 import { Collector } from './collector/run.js';
 import { Db, dbPath } from './collector/db.js';
 import { createNotifier, maskTopic } from './collector/notify.js';
@@ -56,6 +59,16 @@ export async function collectorRunCommand(deps: Deps, g: GlobalOptions): Promise
     await collector?.stop();
     db?.close();
   }
+}
+
+export function collectorLogsCommand(deps: Deps, g: GlobalOptions, o: { lines: number }): Promise<number> {
+  return short<EnvLogsData>(deps, g, async () => {
+    const path = join(logsDir(deps.home), 'collector.log');
+    const text = await readTextIfExists(path);
+    if (text === null) throw new DevhostError(`no log yet: ${path}`, 'no-log', 1, 'The collector has not started. Run `devhost apply`.');
+    const lines = text.split('\n').filter((l, i, all) => l !== '' || i < all.length - 1).slice(-o.lines);
+    return { data: { name: 'collector', path, lines }, human: lines.join('\n') };
+  });
 }
 
 export interface DashOptions {

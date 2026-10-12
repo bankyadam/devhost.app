@@ -7,5 +7,9 @@
     "sourceMap": false,
     "rootDir": "."
   },
-  "include": ["packages/*/test/**/*.ts", "vitest.config.ts"]
+  "include": [
+    "packages/cli/test/**/*.ts",
+    "packages/contract/test/**/*.ts",
+    "vitest.config.ts"
+  ]
 }

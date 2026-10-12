@@ -93,4 +93,8 @@ export interface DashData {
    * Known limits to show next to the numbers (spec A10.7).
    */
   limits: string[];
+  /**
+   * Models seen in the selected range, for the model filter.
+   */
+  models: string[];
 }

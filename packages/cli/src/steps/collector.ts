@@ -1,5 +1,5 @@
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
 import { logsDir } from '../config/accounts.js';
 import { dbPath } from '../collector/db.js';
 import { applyDaemon, checkDaemon, serviceEnv, type DaemonSpec } from '../launchd.js';
@@ -10,7 +10,7 @@ export const COLLECTOR_LABEL = 'com.devhost.collector';
 
 export async function collectorSpec(ctx: StepContext): Promise<DaemonSpec> {
   const node = await toolPath(ctx.exec, ctx.home, 'nodePath', 'node', '/opt/homebrew/bin/node');
-  const cli = fileURLToPath(new URL('../cli.js', import.meta.url));
+  const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'cli.js');
   return {
     label: COLLECTOR_LABEL,
     // node:sqlite prints an ExperimentalWarning on every start; keep the log readable.

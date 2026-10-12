@@ -220,3 +220,54 @@ describe('uninstall', () => {
 });
 
 export type { TestEnv };
+
+describe('config commands used by the desktop app', () => {
+  const yaml = (host: string) => `machine: { hostname: ${host} }\nnotify: { topic: devhost-abcdefgh }\n# my comment\n`;
+
+  it('raw returns the file with comments; validate --stdin checks a candidate; put replaces only valid documents', async () => {
+    const env = await makeEnv();
+    await env.run('init', '--yes');
+    env.out.length = 0;
+    expect(await env.run('config', 'raw', '--json')).toBe(0);
+    const raw = (JSON.parse(env.stdout()) as Envelope).data as { path: string; text: string };
+    expect(validate('result.config-raw', raw).ok).toBe(true);
+    expect(raw.text).toContain('# devhost configuration.');
+
+    const feed = (text: string) => {
+      const s = new PassThrough();
+      s.end(text);
+      env.deps.stdin = s;
+    };
+    env.out.length = 0;
+    feed(yaml('newname'));
+    expect(await env.run('config', 'validate', '--stdin', '--json')).toBe(0);
+    env.out.length = 0;
+    feed(yaml('not a host'));
+    expect(await env.run('config', 'validate', '--stdin', '--json')).toBe(2);
+    expect((JSON.parse(env.stdout()) as Envelope).errors[0]).toMatchObject({ code: 'config-invalid', path: '/machine/hostname' });
+
+    // An invalid document is not written.
+    feed(yaml('bad host!'));
+    expect(await env.run('config', 'put')).toBe(2);
+    expect(await readFile(raw.path, 'utf8')).toBe(raw.text);
+    // A valid one is, with a backup and its comments intact.
+    feed(yaml('newname'));
+    expect(await env.run('config', 'put', '--json')).toBe(0);
+    expect(await readFile(raw.path, 'utf8')).toContain('# my comment');
+    expect((await readdir(join(env.home, '.config', 'devhost'))).some((f) => f.includes('.devhost-bak-'))).toBe(true);
+    expect(await env.run('config', 'get', '/machine/hostname')).toBe(0);
+  });
+
+  it('collector logs reads the tail', async () => {
+    const env = await makeEnv();
+    await env.run('init', '--yes');
+    expect(await env.run('collector', 'logs', '--json')).toBe(1);
+    await mkdir(join(env.home, 'Library', 'Logs', 'devhost'), { recursive: true });
+    await writeFile(join(env.home, 'Library', 'Logs', 'devhost', 'collector.log'), 'a\nb\nc\n');
+    env.out.length = 0;
+    expect(await env.run('collector', 'logs', '-n', '2', '--json')).toBe(0);
+    const e = JSON.parse(env.stdout()) as Envelope;
+    expect(validate('result.env-logs', e.data).ok).toBe(true);
+    expect((e.data as { lines: string[] }).lines).toEqual(['b', 'c']);
+  });
+});

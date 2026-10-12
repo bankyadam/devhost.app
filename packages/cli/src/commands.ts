@@ -1,9 +1,10 @@
 import YAML, { stringify } from 'yaml';
-import { CONTRACT_VERSION, type ApplyData } from '@devhost/contract';
+import { CONTRACT_VERSION, type ApplyData, type ConfigRawData } from '@devhost/contract';
 import { readFileSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { runSteps } from './apply.js';
-import { loadConfig, validateData } from './config/load.js';
+import { loadConfig, parseConfig, validateData } from './config/load.js';
 import { editConfigFile } from './config/edit.js';
 import { missingPortBases } from './ports.js';
 import { long, newExecutor, newStepContext, short, type GlobalOptions } from './command-support.js';
@@ -11,7 +12,7 @@ import type { DevhostConfig } from '@devhost/contract';
 import { getByPointer, parsePointer, parseValue, setByPointer } from './config/pointer.js';
 import type { Deps } from './deps.js';
 import { ConfigError, DevhostError, UsageError } from './errors.js';
-import { backupFile } from './fsutil.js';
+import { backupFile, writeTextWithBackup } from './fsutil.js';
 import { runInit, type InitOptions } from './init/init.js';
 import { packageJsonPath } from './paths.js';
 import { type Executor } from './runner/executor.js';
@@ -56,10 +57,40 @@ export function configGetCommand(deps: Deps, g: GlobalOptions, pointer: string):
   });
 }
 
-export function configValidateCommand(deps: Deps, g: GlobalOptions): Promise<number> {
+async function readAllStdin(deps: Deps): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const c of deps.stdin) chunks.push(Buffer.from(c as Buffer));
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+/** Validate the config file, or with --stdin a candidate document (what the desktop app's live validation uses). */
+export function configValidateCommand(deps: Deps, g: GlobalOptions, opts: { stdin: boolean } = { stdin: false }): Promise<number> {
   return short(deps, g, async () => {
-    await loadConfig(g.configPath);
-    return { data: { valid: true, path: g.configPath }, human: `✅ ${g.configPath} is valid` };
+    if (opts.stdin) parseConfig(await readAllStdin(deps), '<stdin>');
+    else await loadConfig(g.configPath);
+    return { data: { valid: true, path: opts.stdin ? '<stdin>' : g.configPath }, human: `✅ ${opts.stdin ? 'the document' : g.configPath} is valid` };
+  });
+}
+
+/** The raw file text (comments included), for editors. */
+export function configRawCommand(deps: Deps, g: GlobalOptions): Promise<number> {
+  return short<ConfigRawData>(deps, g, async () => {
+    const { raw } = await loadConfig(g.configPath);
+    return { data: { path: g.configPath, text: raw }, human: raw };
+  });
+}
+
+/** Replace the whole config with the YAML on stdin, but only if it validates. A backup is kept. */
+export function configPutCommand(deps: Deps, g: GlobalOptions): Promise<number> {
+  return short(deps, g, async () => {
+    const text = await readAllStdin(deps);
+    parseConfig(text, '<stdin>'); // throws ConfigError: nothing is written
+    await mkdir(dirname(g.configPath), { recursive: true, mode: 0o700 });
+    const { backup } = await writeTextWithBackup(g.configPath, text, { now: deps.now(), mode: 0o600 });
+    return {
+      data: { pointer: '', value: null, path: g.configPath, backup },
+      human: `✅ ${g.configPath} replaced${backup ? ` (backup: ${backup})` : ''}\nChanging config does not apply it: run \`devhost apply\`.`,
+    };
   });
 }
 

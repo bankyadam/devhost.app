@@ -30,6 +30,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Rust core tests
+        run: cargo test --manifest-path packages/app/core/Cargo.toml
 
       - name: shellcheck
         run: |
@@ -49,3 +51,23 @@ jobs:
             const l = require("fs").readFileSync(0, "utf8");
             const e = JSON.parse(l);
             if (e.type !== "result" || e.ok !== true || e.data.dryRun !== true) { console.error(l); process.exit(1); }'
+
+  app:
+    name: desktop app (aarch64-apple-darwin)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci
+      - run: npm run build:core
+      - run: rustup target add aarch64-apple-darwin
+      - name: Tauri build (Apple Silicon only)
+        run: npm run tauri:build -w @devhost/app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: devhost-desktop-app
+          path: packages/app/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app
+          if-no-files-found: error
