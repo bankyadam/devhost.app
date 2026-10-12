@@ -1,6 +1,7 @@
+import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { Deps } from '../src/deps.js';
 import { main } from '../src/main.js';
 import { MockRunner } from '../src/runner/mock.js';
@@ -17,6 +18,7 @@ export interface TestEnv {
 
 export async function makeEnv(runner = new MockRunner(), tty = false): Promise<TestEnv> {
   const home = await mkdtemp(join(tmpdir(), 'devhost-test-'));
+  process.env['DEVHOST_LAUNCHD_DIR'] = join(home, 'LaunchDaemons');
   const out: string[] = [];
   const err: string[] = [];
   const deps: Deps = {
@@ -27,6 +29,7 @@ export async function makeEnv(runner = new MockRunner(), tty = false): Promise<T
     stdoutIsTTY: false,
     env: {},
     home,
+    user: 'tester',
     runner,
     now: () => new Date(2026, 9, 12, 20, 30, 15),
     cancel: { cancelled: false },
@@ -51,19 +54,44 @@ export function ndjson(text: string): unknown[] {
 
 const strip = (line: string): string => line.replace(/^sudo -n -- /, '');
 
+export interface FakeState {
+  names: { ComputerName: string; HostName: string; LocalHostName: string };
+  power: Record<string, number>;
+  sshOn: boolean;
+  bundled: Set<string>;
+  mise: Map<string, string>;
+  /** Binaries on PATH. `brew bundle` installs the usual set. */
+  binaries: Set<string>;
+  /** LaunchDaemon labels currently loaded (and therefore running). */
+  loaded: Set<string>;
+  colimaRunning: boolean;
+  tailscale: string | null;
+  direnvAllowed: Set<string>;
+  /** Directories that exist (besides the real filesystem). */
+  dirs: Set<string>;
+}
+
+const BREWED = ['git', 'claude', 'colima', 'docker', 'tailscale', 'direnv', 'mise', 'curl'];
+
 /**
  * A stateful stand-in for a Mac: answers read-only commands from its state and
  * updates the state on the matching mutating commands. Lets tests prove that a
- * second `apply` changes nothing.
+ * second `apply` changes nothing. LaunchDaemon plists are really written to
+ * DEVHOST_LAUNCHD_DIR (a temp dir set by makeEnv).
  */
 export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner; state: FakeState } {
   const state: FakeState = {
     names: { ComputerName: 'old', HostName: 'old', LocalHostName: 'old' },
     power: { sleep: 1, disksleep: 10, autorestart: 0, womp: 0 },
     sshOn: false,
-    brewInstalled: true,
     bundled: new Set(),
     mise: new Map(),
+    binaries: new Set(['node']),
+    loaded: new Set(),
+    colimaRunning: false,
+    tailscale: null,
+    direnvAllowed: new Set(),
+    dirs: new Set(),
     ...initial,
   };
   const runner = new MockRunner();
@@ -95,7 +123,15 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     if (line.startsWith('brew bundle check')) return { code: state.bundled.has('all') ? 0 : 1 };
     if (line.startsWith('brew bundle')) {
       state.bundled.add('all');
+      BREWED.forEach((b) => state.binaries.add(b));
       return {};
+    }
+    if (line === 'brew services start tailscale') {
+      state.tailscale = 'NeedsLogin';
+      return {};
+    }
+    if (line === 'tailscale status --json') {
+      return state.tailscale === null ? { code: 1, stderr: 'failed to connect to local tailscaled' } : { stdout: JSON.stringify({ BackendState: state.tailscale }) };
     }
     if (line === 'mise ls --global --json') {
       const obj: Record<string, unknown[]> = {};
@@ -109,17 +145,49 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       }
       return {};
     }
+    if ((m = /^sh -c command -v (\S+)$/.exec(line))) {
+      return state.binaries.has(m[1]!) ? { stdout: `/opt/homebrew/bin/${m[1]}\n` } : { code: 1 };
+    }
+    if ((m = /^launchctl print system\/(\S+)$/.exec(line))) {
+      return state.loaded.has(m[1]!) ? { stdout: 'state = running\n\tpid = 4242\n' } : { code: 113, stderr: 'Could not find service' };
+    }
+    if ((m = /^launchctl bootstrap system (\S+)$/.exec(line))) {
+      const label = basename(m[1]!, '.plist');
+      state.loaded.add(label);
+      if (label === 'com.devhost.colima') state.colimaRunning = true;
+      return {};
+    }
+    if ((m = /^launchctl bootout system\/(\S+)$/.exec(line))) {
+      state.loaded.delete(m[1]!);
+      if (m[1] === 'com.devhost.colima') state.colimaRunning = false;
+      return {};
+    }
+    if (line.startsWith('launchctl kickstart')) return {};
+    if ((m = /^install -m 644 -o root -g wheel (\S+) (\S+)$/.exec(line))) {
+      mkdirSync(dirname(m[2]!), { recursive: true });
+      copyFileSync(m[1]!, m[2]!);
+      return {};
+    }
+    if ((m = /^rm -f (\S+)$/.exec(line))) {
+      rmSync(m[1]!, { force: true });
+      return {};
+    }
+    if (line === 'colima status') return { code: state.colimaRunning ? 0 : 1 };
+    if (line === 'colima stop') {
+      state.colimaRunning = false;
+      return {};
+    }
+    if ((m = /^test -d (.+)$/.exec(line))) return { code: existsSync(m[1]!) || state.dirs.has(m[1]!) ? 0 : 1 };
+    if (line === 'direnv status') {
+      const cwd = call.command === 'direnv' ? (runner.calls.at(-1)?.opts?.cwd ?? '') : '';
+      return { stdout: state.direnvAllowed.has(cwd) ? 'Found RC allowed 0\n' : 'Found RC allowed 2\n' };
+    }
+    if ((m = /^direnv allow (\S+)$/.exec(line))) {
+      state.direnvAllowed.add(m[1]!);
+      return {};
+    }
     return { code: 127, stderr: `unexpected command in test: ${line}` };
   };
   runner.on(/.*/, dispatch);
   return { runner, state };
-}
-
-export interface FakeState {
-  names: { ComputerName: string; HostName: string; LocalHostName: string };
-  power: Record<string, number>;
-  sshOn: boolean;
-  brewInstalled: boolean;
-  bundled: Set<string>;
-  mise: Map<string, string>;
 }

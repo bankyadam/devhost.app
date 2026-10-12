@@ -1,0 +1,8 @@
+## Working rules
+- Break every task into phases. After the plan, wait for approval.
+- At the end of each phase: run tests and linters, write a summary of max. 5 lines
+  (what changed, test results, open questions), send a push notification, and STOP.
+- Commit only after explicit approval. Push only to feature branches, never to main.
+- Dev servers: bind to 0.0.0.0 and use a free port between $DEVHOST_PORT_BASE and
+  $DEVHOST_PORT_BASE+99 (parallel worktrees run side by side).
+  Report the URL as http://<hostname>:<port>.

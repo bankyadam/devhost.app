@@ -5,10 +5,10 @@ import { HumanActionRequired, CommandError } from '../src/errors.js';
 import { Executor } from '../src/runner/executor.js';
 import { MockRunner } from '../src/runner/mock.js';
 import type { Reporter } from '../src/reporter.js';
-import { brewFormulae, packagesStep, renderBrewfile } from '../src/steps/packages.js';
+import { brewFormulae, packagesStep, renderBrewfile, requiredPackages } from '../src/steps/packages.js';
 import { installedRequests, runtimesStep } from '../src/steps/runtimes.js';
 import { pmsetValues, powerStep, sshStep, hostnameStep } from '../src/steps/system.js';
-import { selectSteps, allSteps } from '../src/steps/index.js';
+import { buildSteps, selectSteps } from '../src/steps/index.js';
 import { makeEnv } from './helpers.js';
 
 const config = (extra: object = {}): DevhostConfig => {
@@ -70,9 +70,9 @@ describe('Executor', () => {
 describe('system steps', () => {
   it('hostname: ok only when all three names match', async () => {
     const runner = new MockRunner().on(/^scutil --get/, { stdout: 'macmini\n' });
-    expect(await hostnameStep.check({ config: config(), home: '/h', exec: exec(runner) })).toEqual({ state: 'ok' });
+    expect(await hostnameStep.check({ user: 'tester', configPath: '/c', config: config(), home: '/h', exec: exec(runner) })).toEqual({ state: 'ok' });
     const other = new MockRunner().on('scutil --get LocalHostName', { stdout: 'other\n' }).on(/^scutil --get/, { stdout: 'macmini\n' });
-    const r = await hostnameStep.check({ config: config(), home: '/h', exec: exec(other) });
+    const r = await hostnameStep.check({ user: 'tester', configPath: '/c', config: config(), home: '/h', exec: exec(other) });
     expect(r).toMatchObject({ state: 'todo', reason: expect.stringContaining('LocalHostName') });
   });
 
@@ -87,16 +87,16 @@ describe('system steps', () => {
     const c = config({ machine: { hostname: 'macmini', power: { neverSleep: false, autoRestartAfterPowerLoss: true, wakeOnLan: false } } });
     const runner = new MockRunner();
     const e = exec(runner, { dryRun: true });
-    await powerStep.apply({ config: c, home: '/h', exec: e });
+    await powerStep.apply({ user: 'tester', configPath: '/c', config: c, home: '/h', exec: e });
     expect(e.plan[0]?.action).toBe('sudo pmset -a autorestart 1');
     const none = config({ machine: { hostname: 'macmini', power: { neverSleep: false, autoRestartAfterPowerLoss: false, wakeOnLan: false } } });
-    expect(await powerStep.check({ config: none, home: '/h', exec: exec(runner) })).toMatchObject({ state: 'skip' });
+    expect(await powerStep.check({ user: 'tester', configPath: '/c', config: none, home: '/h', exec: exec(runner) })).toMatchObject({ state: 'skip' });
   });
 
   it('ssh: skipped when disabled; Full Disk Access becomes manual steps', async () => {
-    expect(await sshStep.check({ config: config({ network: { ssh: false } }), home: '/h', exec: exec(new MockRunner()) })).toMatchObject({ state: 'skip' });
+    expect(await sshStep.check({ user: 'tester', configPath: '/c', config: config({ network: { ssh: false } }), home: '/h', exec: exec(new MockRunner()) })).toMatchObject({ state: 'skip' });
     const runner = new MockRunner().on('sudo', { code: 1, stderr: 'setremotelogin: Turning Remote Login on or off requires Full Disk Access privileges.' });
-    const err = await sshStep.apply({ config: config(), home: '/h', exec: exec(runner) }).catch((e: unknown) => e);
+    const err = await sshStep.apply({ user: 'tester', configPath: '/c', config: config(), home: '/h', exec: exec(runner) }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(HumanActionRequired);
     expect((err as HumanActionRequired).hint).toContain('Full Disk Access');
     expect((err as HumanActionRequired).hint).toContain('Remote Login');
@@ -106,20 +106,23 @@ describe('system steps', () => {
 describe('packages', () => {
   it('renders the Brewfile from config, adding mise when runtimes are requested', async () => {
     const c = config({ packages: { brew: ['git'], cask: ['iterm2'], extra: ['tap "x/y"'] } });
-    expect(brewFormulae(c)).toEqual(['git', 'mise']);
+    expect(brewFormulae(c)).toEqual(['git', 'mise', 'colima', 'docker', 'docker-compose', 'docker-buildx', 'tailscale']);
+    expect(requiredPackages(c).cask).toEqual(['iterm2', 'claude-code']);
     const text = await renderBrewfile(c);
-    expect(text).toContain('brew "git"\nbrew "mise"\ncask "iterm2"\ntap "x/y"\n');
+    expect(text).toContain('brew "git"\nbrew "mise"\nbrew "colima"');
+    expect(text).toContain('cask "iterm2"\ncask "claude-code"\ntap "x/y"\n');
     expect(text).not.toContain('&quot;');
-    expect(brewFormulae(config({ packages: { brew: ['git'] }, runtimes: {} }))).toEqual(['git']);
+    const bare = config({ packages: { brew: ['git'] }, runtimes: {}, docker: { runtime: 'none' }, network: { tailscale: false }, claude: { install: 'native' } });
+    expect(requiredPackages(bare)).toEqual({ brew: ['git'], cask: [] });
   });
 
   it('is todo until the Brewfile is written and bundle check passes', async () => {
     const env = await makeEnv();
     const c = config();
-    const ctx = (runner: MockRunner) => ({ config: c, home: env.home, exec: exec(runner) });
+    const ctx = (runner: MockRunner) => ({ user: 'tester', configPath: '/c', config: c, home: env.home, exec: exec(runner) });
     expect(await packagesStep.check(ctx(new MockRunner()))).toMatchObject({ state: 'todo' });
     const e = exec(new MockRunner().on('brew bundle', {}));
-    await packagesStep.apply({ config: c, home: env.home, exec: e });
+    await packagesStep.apply({ user: 'tester', configPath: '/c', config: c, home: env.home, exec: e });
     expect(await packagesStep.check(ctx(new MockRunner().on('brew bundle check', {})))).toEqual({ state: 'ok' });
     expect(await packagesStep.check(ctx(new MockRunner().on('brew bundle check', { code: 1 })))).toMatchObject({ state: 'todo' });
     expect(await packagesStep.check(ctx(new MockRunner()))).toMatchObject({ reason: expect.stringContaining('Homebrew is not installed') });
@@ -136,15 +139,17 @@ describe('runtimes', () => {
 
   it('lists what is missing', async () => {
     const runner = new MockRunner().on('mise ls', { stdout: JSON.stringify({ node: [{ requested_version: 'lts', installed: true }] }) });
-    const r = await runtimesStep.check({ config: config({ runtimes: { node: 'lts', python: '3.12' } }), home: '/h', exec: exec(runner) });
+    const r = await runtimesStep.check({ user: 'tester', configPath: '/c', config: config({ runtimes: { node: 'lts', python: '3.12' } }), home: '/h', exec: exec(runner) });
     expect(r).toEqual({ state: 'todo', reason: 'missing: python@3.12' });
   });
 });
 
 describe('step selection', () => {
   it('selects by id or group and rejects unknown names', () => {
-    expect(selectSteps(allSteps, ['system']).map((s) => s.id)).toEqual(['system.hostname', 'system.power', 'system.ssh']);
-    expect(selectSteps(allSteps, ['system.power', 'shell']).map((s) => s.id)).toEqual(['system.power', 'shell']);
-    expect(() => selectSteps(allSteps, ['nope'])).toThrow(/unknown step: nope/);
+    const all = buildSteps(config());
+    expect(selectSteps(all, ['system']).map((s) => s.id)).toEqual(['system.hostname', 'system.power', 'system.ssh']);
+    expect(selectSteps(all, ['system.power', 'shell']).map((s) => s.id)).toEqual(['system.power', 'shell']);
+    expect(selectSteps(all, ['docker']).map((s) => s.id)).toEqual(['docker.config', 'docker.runtime']);
+    expect(() => selectSteps(all, ['nope'])).toThrow(/unknown step: nope/);
   });
 });

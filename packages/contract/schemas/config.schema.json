@@ -389,6 +389,11 @@
           "type": "integer",
           "minimum": 1,
           "default": 60
+        },
+        "authProbe": {
+          "type": "boolean",
+          "description": "Also verify logins with a cheap `claude -p` call (costs a few tokens per check), for the case that `claude auth status` stays green for an expired login.",
+          "default": false
         }
       }
     },
@@ -409,6 +414,11 @@
         "topic": {
           "type": "string",
           "minLength": 8
+        },
+        "server": {
+          "type": "string",
+          "description": "ntfy server base URL.",
+          "default": "https://ntfy.sh"
         }
       }
     }

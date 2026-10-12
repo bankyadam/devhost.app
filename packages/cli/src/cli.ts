@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import { main } from './main.js';
 import type { Deps } from './deps.js';
 import { RealRunner } from './runner/real.js';
 
-const HOMEBREW_PATH = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin';
+const HOMEBREW_PATH = `/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:${homedir()}/.local/bin`;
 
 const env = { ...process.env };
 // launchd and ssh give a minimal PATH; make Homebrew tools findable (spec A5).
@@ -18,6 +18,7 @@ const deps: Deps = {
   stdoutIsTTY: process.stdout.isTTY === true,
   env,
   home: homedir(),
+  user: userInfo().username,
   runner: new RealRunner(env),
   now: () => new Date(),
   cancel: { cancelled: false },
