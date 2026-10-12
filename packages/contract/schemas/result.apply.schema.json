@@ -84,6 +84,13 @@
         "type": "string"
       },
       "description": "Things a human should look at that did not stop the run."
+    },
+    "kept": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "uninstall: things devhost deliberately left in place."
     }
   }
 }

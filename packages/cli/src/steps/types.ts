@@ -46,4 +46,6 @@ export interface Step {
   check(ctx: StepContext): Promise<CheckResult>;
   /** Make the system match. Must go through ctx.exec so --dry-run is safe. */
   apply(ctx: StepContext): Promise<void>;
+  /** Set to false for best-effort steps whose result cannot be fully verified (e.g. `brew uninstall` of a package others depend on). */
+  verify?: boolean;
 }

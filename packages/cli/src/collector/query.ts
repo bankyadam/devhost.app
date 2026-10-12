@@ -107,10 +107,10 @@ export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now:
   const dockerKv = db.kvGet('docker');
 
   const accounts = accountsOf(config).filter((a) => !opts.account || a.name === opts.account);
-  const accountUsage = usage(db, localMonday(now) < midnight ? localMonday(now) : midnight, DAY * 365, { account: opts.account, env: opts.env, model: opts.model });
-  // `usage()` with a huge bucket collapses time; recompute today separately.
-  const todayRows = usage(db, midnight, DAY * 365, { account: opts.account, env: opts.env, model: opts.model });
-  const weekRows = accountUsage;
+  // A bucket wider than the range collapses time, which is what totals need.
+  const filter = { account: opts.account, env: opts.env, model: opts.model };
+  const todayRows = usage(db, midnight, DAY * 365, filter);
+  const weekRows = usage(db, localMonday(now), DAY * 365, filter);
 
   const sessionsRaw = db.all<{ session_id: string; account: string; env: string; state: string; started_at: number; last_activity_at: number }>(
     `SELECT session_id, account, env, state, started_at, last_activity_at FROM sessions

@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -19,6 +19,7 @@ export interface TestEnv {
 export async function makeEnv(runner = new MockRunner(), tty = false): Promise<TestEnv> {
   const home = await mkdtemp(join(tmpdir(), 'devhost-test-'));
   process.env['DEVHOST_LAUNCHD_DIR'] = join(home, 'LaunchDaemons');
+  runner.context['home'] = home;
   const out: string[] = [];
   const err: string[] = [];
   const deps: Deps = {
@@ -74,6 +75,8 @@ export interface FakeState {
   composeUp: Set<string>;
   /** Output of `git log --branches --not --remotes --oneline` per directory. */
   unpushed: Map<string, string>;
+  uninstalled: string[];
+  fileVault: 'On' | 'Off';
 }
 
 const BREWED = ['git', 'claude', 'colima', 'docker', 'tailscale', 'direnv', 'mise', 'curl'];
@@ -100,6 +103,8 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     loggedIn: new Set(),
     composeUp: new Set(),
     unpushed: new Map(),
+    uninstalled: [],
+    fileVault: 'On',
     ...initial,
   };
   const runner = new MockRunner();
@@ -204,7 +209,7 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       mkdirSync(join(m[1]!, '.git', 'info'), { recursive: true });
       return {};
     }
-    if ((m = /^git clone (\S+) (\S+)$/.exec(line))) {
+    if ((m = /^git clone -- (\S+) (\S+)$/.exec(line))) {
       mkdirSync(join(m[2]!, '.git', 'info'), { recursive: true });
       return {};
     }
@@ -220,6 +225,36 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       return {};
     }
     if ((m = /^docker compose -p (\S+) ps -q/.exec(line))) return { stdout: state.composeUp.has(m[1]!) ? 'abc123\n' : '' };
+    if (line === 'sw_vers -productVersion') return { stdout: '26.0\n' };
+    if (line === 'uname -m') return { stdout: 'arm64\n' };
+    if (line === 'fdesetup status') return { stdout: `FileVault is ${state.fileVault}.\n` };
+    if (line === 'brew --version') return { stdout: 'Homebrew 5.0.0\n' };
+    if (line.startsWith('df -k /')) return { stdout: 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk3s1 1000000 500000 500000 50% /\n' };
+    if (line.startsWith('docker info')) return state.colimaRunning ? { stdout: '27.0\n' } : { code: 1 };
+    if (line === '/opt/homebrew/bin/claude --version') return { stdout: '2.1.300 (Claude Code)\n' };
+    if (line === '/opt/homebrew/bin/claude doctor') return { stdout: 'Remote Control: available\n' };
+    if (line.startsWith('curl -s -m 2 http://127.0.0.1:')) return state.loaded.has('com.devhost.collector') ? { stdout: '{"ok":true}' } : { code: 7 };
+    if (line.startsWith('du -sk')) return { stdout: '64\t/x\n' };
+    if ((m = /^direnv exec (\S+) sh -c printenv CLAUDE_CONFIG_DIR$/.exec(line))) {
+      const rc = existsSync(join(m[1]!, '.envrc')) ? readFileSync(join(m[1]!, '.envrc'), 'utf8') : '';
+      return { stdout: /export CLAUDE_CONFIG_DIR=(\S+)/.exec(rc)?.[1] ? `${/export CLAUDE_CONFIG_DIR=(\S+)/.exec(rc)![1]}\n` : '' };
+    }
+    if ((m = /^git -C (\S+) config --get user\.email$/.exec(line))) {
+      const home = runner.context['home'] ?? '';
+      const gitconfig = existsSync(join(home, '.gitconfig')) ? readFileSync(join(home, '.gitconfig'), 'utf8') : '';
+      for (const inc of gitconfig.matchAll(/\[includeIf "gitdir:([^"]+)"\]\n\tpath = (\S+)/g)) {
+        if (m[1]!.startsWith(inc[1]!) && existsSync(inc[2]!)) return { stdout: `${/email = "([^"]+)"/.exec(readFileSync(inc[2]!, 'utf8'))?.[1] ?? ''}\n` };
+      }
+      return { stdout: '' };
+    }
+    if (line.startsWith('lsof ')) return { code: 1 };
+    if (line.startsWith('ps ')) return { stdout: '' };
+    if ((m = /^brew uninstall --(formula|cask) (\S+)$/.exec(line))) {
+      state.uninstalled.push(m[2]!);
+      return {};
+    }
+    if (line === 'brew list --formula -1') return { stdout: 'git\ncolima\njq\ntailscale\n' };
+    if (line === 'brew list --cask -1') return { stdout: 'claude-code\n' };
     return { code: 127, stderr: `unexpected command in test: ${line}` };
   };
   runner.on(/.*/, dispatch);

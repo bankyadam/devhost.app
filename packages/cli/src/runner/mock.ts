@@ -46,6 +46,8 @@ export class FakeProcess implements SpawnedProcess {
 
 /** Scripted runner for tests: first matching rule wins, anything else exits 127. */
 export class MockRunner implements Runner {
+  /** Free-form data tests can share with scripted responders (e.g. the temp home directory). */
+  readonly context: Record<string, string> = {};
   readonly calls: RecordedCall[] = [];
   readonly spawned: { call: RecordedCall; process: FakeProcess }[] = [];
   private readonly rules: { match: (line: string) => boolean; respond: Responder }[] = [];

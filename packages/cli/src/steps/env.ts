@@ -132,7 +132,8 @@ export function envStep(a: Account, e: Environment): Step {
       if (!(await isGitRepo(ctx, dir))) {
         if (e.repo && (await exec.query('test', ['-d', dir])).code !== 0) {
           await exec.mkdirp(join(dir, '..'));
-          await exec.exec('git', ['clone', e.repo, dir], { reason: `clone ${e.repo}` });
+          // `--` so a repo value starting with '-' can never be read as a git option.
+          await exec.exec('git', ['clone', '--', e.repo, dir], { reason: `clone ${e.repo}` });
         } else {
           await exec.mkdirp(dir);
           await exec.exec('git', ['init', dir]);

@@ -888,6 +888,13 @@ export const schemas = {
           "type": "string"
         },
         "description": "Things a human should look at that did not stop the run."
+      },
+      "kept": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "uninstall: things devhost deliberately left in place."
       }
     }
   },
@@ -1419,6 +1426,76 @@ export const schemas = {
       }
     }
   },
+  "result.doctor": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.doctor.schema.json",
+    "title": "DoctorData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "ok",
+      "summary",
+      "checks"
+    ],
+    "properties": {
+      "ok": {
+        "type": "boolean",
+        "description": "False when any check failed."
+      },
+      "summary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "warn",
+          "fail"
+        ],
+        "properties": {
+          "ok": {
+            "type": "integer"
+          },
+          "warn": {
+            "type": "integer"
+          },
+          "fail": {
+            "type": "integer"
+          }
+        }
+      },
+      "checks": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "status",
+            "message"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "warn",
+                "fail"
+              ]
+            },
+            "message": {
+              "type": "string"
+            },
+            "fix": {
+              "type": "string",
+              "description": "One-line fix; copy-paste ready where possible."
+            }
+          }
+        }
+      }
+    }
+  },
   "result.env-change": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://devhost.app/schemas/result.env-change.schema.json",
@@ -1729,6 +1806,164 @@ export const schemas = {
       "topic": {
         "type": "string",
         "description": "Masked: the topic works like a password."
+      }
+    }
+  },
+  "result.status": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.status.schema.json",
+    "title": "StatusData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "version",
+      "host",
+      "accounts",
+      "environments",
+      "collector",
+      "docker",
+      "diskFreePercent"
+    ],
+    "properties": {
+      "version": {
+        "type": "string"
+      },
+      "host": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "tailscale"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "tailscale": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "state",
+              "dnsName",
+              "ips"
+            ],
+            "properties": {
+              "state": {
+                "type": "string"
+              },
+              "dnsName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ips": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "accounts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "default",
+            "loggedIn"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "default": {
+              "type": "boolean"
+            },
+            "loggedIn": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        }
+      },
+      "environments": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "account",
+            "name",
+            "service",
+            "portBase"
+          ],
+          "properties": {
+            "account": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "service": {
+              "type": "string",
+              "enum": [
+                "running",
+                "stopped",
+                "not-installed",
+                "disabled"
+              ]
+            },
+            "portBase": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        }
+      },
+      "collector": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "running",
+          "lastSampleAt"
+        ],
+        "properties": {
+          "running": {
+            "type": "boolean"
+          },
+          "lastSampleAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "docker": {
+        "type": "string",
+        "enum": [
+          "up",
+          "down",
+          "not-used"
+        ]
+      },
+      "diskFreePercent": {
+        "type": [
+          "number",
+          "null"
+        ]
       }
     }
   },

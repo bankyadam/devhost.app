@@ -39,3 +39,23 @@ export async function removeAccountArtifacts(ctx: StepContext, a: Account, confi
 
   return [accountRoot(a, home), claudeConfigDir(a, home) ?? join(home, '.claude'), 'credentials (Keychain or .credentials.json)'];
 }
+
+/** True when `removeAccountArtifacts` would change anything for this account. */
+export async function accountArtifactsPresent(ctx: StepContext, a: Account, config: DevhostConfig): Promise<boolean> {
+  const { exec, home } = ctx;
+  const envrc = await exec.readText(join(accountRoot(a, home), '.envrc'));
+  if (envrc !== null && envrc.startsWith(ENVRC_HEADER)) return true;
+  const settingsFile = settingsPathOf(a, home);
+  const settings = await exec.readText(settingsFile);
+  if (settings !== null) {
+    try {
+      const next = removeManaged(parseSettings(settings, settingsFile), managedSettings(config, a), config.collector?.port ?? 4318);
+      if (stringifySettings(next) !== settings) return true;
+    } catch {
+      /* an unreadable settings.json is left alone */
+    }
+  }
+  const md = await exec.readText(claudeMdPathOf(a, home));
+  if (md !== null && markdownBlock.read(md) !== null) return true;
+  return (await exec.readText(accountGitConfigPath(home, a.name))) !== null;
+}
