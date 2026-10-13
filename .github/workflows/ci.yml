@@ -53,7 +53,7 @@ jobs:
             if (e.type !== "result" || e.ok !== true || e.data.dryRun !== true) { console.error(l); process.exit(1); }'
 
   app:
-    name: desktop app (universal macOS: arm64 + x86_64)
+    name: "desktop app (universal macOS: arm64 + x86_64)"
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
