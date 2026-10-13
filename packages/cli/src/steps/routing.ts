@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { accountRoot, accountsOf, claudeConfigDir, type Account } from '../config/accounts.js';
+import { whichBinary } from '../state.js';
 import { ok, skip, todo, type Step, type StepContext } from './types.js';
 
 export const ENVRC_HEADER = '# Managed by devhost. Selects this account\'s Claude config for everything below this directory.';
@@ -24,12 +25,20 @@ async function envrcAllowed(ctx: StepContext, root: string): Promise<boolean> {
   return /Found RC allowed 0/.test(r.stdout);
 }
 
+/**
+ * Only accounts with their own config dir need direnv. `account add` runs without the packages
+ * step, and direnv joins the Brewfile only once an account exists, so the first such account
+ * would otherwise find no direnv.
+ */
+const needsDirenv = (ctx: StepContext): boolean => scoped(ctx).some((a) => accountEnvrc(a, ctx.home) !== null);
+
 export const routingStep: Step = {
   id: 'accounts.routing',
   description: 'Create account roots and route CLAUDE_CONFIG_DIR with direnv',
   async check(ctx) {
     const accounts = scoped(ctx);
     if (accounts.length === 0) return skip('no accounts configured');
+    if (needsDirenv(ctx) && !(await whichBinary(ctx.exec, 'direnv'))) return todo('direnv is not installed');
     const problems: string[] = [];
     for (const a of accounts) {
       const root = accountRoot(a, ctx.home);
@@ -46,6 +55,12 @@ export const routingStep: Step = {
     return problems.length === 0 ? ok() : todo(problems.join(', '));
   },
   async apply(ctx) {
+    if (needsDirenv(ctx) && !(await whichBinary(ctx.exec, 'direnv'))) {
+      await ctx.exec.exec('brew', ['install', 'direnv'], {
+        reason: 'direnv routes CLAUDE_CONFIG_DIR per account and is not installed yet',
+        env: { HOMEBREW_NO_ENV_HINTS: '1', HOMEBREW_NO_ANALYTICS: '1' },
+      });
+    }
     for (const a of scoped(ctx)) {
       const root = accountRoot(a, ctx.home);
       await ctx.exec.mkdirp(root);
