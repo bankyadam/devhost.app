@@ -87,6 +87,8 @@ export interface FakeState {
   laptop: boolean;
   /** Keys `pmset -a` accepts but silently ignores (as macOS does for settings a Mac lacks). */
   pmsetIgnores: string[];
+  /** `sudo -n` fails because a password is needed (no cached sudo, no terminal). */
+  sudoNeedsPassword: boolean;
 }
 
 const BREWED = ['git', 'claude', 'colima', 'docker', 'tailscale', 'direnv', 'mise', 'curl'];
@@ -119,11 +121,13 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     rosetta: false,
     laptop: false,
     pmsetIgnores: [],
+    sudoNeedsPassword: false,
     ...initial,
   };
   const brewBin = (): string => (state.arch === 'arm64' ? '/opt/homebrew/bin' : '/usr/local/bin');
   const runner = new MockRunner();
   const dispatch = (call: { command: string; args: string[]; opts?: { env?: Record<string, string>; cwd?: string } }) => {
+    if (state.sudoNeedsPassword && call.command === 'sudo' && call.args[0] === '-n') return { code: 1, stderr: 'sudo: a password is required\n' };
     const line = strip([call.command, ...call.args].join(' '));
     let m: RegExpExecArray | null;
     if ((m = /^scutil --get (\w+)$/.exec(line))) {

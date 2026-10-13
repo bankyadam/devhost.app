@@ -28,6 +28,23 @@ const lastEnvelope = (env: TestEnv): Envelope => JSON.parse(env.stdout().trim().
 const lastResult = (env: TestEnv) => ndjson(env.stdout()).at(-1) as { type: string; ok: boolean; data: Record<string, unknown>; errors?: { code: string; message: string }[] };
 
 describe('account add / list / remove', () => {
+  it('re-running add continues the setup when email and default match, and refuses otherwise', async () => {
+    const { env } = await setup();
+    const add = ['account', 'add', '--name', 'business', '--git-email', 'a@work.example', '--no-login'];
+    expect(await env.run(...add)).toBe(0);
+    env.out.length = 0;
+    expect(await env.run(...add)).toBe(0);
+    expect(env.stdout()).toContain('✅ Account "business" set up (port range 3000-3999');
+    expect((await cfg(env)).match(/^\s+- name: business$/gm)).toHaveLength(1);
+
+    env.out.length = 0;
+    expect(await env.run('account', 'add', '--name', 'business', '--git-email', 'b@work.example', '--no-login', '--json')).toBe(2);
+    expect(lastResult(env).errors?.[0]?.message).toBe('account "business" already exists with git email a@work.example');
+    env.out.length = 0;
+    expect(await env.run(...add, '--default', '--json')).toBe(2);
+    expect(lastResult(env).errors?.[0]?.message).toBe('account "business" already exists as a non-default account');
+  });
+
   it('installs direnv when the first account needs it before any apply installed packages', async () => {
     const mac = fakeMac();
     const env = await makeEnv(mac.runner);
@@ -116,6 +133,42 @@ describe('environments', () => {
     s.env.err.length = 0;
     return s;
   }
+
+  it('continues the setup when create is re-run after the sudo step stopped it (the app\'s "Open in Terminal")', async () => {
+    const { env, mac } = await withAccount();
+    const create = ['env', 'create', '--account', 'business', '--name', 'acme-api', '--repo', 'git@github.com:acme/api.git'];
+    mac.state.sudoNeedsPassword = true;
+    feed(env, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    expect(await env.run(...create, '--permission-mode', 'plan', '--json')).toBe(3);
+    expect(lastResult(env).errors?.[0]?.message).toContain('sudo needs a password');
+
+    mac.state.sudoNeedsPassword = false;
+    env.out.length = 0;
+    feed(env, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    // The Terminal command repeats account, name and repo but not every wizard setting.
+    expect(await env.run(...create, '--json')).toBe(0);
+    const events = ndjson(env.stdout()) as { type: string; id?: string; status?: string }[];
+    expect(events.find((e) => e.type === 'step' && e.id === 'config' && e.status !== 'start')).toMatchObject({ status: 'ok' });
+    expect(lastResult(env).data).toMatchObject({ name: 'acme-api', portBase: 3000 });
+    const text = await cfg(env);
+    expect(text.match(/^\s+- name: acme-api$/gm)).toHaveLength(1);
+    const plist = await readFile(join(env.home, 'LaunchDaemons', 'com.devhost.rc.business.acme-api.plist'), 'utf8');
+    expect(plist).toContain('<string>plan</string>'); // the config's settings win
+  });
+
+  it('refuses to re-run create with a different account or repo', async () => {
+    const { env } = await withAccount();
+    await env.run('account', 'add', '--name', 'lab', '--git-email', 'l@x.y', '--no-login');
+    feed(env, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--repo', 'git@github.com:acme/api.git', '--json')).toBe(0);
+    env.out.length = 0;
+    expect(await env.run('env', 'create', '--account', 'lab', '--name', 'acme-api', '--json')).toBe(2);
+    expect(lastResult(env).errors?.[0]?.message).toBe('environment "acme-api" already exists with account business');
+    env.out.length = 0;
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--repo', 'git@github.com:acme/other.git', '--json')).toBe(2);
+    expect(lastResult(env).errors?.[0]?.message).toBe('environment "acme-api" already exists with repo git@github.com:acme/api.git');
+    expect((await cfg(env)).match(/^\s+- name: acme-api$/gm)).toHaveLength(1);
+  });
 
   it('refuses to create an environment for a missing account', async () => {
     const { env } = await setup();

@@ -2,6 +2,7 @@ import { readFile, stat } from 'node:fs/promises';
 import type { DevhostConfig, EnvChangeData, EnvListData, EnvLogsData } from '@devhost/contract';
 import { runSteps } from './apply.js';
 import { long, newExecutor, newReporter, newStepContext, short, type GlobalOptions } from './command-support.js';
+import { withPortBases } from './commands.js';
 import { composeProject, envDir, environmentsOf, findAccount, rcLabel, rcLogPath, type Account, type Environment } from './config/accounts.js';
 import { appendTo, editConfigFile, removeFrom } from './config/edit.js';
 import { loadConfig } from './config/load.js';
@@ -75,25 +76,48 @@ export function envCreateCommand(deps: Deps, g: GlobalOptions, opts: EnvCreateOp
     if (!account) {
       throw new UsageError(`account "${opts.account}" does not exist`, `Add it first: devhost account add --name ${opts.account} --git-email <email>`);
     }
-    if (environmentsOf(loaded.config).some((e) => e.name === opts.name)) throw new UsageError(`environment "${opts.name}" already exists`);
+    // Re-running create for an environment that is already in the config continues its setup (e.g. after
+    // the sudo step stopped it), as long as it names the same account and repo; the config's settings win.
+    const existing = environmentsOf(loaded.config).find((e) => e.name === opts.name);
+    if (existing) {
+      const differs = [
+        ...(existing.account !== opts.account ? [`account ${existing.account}`] : []),
+        ...(opts.repo !== undefined && existing.repo !== opts.repo ? [`repo ${existing.repo ?? '(none)'}`] : []),
+      ];
+      if (differs.length > 0) {
+        throw new UsageError(`environment "${opts.name}" already exists with ${differs.join(' and ')}`, `Use another name, or remove it first: devhost env delete ${opts.name}`);
+      }
+    }
 
-    const portBase = allocatePortBase(loaded.config, account);
-    const entry = {
-      name: opts.name,
-      account: opts.account,
-      ...(opts.repo ? { repo: opts.repo } : {}),
-      portBase,
-      remoteControl: { enabled: !opts.noRc, spawn: opts.spawn ?? 'worktree', permissionMode: opts.permissionMode ?? 'acceptEdits' },
-      compose: opts.compose,
-    };
-    reporter.step('config', 'start', `add environment ${opts.name} to ${g.configPath}`);
-    const { config } = await editConfigFile(g.configPath, deps.now(), (doc) => appendTo(doc, 'environments', entry));
-    reporter.step('config', 'changed', `port block ${portBase}-${portBase + 99}`);
+    let config = loaded.config;
+    let portBase: number;
+    let rcEnabled: boolean;
+    if (existing) {
+      // A hand-written entry may lack its port block; apply allocates and writes missing ones.
+      if (existing.portBase === undefined) config = await withPortBases(config, g, deps, newExecutor(deps, g, reporter, false));
+      portBase = environmentsOf(config).find((e) => e.name === opts.name)!.portBase!;
+      rcEnabled = existing.remoteControl?.enabled !== false;
+      reporter.step('config', 'ok', `already in ${g.configPath}; continuing its setup with the settings there`);
+    } else {
+      portBase = allocatePortBase(loaded.config, account);
+      rcEnabled = !opts.noRc;
+      const entry = {
+        name: opts.name,
+        account: opts.account,
+        ...(opts.repo ? { repo: opts.repo } : {}),
+        portBase,
+        remoteControl: { enabled: rcEnabled, spawn: opts.spawn ?? 'worktree', permissionMode: opts.permissionMode ?? 'acceptEdits' },
+        compose: opts.compose,
+      };
+      reporter.step('config', 'start', `add environment ${opts.name} to ${g.configPath}`);
+      ({ config } = await editConfigFile(g.configPath, deps.now(), (doc) => appendTo(doc, 'environments', entry)));
+      reporter.step('config', 'changed', `port block ${portBase}-${portBase + 99}`);
+    }
 
     const exec = newExecutor(deps, g, reporter, false);
     const prompter = makePrompter(deps, g.json, g.yes);
     const loggedIn = (await authStatus({ exec, deps }, account)).loggedIn;
-    if (opts.noRc === false && loggedIn !== true) {
+    if (rcEnabled && loggedIn !== true) {
       exec.warn(`Account "${opts.account}" is not logged in, so workspace trust was not accepted. Run \`devhost login ${opts.account}\`.`);
     }
     const loginCtx: LoginContext = {
