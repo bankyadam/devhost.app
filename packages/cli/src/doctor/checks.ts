@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DevhostConfig } from '@devhost/contract';
+import { MIN_REMOTE_CONTROL_VERSION, parseVersion, versionAtLeast } from '../claude-version.js';
 import { Db, dbPath } from '../collector/db.js';
 import { managedSettings, parseSettings } from '../claude-settings.js';
 import { accountEnv, accountRoot, accountsOf, composeProject, effectiveClaudeDir, envDir, environmentsOf, rcLabel, rcLogPath, type Account, type Environment } from '../config/accounts.js';
@@ -169,7 +170,12 @@ async function toolChecks(c: DoctorContext): Promise<Check[]> {
   }
 
   const claude = await exec.query(await claudeBinary({ exec, deps }), ['--version']);
-  out.push(claude.code === 0 ? ok('tools.claude', `Claude Code ${claude.stdout.trim()}`) : fail('tools.claude', 'Claude Code is not installed', 'devhost apply --only packages claude'));
+  const version = claude.code === 0 ? parseVersion(claude.stdout) : null;
+  out.push(
+    claude.code !== 0 ? fail('tools.claude', 'Claude Code is not installed', 'devhost apply --only packages claude')
+    : version && !versionAtLeast(version, MIN_REMOTE_CONTROL_VERSION) ? fail('tools.claude', `Claude Code ${version.join('.')} is too old for Remote Control (${MIN_REMOTE_CONTROL_VERSION} or newer)`, 'devhost apply --only claude.binary')
+    : ok('tools.claude', `Claude Code ${claude.stdout.trim()}`),
+  );
   return out;
 }
 

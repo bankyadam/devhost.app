@@ -55,7 +55,7 @@ export function ndjson(text: string): unknown[] {
     .map((l) => JSON.parse(l) as unknown);
 }
 
-const strip = (line: string): string => line.replace(/^sudo -n -- /, '');
+const strip = (line: string): string => line.replace(/^sudo (-n )?-- /, '');
 
 export interface FakeState {
   names: { ComputerName: string; HostName: string; LocalHostName: string };
@@ -89,6 +89,8 @@ export interface FakeState {
   pmsetIgnores: string[];
   /** `sudo -n` fails because a password is needed (no cached sudo, no terminal). */
   sudoNeedsPassword: boolean;
+  /** `claude --version`; `brew upgrade --cask claude-code` moves it to 2.1.300. */
+  claudeVersion: string;
 }
 
 const BREWED = ['git', 'claude', 'colima', 'docker', 'tailscale', 'direnv', 'mise', 'curl'];
@@ -122,6 +124,7 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     laptop: false,
     pmsetIgnores: [],
     sudoNeedsPassword: false,
+    claudeVersion: '2.1.300',
     ...initial,
   };
   const brewBin = (): string => (state.arch === 'arm64' ? '/opt/homebrew/bin' : '/usr/local/bin');
@@ -261,7 +264,11 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     if (line === 'brew --version') return { stdout: 'Homebrew 5.0.0\n' };
     if (line.startsWith('df -k /')) return { stdout: 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk3s1 1000000 500000 500000 50% /\n' };
     if (line.startsWith('docker info')) return state.colimaRunning ? { stdout: '27.0\n' } : { code: 1 };
-    if (line === `${brewBin()}/claude --version`) return { stdout: '2.1.300 (Claude Code)\n' };
+    if (line === `${brewBin()}/claude --version`) return { stdout: `${state.claudeVersion} (Claude Code)\n` };
+    if (line === 'brew upgrade --cask claude-code') {
+      state.claudeVersion = '2.1.300';
+      return {};
+    }
     if (line === `${brewBin()}/claude doctor`) return { stdout: 'Remote Control: available\n' };
     if (line.startsWith('curl -s -m 2 http://127.0.0.1:')) return state.loaded.has('com.devhost.collector') ? { stdout: '{"ok":true}' } : { code: 7 };
     if (line.startsWith('du -sk')) return { stdout: '64\t/x\n' };
@@ -301,6 +308,10 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
   // `claude remote-control` under a pty: asks for trust, then for the one-time Remote Control confirmation.
   runner.onSpawn(/^script -q \/dev\/null \/opt\/homebrew\/bin\/claude remote-control/, (p, call) => {
     const answers: string[] = [];
+    if (state.claudeVersion.startsWith('2.1.8')) {
+      p.emit(`Your version of Claude Code (${state.claudeVersion}) is too old for Remote Control.\nVersion 2.1.139 or higher is required.\n`);
+      return p.exit(1);
+    }
     p.emit(`Trust ${call.opts?.cwd}? [y/N] `);
     p.onWrite((data) => {
       if (data === '\u0003') return p.exit(0);

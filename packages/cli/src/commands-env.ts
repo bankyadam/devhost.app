@@ -136,7 +136,7 @@ export function envCreateCommand(deps: Deps, g: GlobalOptions, opts: EnvCreateOp
         if (loggedIn !== true) return;
         reporter.step(`trust.${info.name}`, 'start', info.dir);
         const ok = await acceptWorkspace(loginCtx, info);
-        reporter.step(`trust.${info.name}`, ok ? 'ok' : 'skipped', ok ? undefined : 'declined; the service will exit until the directory is trusted');
+        reporter.step(`trust.${info.name}`, ok ? 'ok' : 'skipped', ok ? undefined : 'not trusted (declined, or Claude Code stopped before asking); the service will exit until it is');
       },
     });
     const outcome = await runSteps(selectSteps(buildSteps(config), [`env.${opts.name}`]), ctx, reporter, deps.cancel);
@@ -155,7 +155,7 @@ export function envCreateCommand(deps: Deps, g: GlobalOptions, opts: EnvCreateOp
       data,
       error: outcome.error,
       cancelled: outcome.cancelled,
-      human: ['', `✅ Environment ${opts.account}/${opts.name} ready in ${dir} (ports ${portBase}-${portBase + 99}).`],
+      human: outcome.error || outcome.cancelled ? [] : ['', `✅ Environment ${opts.account}/${opts.name} ready in ${dir} (ports ${portBase}-${portBase + 99}).`],
     };
   });
 }

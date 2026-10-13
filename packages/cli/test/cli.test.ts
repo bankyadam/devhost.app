@@ -179,6 +179,19 @@ describe('apply', () => {
     expect(power.message).toContain('sleep 0, disksleep 0, womp 1');
   });
 
+  it('updates a Claude Code too old for Remote Control; doctor flags it until then', async () => {
+    const { env, state } = await initializedOn(fakeMac({ claudeVersion: '2.1.81' }));
+    expect(await env.run('apply')).toBe(0);
+    expect(env.runner.lines()).toContain('brew upgrade --cask claude-code');
+    expect(state.claudeVersion).toBe('2.1.300');
+
+    state.claudeVersion = '2.1.81';
+    env.out.length = 0;
+    await env.run('doctor', '--json');
+    const claude = (JSON.parse(env.stdout()) as { data: { checks: { id: string; status: string; message: string; fix?: string }[] } }).data.checks.find((c) => c.id === 'tools.claude')!;
+    expect(claude).toMatchObject({ status: 'fail', message: 'Claude Code 2.1.81 is too old for Remote Control (2.1.139 or newer)', fix: 'devhost apply --only claude.binary' });
+  });
+
   it('says where it stopped when a step fails, not "No changes"', async () => {
     const { env } = await initializedOn(fakeMac({ pmsetIgnores: ['autorestart'] }));
     expect(await env.run('apply')).not.toBe(0);

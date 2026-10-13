@@ -156,6 +156,35 @@ describe('environments', () => {
     expect(plist).toContain('<string>plan</string>'); // the config's settings win
   });
 
+  it('a Claude Code too old for Remote Control stops trust with the fix, not a silent success', async () => {
+    const { env, mac } = await withAccount();
+    mac.state.claudeVersion = '2.1.81';
+    feed(env, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--json')).toBe(3);
+    const err = lastResult(env).errors?.[0] as { message: string; hint?: string };
+    expect(err.message).toContain('too old for Remote Control (2.1.139 or newer is needed)');
+    expect(err.hint).toContain('devhost apply --only claude.binary');
+  });
+
+  it('in a terminal, trust is reported from what Claude Code recorded, not assumed', async () => {
+    const mac = fakeMac();
+    const env = await makeEnv(mac.runner, true);
+    await env.run('init', '--yes', '--docker', 'none', '--no-tailscale');
+    await env.run('account', 'add', '--name', 'business', '--git-email', 'a@work.example', '--no-login');
+    mac.state.loggedIn.add(join(env.home, '.claude-business'));
+    env.out.length = 0;
+    // Claude Code ran on the terminal but stopped before asking: nothing recorded.
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api')).toBe(0);
+    expect(env.stdout()).toMatch(/trust\.acme-api — not trusted \(declined, or Claude Code stopped before asking\)/);
+
+    // Answered in the terminal: Claude Code wrote the trust into its state file.
+    const dir = join(env.home, 'work', 'business', 'other');
+    await writeFile(join(env.home, '.claude-business', '.claude.json'), JSON.stringify({ projects: { [dir]: { hasTrustDialogAccepted: true } } }));
+    env.out.length = 0;
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'other')).toBe(0);
+    expect(env.stdout()).toMatch(/✅ trust\.other/);
+  });
+
   it('refuses to re-run create with a different account or repo', async () => {
     const { env } = await withAccount();
     await env.run('account', 'add', '--name', 'lab', '--git-email', 'l@x.y', '--no-login');
