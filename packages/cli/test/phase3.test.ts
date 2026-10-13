@@ -185,6 +185,17 @@ describe('environments', () => {
     expect(env.stdout()).toMatch(/✅ trust\.other/);
   });
 
+  it('skips Claude Code when the workspace is already trusted (the running service would refuse it)', async () => {
+    const { env, mac } = await withAccount();
+    const dir = join(env.home, 'work', 'business', 'acme-api');
+    await mkdir(join(env.home, '.claude-business'), { recursive: true });
+    await writeFile(join(env.home, '.claude-business', '.claude.json'), JSON.stringify({ projects: { [dir]: { hasTrustDialogAccepted: true } } }));
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--json')).toBe(0);
+    expect(mac.runner.spawned.filter((s) => s.call.command === 'script')).toEqual([]);
+    const trust = (ndjson(env.stdout()) as { type: string; id?: string; status?: string }[]).filter((e) => e.type === 'step' && e.id === 'trust.acme-api');
+    expect(trust.at(-1)).toMatchObject({ status: 'ok' });
+  });
+
   it('refuses to re-run create with a different account or repo', async () => {
     const { env } = await withAccount();
     await env.run('account', 'add', '--name', 'lab', '--git-email', 'l@x.y', '--no-login');
