@@ -28,6 +28,22 @@ const lastEnvelope = (env: TestEnv): Envelope => JSON.parse(env.stdout().trim().
 const lastResult = (env: TestEnv) => ndjson(env.stdout()).at(-1) as { type: string; ok: boolean; data: Record<string, unknown>; errors?: { code: string; message: string }[] };
 
 describe('account add / list / remove', () => {
+  it('installs direnv when the first account needs it before any apply installed packages', async () => {
+    const mac = fakeMac();
+    const env = await makeEnv(mac.runner);
+    expect(await env.run('init', '--yes', '--no-tailscale')).toBe(0);
+    expect(mac.state.binaries.has('direnv')).toBe(false);
+    expect(await env.run('account', 'add', '--name', 'business', '--git-email', 'me@work.example', '--no-login')).toBe(0);
+    expect(mac.runner.lines()).toContain('brew install direnv');
+    expect(mac.state.direnvAllowed.has(join(env.home, 'work', 'business'))).toBe(true);
+    // A default account needs no direnv, so nothing is installed for it.
+    const other = fakeMac();
+    const env2 = await makeEnv(other.runner);
+    await env2.run('init', '--yes', '--no-tailscale');
+    expect(await env2.run('account', 'add', '--name', 'personal', '--git-email', 'me@example.com', '--default', '--no-login')).toBe(0);
+    expect(other.runner.lines()).not.toContain('brew install direnv');
+  });
+
   it('allocates port ranges, writes config and runs the account steps', async () => {
     const { env } = await setup();
     expect(await env.run('account', 'add', '--name', 'personal', '--git-email', 'me@example.com', '--git-name', 'Me', '--default', '--no-login')).toBe(0);

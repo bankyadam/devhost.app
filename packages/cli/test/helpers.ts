@@ -154,6 +154,10 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       state.sshOn = true;
       return {};
     }
+    if ((m = /^brew install (\S+)$/.exec(line))) {
+      state.binaries.add(m[1]!);
+      return {};
+    }
     if (line.startsWith('brew bundle check')) return { code: state.bundled.has('all') ? 0 : 1 };
     if (line.startsWith('brew bundle')) {
       state.bundled.add('all');
