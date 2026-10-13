@@ -9,6 +9,7 @@ import { bucketLabel, buildBuckets, meterTone, TOKEN_TYPES, type Metric, type St
 import { Legend, StackedColumns, type Series } from '../ui/chart';
 import { Badge, Empty, Menu, Segmented } from '../ui/primitives';
 import { useDash } from '../use-dash';
+import { openClaude, useWebApps } from '../use-web-apps';
 
 const RANGES: { value: Range; label: string }[] = [
   { value: '1h', label: 'Last hour' },
@@ -30,6 +31,7 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
   const [envs, setEnvs] = useState<EnvListData['environments']>([]);
 
   const { dash, loading, error, stale } = useDash(range, { account, env, model });
+  const webApps = useWebApps(known);
 
   // Account colors follow the account, not its rank: remember every account ever seen, in order.
   useEffect(() => {
@@ -186,7 +188,7 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
                 </tr>
               </thead>
               <tbody>
-                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envDir(s.env)} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} />)}
+                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envDir(s.env)} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} webApps={webApps.installed} />)}
               </tbody>
             </table>
           </div>
@@ -201,7 +203,7 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
   );
 }
 
-function SessionRow({ s, now, dir, portBase, hostName }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string }) {
+function SessionRow({ s, now, dir, portBase, hostName, webApps }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; webApps: Record<string, boolean> }) {
   const { transport, tools } = useApp();
   return (
     <tr className={s.state === 'waiting' ? 'waiting' : ''}>
@@ -219,7 +221,7 @@ function SessionRow({ s, now, dir, portBase, hostName }: { s: Session; now: numb
         <Menu
           label="Open"
           items={[
-            { label: 'claude.ai/code', onSelect: () => void transport.openUrl('https://claude.ai/code') },
+            { label: s.account && webApps[s.account] ? `claude.ai/code (Claude – ${s.account})` : 'claude.ai/code', onSelect: () => void openClaude(transport, webApps, s.account) },
             { label: 'Terminal: resume this session', hidden: !dir || s.state === 'ended', onSelect: () => void transport.openTerminal({ kind: 'resume', dir: dir!, sessionId: s.id }) },
             { label: 'Terminal: shell in the environment', hidden: !dir, onSelect: () => void transport.openTerminal({ kind: 'shell', dir: dir! }) },
             { label: 'VS Code (Remote SSH)', hidden: !dir || !tools.code, onSelect: () => void transport.openVscode(dir!) },

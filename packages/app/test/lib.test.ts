@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { DashData } from '@devhost/contract/lite';
 import { allocateAccountRange, allocatePortBase } from '../../cli/src/ports.js';
@@ -8,6 +9,7 @@ import { predictAccountRange, predictEnvBlock } from '../src/lib/ports';
 import { loadPrefs, savePrefs } from '../src/lib/prefs';
 import { filterSessions, sortSessions, type Session } from '../src/lib/sessions';
 import { trayState } from '../src/lib/tray';
+import { SERIES_HEX, webAppIconSvg } from '../src/lib/webAppIcon';
 import { BUCKET_MS, buildBuckets, meterTone } from '../src/lib/usage';
 import { deleteAt, fromPointer, readAt, toPointer, writeAt } from '../src/lib/yamlEdit';
 import { labelOf, schemaDefault, type JsonSchema } from '../src/ui/schema-form';
@@ -62,6 +64,23 @@ describe('account colors', () => {
     expect(seriesSlot(many, 'a8')).toBe(0);
     expect(seriesSlot(many, 'ghost')).toBe(0);
     expect(seriesVar(0)).toBe('var(--series-other)');
+  });
+});
+
+describe('web app icon', () => {
+  const all = ['personal', 'business'];
+  it('uses the account color, matching the light palette in styles.css', () => {
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+    const light = css.slice(0, css.indexOf('@media'));
+    SERIES_HEX.forEach((hex, slot) => expect(light).toContain(`--series-${slot === 0 ? 'other' : slot}: ${hex};`));
+    expect(webAppIconSvg(all, 'business')).toContain(`fill="${SERIES_HEX[2]}"`);
+    expect(webAppIconSvg(all, 'ghost')).toContain(`fill="${SERIES_HEX[0]}"`);
+  });
+  it('writes the account name, shrunk to fit and escaped', () => {
+    expect(webAppIconSvg(all, 'business')).toContain('font-size="150"');
+    expect(webAppIconSvg(all, 'business')).toMatch(/>business<\/text>/);
+    expect(webAppIconSvg(all, 'a'.repeat(32))).toContain('font-size="46"');
+    expect(webAppIconSvg(all, '<b>&')).toContain('&#60;b&#62;&#38;');
   });
 });
 

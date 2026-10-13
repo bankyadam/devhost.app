@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 
 use devhost_core::{
     control_path, remote_command, ssh_args, terminal_command, terminal_script, tray_title, validate_devhost_args,
-    validate_url, vscode_args, LineBuffer, TerminalAction, TrayStatus,
+    valid_icon_png, validate_url, vscode_args, web_app_icon_path, web_app_path, LineBuffer, TerminalAction,
+    TrayStatus,
 };
 use serde::{Deserialize, Serialize};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
@@ -19,6 +20,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 const SSH: &str = "/usr/bin/ssh";
 const TRAY_ID: &str = "devhost";
+const CLAUDE_CODE_URL: &str = "https://claude.ai/code";
 
 #[derive(Default)]
 struct Streams(Mutex<HashMap<String, StreamHandle>>);
@@ -223,6 +225,46 @@ fn open_vscode(host: String, path: String) -> Result<(), String> {
     Command::new(code).args(vscode_args(&host, &path)?).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Which accounts already have their Safari web app in ~/Applications.
+#[tauri::command]
+fn web_apps(accounts: Vec<String>) -> Result<HashMap<String, bool>, String> {
+    let home = home()?;
+    accounts
+        .into_iter()
+        .map(|a| {
+            let installed = std::path::Path::new(&web_app_path(&home, &a)?).exists();
+            Ok((a, installed))
+        })
+        .collect()
+}
+
+/// First half of "Add to Dock", the part Safari lets us do: save the generated icon, open
+/// claude.ai/code in Safari and show the icon in Finder so it can be dragged onto Safari's dialog.
+/// Returns where the icon was saved.
+#[tauri::command]
+fn setup_web_app(app: AppHandle, account: String, png: Vec<u8>) -> Result<String, String> {
+    valid_icon_png(&png)?;
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let icon = web_app_icon_path(&data_dir.to_string_lossy(), &account)?;
+    if let Some(dir) = std::path::Path::new(&icon).parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&icon, &png).map_err(|e| e.to_string())?;
+    Command::new("/usr/bin/open").args(["-a", "Safari", CLAUDE_CODE_URL]).spawn().map_err(|e| e.to_string())?;
+    Command::new("/usr/bin/open").args(["-R", &icon]).spawn().map_err(|e| e.to_string())?;
+    Ok(icon)
+}
+
+/// Open the account's web app (it starts on claude.ai/code, already signed in).
+#[tauri::command]
+fn open_web_app(account: String) -> Result<(), String> {
+    let path = web_app_path(&home()?, &account)?;
+    if !std::path::Path::new(&path).exists() {
+        return Err(format!("{path} does not exist; set the web app up first"));
+    }
+    Command::new("/usr/bin/open").arg(&path).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// Menu bar: a status dot and the count of sessions waiting for input.
 #[tauri::command]
 fn set_tray(app: AppHandle, status: String, waiting: u32) -> Result<(), String> {
@@ -256,6 +298,9 @@ pub fn run() {
             open_terminal,
             open_vscode,
             detect_tools,
+            web_apps,
+            setup_web_app,
+            open_web_app,
             set_tray
         ])
         .setup(|app| {
@@ -274,7 +319,7 @@ pub fn run() {
                     "dashboard" => show_main(app, Some("dashboard")),
                     "environments" => show_main(app, Some("environments")),
                     "claude" => {
-                        let _ = open_url("https://claude.ai/code".into());
+                        let _ = open_url(CLAUDE_CODE_URL.into());
                     }
                     "quit" => app.exit(0),
                     _ => {}

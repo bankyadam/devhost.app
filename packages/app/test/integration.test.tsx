@@ -85,8 +85,9 @@ describe('connection (spec B2, B6)', () => {
 });
 
 describe('dashboard (spec B3.1, B6)', () => {
-  async function dashboard() {
+  async function dashboard(webApps: string[] = []) {
     const h = await makeHarness();
+    webApps.forEach((a) => h.transport.webAppsInstalled.add(a));
     await withBusiness(h);
     await h.cli('account', 'add', '--name', 'personal', '--git-email', 'me@example.com', '--no-login');
     await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
@@ -157,6 +158,14 @@ describe('dashboard (spec B3.1, B6)', () => {
     await waitFor(() => expect(first()).toBe('sess-run')); // 9,000 > 1,500
     await h.user.click(sessions.getByRole('button', { name: /^Tokens today/ }));
     await waitFor(() => expect(first()).toBe('sess-wai'));
+  });
+
+  it("claude.ai/code opens the account's web app when it has one", async () => {
+    const h = await dashboard(['business']);
+    const row = (await screen.findByText('sess-wai')).closest('tr')!;
+    await h.user.click(within(row).getByRole('button', { name: /Open/ }));
+    await h.user.click(await screen.findByRole('menuitem', { name: 'claude.ai/code (Claude – business)' }));
+    expect(h.transport.opened.at(-1)).toEqual({ webApp: 'business' });
   });
 
   it('time range presets and session actions', async () => {

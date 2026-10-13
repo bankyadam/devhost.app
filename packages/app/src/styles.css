@@ -193,6 +193,8 @@ pre.logview { margin: 0; background: var(--surface-2); border-radius: 10px; padd
 .menu > .items { position: absolute; right: 0; top: calc(100% + 4px); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.16); padding: 4px; min-width: 220px; z-index: 8; display: flex; flex-direction: column; }
 .menu .items button { text-align: left; border: 0; background: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
 .menu .items button:hover { background: var(--hover); }
+.menu .items button:disabled { color: var(--ink-3); background: none; cursor: default; }
+.menu .items button.danger { color: var(--bad); }
 fieldset { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; margin: 0; min-width: 0; }
 legend { font-weight: 600; padding: 0 6px; font-size: 13px; }
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); }
