@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 
 export function StatusDot({ tone }: { tone: 'good' | 'warn' | 'bad' | 'none' }) {
   return <span className={`dot ${tone === 'none' ? '' : tone}`} aria-hidden="true" />;
@@ -47,7 +47,8 @@ export function Dialog({ title, onClose, children, footer, wide }: { title: stri
     close.current = onClose;
   });
   useEffect(() => {
-    ref.current?.focus();
+    // Unless a field inside already took focus (a wizard's first field), focus the dialog itself.
+    if (!ref.current?.contains(document.activeElement)) ref.current?.focus();
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') close.current?.();
     };
@@ -61,6 +62,41 @@ export function Dialog({ title, onClose, children, footer, wide }: { title: stri
         {children}
         {footer && <footer>{footer}</footer>}
       </div>
+    </div>
+  );
+}
+
+const FIELDS = 'input:not([disabled]), select:not([disabled]), textarea:not([disabled])';
+
+/**
+ * The fields of one wizard step. Each step opens with its first field focused; Enter in a field moves
+ * to the step's next field, and from its last field to the next step when the step is valid. The
+ * final step (the review) has no fields, so Enter never starts the run itself.
+ */
+export function WizardStep({ step, canNext, onNext, children }: { step: number; canNext: boolean; onNext: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // Once per step, as soon as its first field exists (a step's data may still be loading when it opens).
+  const focusedStep = useRef<number | null>(null);
+  useEffect(() => {
+    if (focusedStep.current === step) return;
+    const first = ref.current?.querySelector<HTMLElement>(FIELDS);
+    if (!first) return;
+    first.focus();
+    focusedStep.current = step;
+  });
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return;
+    const target = e.target as HTMLElement;
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+    e.preventDefault();
+    const fields = [...e.currentTarget.querySelectorAll<HTMLElement>(FIELDS)];
+    const next = fields[fields.indexOf(target) + 1];
+    if (next) next.focus();
+    else if (canNext) onNext();
+  };
+  return (
+    <div ref={ref} onKeyDown={onKeyDown}>
+      {children}
     </div>
   );
 }
