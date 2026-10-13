@@ -52,6 +52,36 @@ describe('connection (spec B2, B6)', () => {
     expect(await screen.findByText(/connected · devhost/)).toBeInTheDocument();
     expect(JSON.parse(storage.getItem('devhost.prefs.v1')!)).toEqual({ host: 'macmini', theme: 'system', range: '24h' });
   });
+
+  it('changes the host through an in-app confirmation (no window.confirm)', async () => {
+    const h = await makeHarness();
+    const { render } = await import('@testing-library/react');
+    const { App } = await import('../src/App');
+    const { memoryStorage } = await import('./support/harness');
+    const storage = memoryStorage();
+    storage.setItem('devhost.prefs.v1', JSON.stringify({ host: 'macmini', theme: 'system', range: '24h' }));
+    const hosts: string[] = [];
+    render(<App makeTransport={(host) => (hosts.push(host), h.transport)} storage={storage} retryMs={30} />);
+    expect(await screen.findByText(/connected · devhost/)).toBeInTheDocument();
+
+    // Cancel keeps the connection.
+    await h.user.click(screen.getByRole('button', { name: 'Change host…' }));
+    await h.user.click(within(screen.getByRole('dialog', { name: 'Change host' })).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByText(/connected · devhost/)).toBeInTheDocument();
+
+    // Disconnect shows the host form, pre-filled; a new host connects.
+    await h.user.click(screen.getByRole('button', { name: 'Change host…' }));
+    await h.user.click(within(screen.getByRole('dialog', { name: 'Change host' })).getByRole('button', { name: 'Disconnect' }));
+    const input = await screen.findByLabelText('Host');
+    expect(input).toHaveValue('macmini');
+    await h.user.clear(input);
+    await h.user.type(input, 'other-mini');
+    await h.user.click(screen.getByRole('button', { name: 'Connect' }));
+    expect(await screen.findByText(/connected · devhost/)).toBeInTheDocument();
+    expect(hosts).toEqual(['macmini', 'other-mini']);
+    expect(JSON.parse(storage.getItem('devhost.prefs.v1')!)).toMatchObject({ host: 'other-mini' });
+  });
 });
 
 describe('dashboard (spec B3.1, B6)', () => {

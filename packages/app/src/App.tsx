@@ -7,7 +7,7 @@ import { Dashboard } from './screens/Dashboard';
 import { Doctor } from './screens/Doctor';
 import { Environments } from './screens/Environments';
 import type { Transport } from './transport/types';
-import { Badge, Field } from './ui/primitives';
+import { Badge, ConfirmDialog, Field } from './ui/primitives';
 import { useTraySync } from './use-tray';
 
 const NAV: { id: Screen; label: string }[] = [
@@ -30,6 +30,8 @@ export function App({ makeTransport, storage, retryMs, heartbeatMs }: AppProps) 
   const [prefs, setPrefs] = useState<Prefs>(() => loadPrefs(storage));
   const [screen, setScreen] = useState<Screen>('dashboard');
   const [transport, setTransport] = useState<Transport | null>(() => (prefs.host ? makeTransport(prefs.host) : null));
+  // Pre-fills the host form after "Change host…", so a typo is a quick fix.
+  const [lastHost, setLastHost] = useState(prefs.host);
 
   const update = useCallback(
     (p: Partial<Prefs>) => {
@@ -42,6 +44,7 @@ export function App({ makeTransport, storage, retryMs, heartbeatMs }: AppProps) 
     [storage],
   );
   const changeHost = (host: string): void => {
+    if (host) setLastHost(host);
     update({ host });
     setTransport(host ? makeTransport(host) : null);
   };
@@ -54,13 +57,13 @@ export function App({ makeTransport, storage, retryMs, heartbeatMs }: AppProps) 
 
   return (
     <AppProvider transport={transport} navigate={setScreen} retryMs={retryMs} heartbeatMs={heartbeatMs}>
-      {transport ? <Shell prefs={prefs} update={update} screen={screen} setScreen={setScreen} onHost={changeHost} /> : <HostSetup onConnect={changeHost} />}
+      {transport ? <Shell prefs={prefs} update={update} screen={screen} setScreen={setScreen} onHost={changeHost} /> : <HostSetup initial={lastHost} onConnect={changeHost} />}
     </AppProvider>
   );
 }
 
-function HostSetup({ onConnect }: { onConnect: (host: string) => void }) {
-  const [host, setHost] = useState('');
+function HostSetup({ initial, onConnect }: { initial: string; onConnect: (host: string) => void }) {
+  const [host, setHost] = useState(initial);
   return (
     <div className="content" style={{ margin: '10vh auto', maxWidth: 520 }}>
       <h1>Connect to your Mac mini</h1>
@@ -78,6 +81,8 @@ function HostSetup({ onConnect }: { onConnect: (host: string) => void }) {
 function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; update: (p: Partial<Prefs>) => void; screen: Screen; setScreen: (s: Screen) => void; onHost: (h: string) => void }) {
   const { connection, transport } = useApp();
   const tray = useTraySync();
+  // Not window.confirm: the macOS webview (WKWebView under Tauri v2) has no native dialog for it and returns false.
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   useEffect(
     () =>
@@ -98,8 +103,13 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
           </button>
         ))}
         <div className="spacer" />
-        <button className="nav" onClick={() => { if (window.confirm('Disconnect from this Mac mini?')) onHost(''); }}>Change host…</button>
+        <button className="nav" onClick={() => setConfirmDisconnect(true)}>Change host…</button>
       </nav>
+      {confirmDisconnect && (
+        <ConfirmDialog title="Change host" confirmLabel="Disconnect" onConfirm={() => onHost('')} onCancel={() => setConfirmDisconnect(false)}>
+          <p>Disconnect from <span className="mono">{transport.host}</span>? Nothing changes on the Mac mini; you can connect to it or another host next.</p>
+        </ConfirmDialog>
+      )}
       <div className="main">
         <header className="topbar">
           <span className="mono">{transport.host}</span>
