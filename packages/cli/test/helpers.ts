@@ -83,6 +83,10 @@ export interface FakeState {
   arch: 'arm64' | 'x86_64';
   /** The CLI's node runs under Rosetta (`sysctl.proc_translated` is 1). */
   rosetta: boolean;
+  /** A laptop: `pmset -g cap` has no autorestart. */
+  laptop: boolean;
+  /** Keys `pmset -a` accepts but silently ignores (as macOS does for settings a Mac lacks). */
+  pmsetIgnores: string[];
 }
 
 const BREWED = ['git', 'claude', 'colima', 'docker', 'tailscale', 'direnv', 'mise', 'curl'];
@@ -113,6 +117,8 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     fileVault: 'On',
     arch: 'arm64',
     rosetta: false,
+    laptop: false,
+    pmsetIgnores: [],
     ...initial,
   };
   const brewBin = (): string => (state.arch === 'arm64' ? '/opt/homebrew/bin' : '/usr/local/bin');
@@ -127,14 +133,20 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       state.names[m[1] as keyof FakeState['names']] = m[2]!;
       return {};
     }
+    if (line === 'pmset -g cap') {
+      const caps = ['displaysleep', 'disksleep', 'sleep', 'womp', ...(state.laptop ? ['lidwake'] : ['autorestart'])];
+      return { stdout: `Capabilities for AC Power:\n${caps.map((c) => ` ${c}\n`).join('')}` };
+    }
     if (line === 'pmset -g custom') {
+      const autorestart = state.laptop ? '' : ` autorestart          ${state.power['autorestart']}\n`;
       return {
-        stdout: `Battery Power:\nAC Power:\n sleep                ${state.power['sleep']} (sleep prevented by powerd)\n disksleep            ${state.power['disksleep']}\n womp                 ${state.power['womp']}\n autorestart          ${state.power['autorestart']}\n`,
+        stdout: `Battery Power:\nAC Power:\n sleep                ${state.power['sleep']} (sleep prevented by powerd)\n disksleep            ${state.power['disksleep']}\n womp                 ${state.power['womp']}\n${autorestart}`,
       };
     }
     if (line.startsWith('pmset -a ')) {
       const parts = line.split(' ').slice(2);
-      for (let i = 0; i < parts.length; i += 2) state.power[parts[i]!] = Number(parts[i + 1]);
+      const ignored = state.laptop ? [...state.pmsetIgnores, 'autorestart'] : state.pmsetIgnores;
+      for (let i = 0; i < parts.length; i += 2) if (!ignored.includes(parts[i]!)) state.power[parts[i]!] = Number(parts[i + 1]);
       return {};
     }
     if (line.startsWith('nc -z')) return { code: state.sshOn ? 0 : 1 };

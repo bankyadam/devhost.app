@@ -7,7 +7,7 @@ import { MockRunner } from '../src/runner/mock.js';
 import type { Reporter } from '../src/reporter.js';
 import { brewFormulae, packagesStep, renderBrewfile, requiredPackages } from '../src/steps/packages.js';
 import { installedRequests, runtimesStep } from '../src/steps/runtimes.js';
-import { pmsetValues, powerStep, sshStep, hostnameStep } from '../src/steps/system.js';
+import { pmsetCapabilities, pmsetValues, powerStep, sshStep, hostnameStep } from '../src/steps/system.js';
 import { buildSteps, selectSteps } from '../src/steps/index.js';
 import { makeEnv } from './helpers.js';
 
@@ -81,6 +81,12 @@ describe('system steps', () => {
     expect(pmsetValues(out, 'sleep')).toEqual([0]);
     expect(pmsetValues(out, 'disksleep')).toEqual([10]);
     expect(pmsetValues(out, 'autorestart')).toEqual([]);
+  });
+
+  it('power: parses pmset capabilities (a MacBook has no autorestart)', () => {
+    const caps = pmsetCapabilities('Capabilities for AC Power:\n displaysleep\n disksleep\n sleep\n womp\n lidwake\n');
+    expect(caps).toEqual(new Set(['displaysleep', 'disksleep', 'sleep', 'womp', 'lidwake']));
+    expect(pmsetCapabilities('')).toBeNull();
   });
 
   it('power: only manages settings the config enables', async () => {

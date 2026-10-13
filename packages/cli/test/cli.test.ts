@@ -13,7 +13,10 @@ const envelope = (text: string): Envelope => {
 };
 
 async function initialized(...flags: string[]) {
-  const { runner, state } = fakeMac();
+  return initializedOn(fakeMac(), ...flags);
+}
+
+async function initializedOn({ runner, state }: ReturnType<typeof fakeMac>, ...flags: string[]) {
   const env = await makeEnv(runner);
   expect(await env.run('init', '--yes', '--hostname', 'macmini', ...flags)).toBe(0);
   env.out.length = 0;
@@ -157,6 +160,31 @@ describe('apply', () => {
     env.out.length = 0;
     await env.run('apply');
     expect(env.stdout()).toContain('No changes: the system already matches the config.');
+  });
+
+  it('on a laptop, leaves autorestart alone with a warning instead of failing', async () => {
+    const { env, state } = await initializedOn(fakeMac({ laptop: true }));
+    expect(await env.run('apply')).toBe(0);
+    expect(env.err.join('')).toContain('this Mac does not support autorestart');
+    expect(env.stdout()).toContain('Done: changes were applied.');
+    expect(env.runner.lines()).toContain('sudo -n -- pmset -a sleep 0 disksleep 0 womp 1');
+    expect(state.power['sleep']).toBe(0);
+    env.out.length = 0;
+    expect(await env.run('apply')).toBe(0);
+    expect(env.stdout()).toContain('No changes: the system already matches the config.');
+    env.out.length = 0;
+    await env.run('doctor', '--json');
+    const power = (JSON.parse(env.stdout()) as { data: { checks: { id: string; status: string; message: string }[] } }).data.checks.find((c) => c.id === 'system.power')!;
+    expect(power.status).toBe('warn');
+    expect(power.message).toContain('sleep 0, disksleep 0, womp 1');
+  });
+
+  it('says where it stopped when a step fails, not "No changes"', async () => {
+    const { env } = await initializedOn(fakeMac({ pmsetIgnores: ['autorestart'] }));
+    expect(await env.run('apply')).not.toBe(0);
+    const out = env.stdout();
+    expect(out).toContain('Stopped at system.power; the steps before it were applied, the steps after it did not run.');
+    expect(out).not.toContain('No changes');
   });
 
   it('--dry-run mutates nothing and lists every sudo command', async () => {

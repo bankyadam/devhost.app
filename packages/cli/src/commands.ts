@@ -151,7 +151,13 @@ export function formatApplySummary(data: ApplyData): string[] {
       lines.push(`  ${p.sudo ? '[sudo] ' : ''}${p.stepId}: ${p.action}${p.reason ? `  — ${p.reason}` : ''}`);
     }
   } else {
-    lines.push('', data.changed ? 'Done: changes were applied.' : 'No changes: the system already matches the config.');
+    const failed = data.steps.find((s) => s.status === 'failed');
+    lines.push(
+      '',
+      failed ? `Stopped at ${failed.id}; ${data.changed ? 'the steps before it were applied, ' : ''}the steps after it did not run.`
+      : data.changed ? 'Done: changes were applied.'
+      : 'No changes: the system already matches the config.',
+    );
   }
   return lines;
 }
