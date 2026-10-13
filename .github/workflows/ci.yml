@@ -14,8 +14,8 @@ jobs:
         os: [macos-14, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24.x
           cache: npm
@@ -56,8 +56,8 @@ jobs:
     name: "desktop app (universal macOS: arm64 + x86_64)"
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24.x
           cache: npm
@@ -66,7 +66,7 @@ jobs:
       - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: Tauri build (universal binary)
         run: npm run tauri:build -w @devhost/app
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: devhost-desktop-app
           path: packages/app/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
