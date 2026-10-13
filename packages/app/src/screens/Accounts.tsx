@@ -5,7 +5,7 @@ import { accountAddArgs, type AccountAddInput } from '../client/client';
 import { errorMessage } from '../client/errors';
 import { ago } from '../lib/format';
 import { predictAccountRange, SLUG } from '../lib/ports';
-import { Badge, Dialog, Empty, Field } from '../ui/primitives';
+import { Badge, Dialog, Empty, Field, WizardStep } from '../ui/primitives';
 import { RunDialog } from '../ui/run-dialog';
 
 type Account = AccountListData['accounts'][number];
@@ -162,12 +162,14 @@ function AddWizard({ accounts, onClose }: { accounts: Account[]; onClose: () => 
         <>
           <button className="btn" onClick={onClose}>Cancel</button>
           {step > 0 && <button className="btn" onClick={() => setStep(step - 1)}>Back</button>}
-          {step < ADD_STEPS.length - 1 ? <button className="btn primary" disabled={!canNext} onClick={() => setStep(step + 1)}>Next</button> : <button className="btn primary" onClick={() => setRun(true)}>Add account and sign in</button>}
+          {/* Distinct keys: a focused Next must not turn into the run button, where Enter would start it. */}
+          {step < ADD_STEPS.length - 1 ? <button key="next" className="btn primary" disabled={!canNext} onClick={() => setStep(step + 1)}>Next</button> : <button key="run" className="btn primary" onClick={() => setRun(true)}>Add account and sign in</button>}
         </>
       }
     >
       <div className="steps" aria-label="Steps">{ADD_STEPS.map((s, i) => (i === step ? <b key={s}>{i + 1}. {s}</b> : <span key={s}>{i + 1}. {s}</span>))}</div>
-      {step === 0 && <Field label="Account name" hint="For example personal or business." error={nameError}>{(id) => <input id={id} className="input" value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} aria-invalid={!!nameError} autoFocus autoComplete="off" spellCheck={false} />}</Field>}
+      <WizardStep step={step} canNext={canNext && step < ADD_STEPS.length - 1} onNext={() => setStep(step + 1)}>
+      {step === 0 && <Field label="Account name" hint="For example personal or business." error={nameError}>{(id) => <input id={id} className="input" value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} aria-invalid={!!nameError} autoComplete="off" spellCheck={false} />}</Field>}
       {step === 1 && (
         <>
           <Field label="Git name (optional)">{(id) => <input id={id} className="input" value={d.gitName} onChange={(e) => setD({ ...d, gitName: e.target.value })} />}</Field>
@@ -191,6 +193,7 @@ function AddWizard({ accounts, onClose }: { accounts: Account[]; onClose: () => 
           <dt className="muted">Cost alert</dt><dd>{d.alert === '' ? 'none' : `$${d.alert} per day`}</dd>
         </dl>
       )}
+      </WizardStep>
     </Dialog>
   );
 }

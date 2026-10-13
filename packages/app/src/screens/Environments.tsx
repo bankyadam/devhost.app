@@ -4,7 +4,7 @@ import { useApp } from '../app-context';
 import { envCreateArgs, type EnvCreateInput } from '../client/client';
 import { errorMessage } from '../client/errors';
 import { ENV_SLUG, predictEnvBlock } from '../lib/ports';
-import { Badge, Dialog, Empty, Field } from '../ui/primitives';
+import { Badge, Dialog, Empty, Field, WizardStep } from '../ui/primitives';
 import { RunDialog } from '../ui/run-dialog';
 
 type Env = EnvListData['environments'][number];
@@ -200,11 +200,13 @@ function CreateWizard({ onClose }: { onClose: () => void }) {
         <>
           <button className="btn" onClick={onClose}>Cancel</button>
           {step > 0 && <button className="btn" onClick={() => setStep(step - 1)}>Back</button>}
-          {step < STEPS.length - 1 ? <button className="btn primary" disabled={!canNext} onClick={() => setStep(step + 1)}>Next</button> : <button className="btn primary" onClick={() => setRun(true)}>Create environment</button>}
+          {/* Distinct keys: a focused Next must not turn into the run button, where Enter would start it. */}
+          {step < STEPS.length - 1 ? <button key="next" className="btn primary" disabled={!canNext} onClick={() => setStep(step + 1)}>Next</button> : <button key="run" className="btn primary" onClick={() => setRun(true)}>Create environment</button>}
         </>
       }
     >
       <div className="steps" aria-label="Steps">{STEPS.map((s, i) => (i === step ? <b key={s}>{i + 1}. {s}</b> : <span key={s}>{i + 1}. {s}</span>))}</div>
+      <WizardStep step={step} canNext={canNext && step < STEPS.length - 1} onNext={() => setStep(step + 1)}>
       {step === 0 && (
         accounts.length === 0 ? <div className="notice">There is no account yet. Add one on the Accounts screen first.</div> : (
           <Field label="Account" hint="The environment lives under this account's root and uses its Claude login.">
@@ -212,7 +214,7 @@ function CreateWizard({ onClose }: { onClose: () => void }) {
           </Field>
         )
       )}
-      {step === 1 && <Field label="Name" hint="Used for the directory, the service and the compose project." error={nameError}>{(id) => <input id={id} className="input" value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} aria-invalid={!!nameError} autoFocus autoComplete="off" spellCheck={false} />}</Field>}
+      {step === 1 && <Field label="Name" hint="Used for the directory, the service and the compose project." error={nameError}>{(id) => <input id={id} className="input" value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} aria-invalid={!!nameError} autoComplete="off" spellCheck={false} />}</Field>}
       {step === 2 && <Field label="Repository URL (optional)" hint="Leave empty to start with a new git repository.">{(id) => <input id={id} className="input" value={d.repo} placeholder="git@github.com:owner/repo.git" onChange={(e) => setD({ ...d, repo: e.target.value })} autoComplete="off" spellCheck={false} />}</Field>}
       {step === 3 && (
         <>
@@ -234,6 +236,7 @@ function CreateWizard({ onClose }: { onClose: () => void }) {
           <dt className="muted">Log</dt><dd className="mono">~/Library/Logs/devhost/rc-{d.account}-{d.name}.log</dd>
         </dl>
       )}
+      </WizardStep>
     </Dialog>
   );
 }

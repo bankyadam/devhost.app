@@ -67,6 +67,44 @@ describe('environments (spec B3.2)', () => {
     expect(await screen.findByText('running · pid 4242')).toBeInTheDocument();
   });
 
+  it('create wizard by keyboard: each step opens focused, Enter moves on, the review never starts by Enter', async () => {
+    const h = await makeHarness();
+    await withBusiness(h);
+    mount(h);
+    await screen.findByText(/connected · devhost/);
+    await goto(h, 'Environments');
+    const dlg = await openWizard(h, 'New environment');
+    expect(await dlg.findByRole('combobox', { name: 'Account' })).toHaveFocus();
+    await h.user.keyboard('{Enter}');
+
+    const name = dlg.getByLabelText('Name');
+    expect(name).toHaveFocus();
+    await h.user.keyboard('Bad Name{Enter}'); // invalid: stays on the step
+    expect(name).toHaveFocus();
+    await h.user.clear(name);
+    await h.user.keyboard('acme-api{Enter}');
+
+    expect(dlg.getByLabelText(/Repository URL/)).toHaveFocus();
+    await h.user.keyboard('git@github.com:acme/api.git{Enter}');
+
+    // Two fields in one step: Enter goes to the next field first, then to the next step.
+    expect(dlg.getByLabelText('Run a Remote Control service for this project')).toHaveFocus();
+    await h.user.keyboard('{Enter}');
+    expect(dlg.getByLabelText('Permission mode of its sessions')).toHaveFocus();
+    await h.user.keyboard('{Enter}');
+    expect(dlg.getByLabelText('Docker Compose')).toHaveFocus();
+    await h.user.keyboard('{Enter}');
+
+    expect(dlg.getByText('3000–3099')).toBeInTheDocument();
+    await h.user.keyboard('{Enter}');
+    // Reaching the review by clicking Next does not leave focus on the run button either.
+    await h.user.click(dlg.getByRole('button', { name: 'Back' }));
+    await h.user.click(dlg.getByRole('button', { name: 'Next' }));
+    expect(dlg.getByRole('button', { name: 'Create environment' })).not.toHaveFocus();
+    await h.user.keyboard('{Enter}');
+    expect(h.transport.calls.some((c) => c[0] === 'env' && c[1] === 'create')).toBe(false);
+  });
+
   it('create stopped by sudo: Open in Terminal runs the same command, which finishes the setup', async () => {
     const h = await makeHarness();
     await withBusiness(h);
@@ -181,6 +219,33 @@ describe('environments (spec B3.2)', () => {
 });
 
 describe('accounts (spec B3.3, B6)', () => {
+  it('new account wizard by keyboard: Enter walks the fields and steps, an invalid email stops it', async () => {
+    const h = await makeHarness();
+    mount(h);
+    await goto(h, 'Accounts');
+    expect(await screen.findByText(/No accounts yet/)).toBeInTheDocument();
+    const dlg = await openWizard(h, 'New account');
+    expect(dlg.getByLabelText('Account name')).toHaveFocus();
+    await h.user.keyboard('business{Enter}');
+
+    expect(dlg.getByLabelText('Git name (optional)')).toHaveFocus();
+    await h.user.keyboard('Ada{Enter}');
+    const email = dlg.getByLabelText('Git email');
+    expect(email).toHaveFocus();
+    await h.user.keyboard('not-an-email{Enter}');
+    expect(email).toHaveFocus();
+    await h.user.clear(email);
+    await h.user.keyboard('ada@work.example{Enter}');
+
+    expect(dlg.getByText(/Use Claude Code's default config directory/)).toBeInTheDocument();
+    await h.user.keyboard('{Enter}');
+    expect(dlg.getByLabelText(/Daily cost alert/)).toHaveFocus();
+    await h.user.keyboard('{Enter}');
+    expect(dlg.getByRole('button', { name: 'Add account and sign in' })).toBeInTheDocument();
+    await h.user.keyboard('{Enter}');
+    expect(h.transport.calls.some((c) => c[0] === 'account' && c[1] === 'add')).toBe(false);
+  });
+
   it('new account wizard continues straight into the login: URL to the browser, code back', async () => {
     const h = await makeHarness();
     mount(h);
