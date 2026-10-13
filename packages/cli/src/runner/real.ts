@@ -4,10 +4,19 @@ import type { RunOptions, RunResult, Runner, SpawnedProcess } from './types.js';
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 
 export class RealRunner implements Runner {
-  constructor(private readonly baseEnv: Record<string, string | undefined>) {}
+  constructor(
+    private readonly baseEnv: Record<string, string | undefined>,
+    private readonly stdin: Pick<NodeJS.ReadStream, 'readableFlowing' | 'pause' | 'resume'> = process.stdin,
+  ) {}
 
   run(command: string, args: string[], opts: RunOptions = {}): Promise<RunResult> {
-    return new Promise((resolve) => {
+    // An interactive child (sudo's password, claude's questions) owns the terminal. If our own stdin
+    // is being read (a prompt asked earlier keeps a readline open), both read the same tty and a
+    // typed line goes to whichever reads first: the sudo password got lost. Stop reading meanwhile.
+    // Only a stdin that is actually flowing: resuming one nobody reads would start dropping input.
+    const pauseStdin = opts.interactive === true && this.stdin.readableFlowing === true;
+    if (pauseStdin) this.stdin.pause();
+    return new Promise<RunResult>((resolve) => {
       const env = this.childEnv(opts);
       const child = spawn(command, args, {
         env,
@@ -47,6 +56,8 @@ export class RealRunner implements Runner {
         child.stdin.on('error', () => undefined);
         child.stdin.end(opts.input ?? '');
       }
+    }).finally(() => {
+      if (pauseStdin) this.stdin.resume();
     });
   }
 
