@@ -6,11 +6,11 @@ import { toolPath } from '../state.js';
 import { ok, skip, todo, type Step, type StepContext } from './types.js';
 
 export const COLIMA_LABEL = 'com.devhost.colima';
-export const CLI_PLUGINS_DIR = '/opt/homebrew/lib/docker/cli-plugins';
+export const cliPluginsDir = (brewPrefix: string): string => `${brewPrefix}/lib/docker/cli-plugins`;
 
 export async function colimaSpec(ctx: StepContext): Promise<DaemonSpec> {
   const d = ctx.config.docker;
-  const colima = await toolPath(ctx.exec, ctx.home, 'colimaPath', 'colima', '/opt/homebrew/bin/colima');
+  const colima = await toolPath(ctx.exec, ctx.home, 'colimaPath', 'colima', `${ctx.brewPrefix}/bin/colima`);
   return {
     label: COLIMA_LABEL,
     args: [colima, 'start', '--foreground', '--cpu', String(d?.cpu ?? 6), '--memory', String(d?.memoryGiB ?? 16), '--disk', String(d?.diskGiB ?? 200)],
@@ -25,19 +25,20 @@ const wantsColima = (c: DevhostConfig): boolean => c.docker?.runtime === 'colima
 export const dockerConfigStep: Step = {
   id: 'docker.config',
   description: 'Point the Docker CLI at the Homebrew compose and buildx plugins',
-  async check({ config, home, exec }) {
+  async check({ config, home, brewPrefix, exec }) {
     if (!wantsColima(config)) return skip(`docker.runtime is ${config.docker?.runtime ?? 'none'}`);
     const text = await exec.readText(join(home, '.docker', 'config.json'));
     const dirs = readPluginDirs(text);
-    return dirs.includes(CLI_PLUGINS_DIR) ? ok() : todo(`~/.docker/config.json lacks cliPluginsExtraDirs ${CLI_PLUGINS_DIR}`);
+    const want = cliPluginsDir(brewPrefix);
+    return dirs.includes(want) ? ok() : todo(`~/.docker/config.json lacks cliPluginsExtraDirs ${want}`);
   },
-  async apply({ home, exec }) {
+  async apply({ home, brewPrefix, exec }) {
     const file = join(home, '.docker', 'config.json');
     const text = await exec.readText(file);
     let data: Record<string, unknown> = {};
     if (text !== null && text.trim() !== '') data = JSON.parse(text) as Record<string, unknown>;
     const dirs = readPluginDirs(text);
-    data['cliPluginsExtraDirs'] = [...dirs, CLI_PLUGINS_DIR];
+    data['cliPluginsExtraDirs'] = [...dirs, cliPluginsDir(brewPrefix)];
     await exec.writeText(file, `${JSON.stringify(data, null, 2)}\n`, { description: `add cliPluginsExtraDirs to ${file}` });
   },
 };

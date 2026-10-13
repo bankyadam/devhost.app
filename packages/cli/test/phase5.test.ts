@@ -7,9 +7,10 @@ import type { ApplyData, DoctorData, Envelope, StatusData } from '@devhost/contr
 import { Db, dbPath } from '../src/collector/db.js';
 import { fakeMac, makeEnv, ndjson, type TestEnv } from './helpers.js';
 
-async function converged(opts: { tailscale?: boolean } = {}) {
-  const mac = fakeMac();
+async function converged(opts: { tailscale?: boolean; arch?: 'arm64' | 'x86_64' } = {}) {
+  const mac = fakeMac({ arch: opts.arch ?? 'arm64' });
   const env = await makeEnv(mac.runner);
+  if (opts.arch === 'x86_64') env.deps.brewPrefix = '/usr/local';
   env.deps.env['DEVHOST_TRUST_IDLE_MS'] = '30';
   await env.run('init', '--yes', ...(opts.tailscale ? [] : ['--no-tailscale']));
   expect(await env.run('apply')).toBe(0);
@@ -59,6 +60,30 @@ describe('doctor', () => {
     for (const id of ['account.business.login', 'account.business.direnv', 'account.personal.direnv', 'env.acme-api.service', 'env.acme-api.git-identity', 'env.acme-api.trust']) {
       expect(data.checks.find((c) => c.id === id)?.status, id).toBe('ok');
     }
+  });
+
+  it('is green on an Intel Mac, with every Homebrew path under /usr/local', async () => {
+    const { env } = await converged({ arch: 'x86_64' });
+    const { code, data } = await doctor(env);
+    expect(problems(data)).toEqual(['warn:accounts']);
+    expect(code).toBe(0);
+    expect(data.checks.find((c) => c.id === 'system.arch')!.message).toBe('Intel (Homebrew in /usr/local)');
+    expect(await readFile(join(env.home, '.zshrc'), 'utf8')).toContain('[ -x /usr/local/bin/brew ] && eval "$(/usr/local/bin/brew shellenv)"');
+    expect(JSON.parse(await readFile(join(env.home, '.docker', 'config.json'), 'utf8'))).toMatchObject({ cliPluginsExtraDirs: ['/usr/local/lib/docker/cli-plugins'] });
+    const plist = await readFile(join(env.home, 'LaunchDaemons', 'com.devhost.collector.plist'), 'utf8');
+    expect(plist).toContain('<string>/usr/local/bin/node</string>');
+    expect(plist).not.toContain('/opt/homebrew/bin/node');
+  });
+
+  it('fails the architecture check when node runs under Rosetta on Apple Silicon', async () => {
+    const { env, mac } = await converged();
+    mac.state.arch = 'x86_64';
+    mac.state.rosetta = true;
+    const { code, data } = await doctor(env);
+    expect(code).toBe(1);
+    const arch = data.checks.find((c) => c.id === 'system.arch')!;
+    expect(arch.status).toBe('fail');
+    expect(arch.fix).toContain('bootstrap.sh');
   });
 
   it('reports each problem with a fix and exits 1 on any failure', async () => {

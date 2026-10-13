@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { homedir, userInfo } from 'node:os';
+import { homebrewPrefix } from './homebrew.js';
 import { main } from './main.js';
 import type { Deps } from './deps.js';
 import { RealRunner } from './runner/real.js';
@@ -19,6 +20,7 @@ const deps: Deps = {
   env,
   home: homedir(),
   user: userInfo().username,
+  brewPrefix: homebrewPrefix(process.arch),
   runner: new RealRunner(env),
   now: () => new Date(),
   cancel: { cancelled: false },

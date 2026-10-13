@@ -37,12 +37,12 @@ export function claudeRunOptions(a: Account, home: string): Pick<RunOptions, 'en
   return { env, unsetEnv: Object.keys(env).length === 0 ? ['CLAUDE_CONFIG_DIR'] : [] };
 }
 
-export async function claudeBinary(ctx: Pick<LoginContext, 'exec' | 'deps'>): Promise<string> {
-  return toolPath(ctx.exec, ctx.deps.home, 'claudePath', 'claude', '/opt/homebrew/bin/claude');
+export async function claudeBinary(ctx: { exec: Executor; deps: Pick<Deps, 'home' | 'brewPrefix'> }): Promise<string> {
+  return toolPath(ctx.exec, ctx.deps.home, 'claudePath', 'claude', `${ctx.deps.brewPrefix}/bin/claude`);
 }
 
 /** `claude auth status` exits 0 when logged in, 1 when not (verified against the CLI reference). */
-export async function authStatus(ctx: Pick<LoginContext, 'exec' | 'deps'>, a: Account): Promise<{ loggedIn: boolean | null; raw: string }> {
+export async function authStatus(ctx: { exec: Executor; deps: Pick<Deps, 'home' | 'brewPrefix'> }, a: Account): Promise<{ loggedIn: boolean | null; raw: string }> {
   const r = await ctx.exec.query(await claudeBinary(ctx), ['auth', 'status'], claudeRunOptions(a, ctx.deps.home));
   if (r.code === 127) return { loggedIn: null, raw: r.stderr };
   return { loggedIn: r.code === 0, raw: r.stdout };

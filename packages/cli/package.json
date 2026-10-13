@@ -1,7 +1,7 @@
 {
   "name": "@devhost/cli",
   "version": "0.1.0",
-  "description": "devhost CLI and collector: turns an Apple Silicon Mac mini into a headless Claude Code dev server",
+  "description": "devhost CLI and collector: turns a Mac mini (Apple Silicon or Intel) into a headless Claude Code dev server",
   "type": "module",
   "bin": {
     "devhost": "dist/cli.js"

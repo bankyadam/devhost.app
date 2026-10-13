@@ -47,7 +47,7 @@ export interface CollectorOptions {
   db: Db;
   /** Latest config; re-read by the caller when the file changes. */
   config: () => DevhostConfig;
-  deps: Pick<Deps, 'home' | 'runner' | 'user'>;
+  deps: Pick<Deps, 'home' | 'runner' | 'user' | 'brewPrefix'>;
   notifier: Notifier;
   now?: () => number;
   os?: OsProbe;

@@ -6,6 +6,8 @@ export interface StepContext {
   home: string;
   /** macOS account that runs services. */
   user: string;
+  /** Homebrew prefix: /opt/homebrew (Apple Silicon) or /usr/local (Intel). */
+  brewPrefix: string;
   exec: Executor;
   /** Absolute path of the config file (the collector service needs it). */
   configPath: string;

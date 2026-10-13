@@ -11,7 +11,7 @@ import type { Db } from './db.js';
  * With `collector.authProbe` a cheap real request also has to succeed, for the case where
  * `auth status` stays green for an expired login (open question in the spec).
  */
-export async function checkAuth(db: Db, exec: Executor, deps: Pick<Deps, 'home' | 'runner'>, config: DevhostConfig, now: number): Promise<Map<string, boolean>> {
+export async function checkAuth(db: Db, exec: Executor, deps: Pick<Deps, 'home' | 'runner' | 'brewPrefix'>, config: DevhostConfig, now: number): Promise<Map<string, boolean>> {
   const result = new Map<string, boolean>();
   for (const a of accountsOf(config)) {
     const valid = await accountValid(exec, deps, a, config.collector?.authProbe === true);
@@ -23,11 +23,11 @@ export async function checkAuth(db: Db, exec: Executor, deps: Pick<Deps, 'home' 
   return result;
 }
 
-async function accountValid(exec: Executor, deps: Pick<Deps, 'home' | 'runner'>, a: Account, probe: boolean): Promise<boolean | null> {
-  const status = await authStatus({ exec, deps: deps as Deps }, a);
+async function accountValid(exec: Executor, deps: Pick<Deps, 'home' | 'runner' | 'brewPrefix'>, a: Account, probe: boolean): Promise<boolean | null> {
+  const status = await authStatus({ exec, deps }, a);
   if (status.loggedIn === null) return null;
   if (!status.loggedIn || !probe) return status.loggedIn;
-  const claude = await claudeBinary({ exec, deps: deps as Deps });
+  const claude = await claudeBinary({ exec, deps });
   const r = await exec.query(claude, ['-p', 'ok', '--max-turns', '1'], { ...claudeRunOptions(a, deps.home), timeoutMs: 60_000 });
   return r.code === 0;
 }

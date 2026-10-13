@@ -37,7 +37,7 @@ const ok = (id: string, message: string): Check => ({ id, status: 'ok', message 
 const warn = (id: string, message: string, fix?: string): Check => ({ id, status: 'warn', message, ...(fix ? { fix } : {}) });
 const fail = (id: string, message: string, fix?: string): Check => ({ id, status: 'fail', message, ...(fix ? { fix } : {}) });
 
-const stepCtx = (c: DoctorContext): StepContext => ({ config: c.config, home: c.deps.home, user: c.deps.user, exec: c.exec, configPath: c.configPath });
+const stepCtx = (c: DoctorContext): StepContext => ({ config: c.config, home: c.deps.home, user: c.deps.user, brewPrefix: c.deps.brewPrefix, exec: c.exec, configPath: c.configPath });
 
 /** Run a group of checks; a throwing check becomes a failed check instead of aborting the report. */
 async function guarded(id: string, fn: () => Promise<Check[]>): Promise<Check[]> {
@@ -63,7 +63,14 @@ async function systemChecks(c: DoctorContext): Promise<Check[]> {
   );
 
   const arch = (await exec.query('uname', ['-m'])).stdout.trim();
-  out.push(arch === 'arm64' ? ok('system.arch', 'Apple Silicon') : fail('system.arch', `architecture is ${arch || 'unknown'}; devhost supports Apple Silicon only`));
+  // Under Rosetta uname reports x86_64 on Apple Silicon, and the Intel Homebrew prefix would be used.
+  const translated = (await exec.query('sysctl', ['-n', 'sysctl.proc_translated'])).stdout.trim() === '1';
+  out.push(
+    translated ? fail('system.arch', 'devhost runs under Rosetta (x86_64 Node on Apple Silicon)', 'Install the arm64 Node: run ./bootstrap.sh from a native (non-Rosetta) terminal.')
+    : arch === 'arm64' ? ok('system.arch', `Apple Silicon (Homebrew in ${c.deps.brewPrefix})`)
+    : arch === 'x86_64' ? ok('system.arch', `Intel (Homebrew in ${c.deps.brewPrefix})`)
+    : fail('system.arch', `architecture is ${arch || 'unknown'}; devhost supports Apple Silicon and Intel Macs`),
+  );
 
   const fv = await exec.query('fdesetup', ['status']);
   out.push(

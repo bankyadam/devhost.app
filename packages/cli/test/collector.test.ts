@@ -286,7 +286,7 @@ function setup(over: { runner?: MockRunner; config?: typeof CONFIG } = {}) {
   const notifier = new Recorder();
   const clock = { now: T0 };
   const os = fakeOs();
-  const collector = new Collector({ db, config: () => over.config ?? CONFIG, deps: { home: HOME, user: 'op', runner }, notifier, now: () => clock.now, os: os.os });
+  const collector = new Collector({ db, config: () => over.config ?? CONFIG, deps: { home: HOME, user: 'op', brewPrefix: '/opt/homebrew', runner }, notifier, now: () => clock.now, os: os.os });
   return { db, runner, notifier, clock, os, collector };
 }
 

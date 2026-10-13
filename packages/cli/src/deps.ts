@@ -15,6 +15,8 @@ export interface Deps {
   home: string;
   /** The macOS account that runs services (LaunchDaemon UserName). */
   user: string;
+  /** Homebrew prefix: /opt/homebrew (Apple Silicon) or /usr/local (Intel). */
+  brewPrefix: string;
   runner: Runner;
   now: () => Date;
   /** Set by the SIGINT handler; long-running commands stop after the current step. */

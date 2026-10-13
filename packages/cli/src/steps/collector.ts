@@ -9,7 +9,7 @@ import type { Step, StepContext } from './types.js';
 export const COLLECTOR_LABEL = 'com.devhost.collector';
 
 export async function collectorSpec(ctx: StepContext): Promise<DaemonSpec> {
-  const node = await toolPath(ctx.exec, ctx.home, 'nodePath', 'node', '/opt/homebrew/bin/node');
+  const node = await toolPath(ctx.exec, ctx.home, 'nodePath', 'node', `${ctx.brewPrefix}/bin/node`);
   const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'cli.js');
   return {
     label: COLLECTOR_LABEL,
