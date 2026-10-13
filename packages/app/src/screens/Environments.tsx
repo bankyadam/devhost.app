@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AccountListData, EnvListData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
+import { envCreateArgs, type EnvCreateInput } from '../client/client';
 import { errorMessage } from '../client/errors';
 import { ENV_SLUG, predictEnvBlock } from '../lib/ports';
 import { Badge, Dialog, Empty, Field } from '../ui/primitives';
@@ -180,11 +181,12 @@ function CreateWizard({ onClose }: { onClose: () => void }) {
   const canNext = step === 0 ? !!account : step === 1 ? d.name !== '' && !nameError : true;
 
   if (run) {
+    const input: EnvCreateInput = { account: d.account, name: d.name, repo: d.repo || undefined, remoteControl: d.rc, permissionMode: d.permissionMode, compose: d.compose };
     return (
       <RunDialog
         title={`Create ${d.account}/${d.name}`}
-        begin={(h) => client.envCreate({ account: d.account, name: d.name, repo: d.repo || undefined, remoteControl: d.rc, permissionMode: d.permissionMode, compose: d.compose }, h)}
-        terminal={{ kind: 'devhost', args: ['env', 'create', '--account', d.account, '--name', d.name, ...(d.repo ? ['--repo', d.repo] : []), ...(d.rc ? [] : ['--no-rc'])] }}
+        begin={(h) => client.envCreate(input, h)}
+        terminal={{ kind: 'devhost', args: envCreateArgs(input) }}
         onClose={onClose}
       />
     );
