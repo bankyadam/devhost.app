@@ -58,29 +58,44 @@ export function accountAddCommand(deps: Deps, g: GlobalOptions, opts: AccountAdd
   return long(deps, g, async (reporter) => {
     if (!SLUG.test(opts.name)) throw new UsageError(`"${opts.name}" is not a valid account name`, 'Use lowercase letters, digits and dashes, starting with a letter (max 32).');
     const loaded = await loadConfig(g.configPath);
-    if (findAccount(loaded.config, opts.name)) throw new UsageError(`account "${opts.name}" already exists`);
+    // Re-running add for an account that is already in the config continues its setup (e.g. after a
+    // step stopped it), as long as the git email and the default flag match; the config's settings win.
+    const existing = findAccount(loaded.config, opts.name);
+    if (existing) {
+      const differs = [
+        ...(existing.git.email !== opts.gitEmail ? [`with git email ${existing.git.email}`] : []),
+        ...((existing.default === true) !== opts.default ? [existing.default ? 'as the default account' : 'as a non-default account'] : []),
+      ];
+      if (differs.length > 0) {
+        throw new UsageError(`account "${opts.name}" already exists ${differs.join(' and ')}`, `Use another name, or remove it first: devhost account remove ${opts.name}`);
+      }
+    }
     const existingDefault = accountsOf(loaded.config).find((a) => a.default === true);
     if (opts.forceDefaultSwitch) {
       throw new UsageError('--force-default-switch is not supported in v1', 'Moving the default would re-point CLAUDE_CONFIG_DIR for existing environments. Remove the old default account first, or add this one as non-default.');
     }
-    if (opts.default && existingDefault) {
+    if (!existing && opts.default && existingDefault) {
       throw new UsageError(`"${existingDefault.name}" is already the default account`, 'Only one account can use Claude Code\'s default config dir. Add this account without --default.');
     }
-    const gitName = opts.gitName ?? process.env['GIT_AUTHOR_NAME'] ?? deps.env['GIT_AUTHOR_NAME'] ?? opts.name;
-    const portRange = allocateAccountRange(loaded.config);
-    const entry = {
-      name: opts.name,
-      default: opts.default,
-      configDir: opts.default ? null : `~/.claude-${opts.name}`,
-      root: `~/work/${opts.name}`,
-      portRange,
-      git: { name: gitName, email: opts.gitEmail },
-      alerts: { dailyCostUsd: opts.dailyCostAlert ?? null },
-    };
-
-    reporter.step('config', 'start', `add account ${opts.name} to ${g.configPath}`);
-    const { config } = await editConfigFile(g.configPath, deps.now(), (doc) => appendTo(doc, 'accounts', entry));
-    reporter.step('config', 'changed', `port range ${portRange.join('-')}`);
+    let config = loaded.config;
+    if (existing) {
+      reporter.step('config', 'ok', `already in ${g.configPath}; continuing its setup with the settings there`);
+    } else {
+      const gitName = opts.gitName ?? process.env['GIT_AUTHOR_NAME'] ?? deps.env['GIT_AUTHOR_NAME'] ?? opts.name;
+      const portRange = allocateAccountRange(loaded.config);
+      const entry = {
+        name: opts.name,
+        default: opts.default,
+        configDir: opts.default ? null : `~/.claude-${opts.name}`,
+        root: `~/work/${opts.name}`,
+        portRange,
+        git: { name: gitName, email: opts.gitEmail },
+        alerts: { dailyCostUsd: opts.dailyCostAlert ?? null },
+      };
+      reporter.step('config', 'start', `add account ${opts.name} to ${g.configPath}`);
+      ({ config } = await editConfigFile(g.configPath, deps.now(), (doc) => appendTo(doc, 'accounts', entry)));
+      reporter.step('config', 'changed', `port range ${portRange.join('-')}`);
+    }
 
     const exec = newExecutor(deps, g, reporter, false);
     const account = findAccount(config, opts.name)!;
@@ -90,9 +105,9 @@ export function accountAddCommand(deps: Deps, g: GlobalOptions, opts: AccountAdd
     const data: AccountChangeData = {
       name: opts.name,
       action: 'added',
-      portRange,
-      configDir: entry.configDir,
-      root: entry.root,
+      portRange: account.portRange,
+      configDir: account.configDir ?? null,
+      root: account.root,
       loggedIn: null,
       steps: outcome.data.steps.map(({ id, status, message }) => ({ id, status, ...(message ? { message } : {}) })),
     };
@@ -108,7 +123,7 @@ export function accountAddCommand(deps: Deps, g: GlobalOptions, opts: AccountAdd
       data,
       human: [
         '',
-        `✅ Account "${opts.name}" added (port range ${portRange.join('-')}, config dir ${account.configDir ?? '~/.claude (default)'}).`,
+        `✅ Account "${opts.name}" ${existing ? 'set up' : 'added'} (port range ${account.portRange.join('-')}, config dir ${account.configDir ?? '~/.claude (default)'}).`,
         login ? '' : `Not logged in yet: run \`devhost login ${opts.name}\`.`,
       ].filter((l, i, all) => l !== '' || i < all.length - 1),
     };
