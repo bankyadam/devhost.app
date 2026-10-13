@@ -41,7 +41,7 @@ export function envInfoOf(a: Account, e: Environment, home: string): EnvInfo {
 
 export async function rcSpec(ctx: StepContext, a: Account, e: Environment): Promise<DaemonSpec> {
   const info = envInfoOf(a, e, ctx.home);
-  const claude = await toolPath(ctx.exec, ctx.home, 'claudePath', 'claude', '/opt/homebrew/bin/claude');
+  const claude = await toolPath(ctx.exec, ctx.home, 'claudePath', 'claude', `${ctx.brewPrefix}/bin/claude`);
   return {
     label: rcLabel(a.name, e.name),
     args: [claude, 'remote-control', '--name', `${a.name}-${e.name}`, '--spawn', info.spawn, '--permission-mode', info.permissionMode],

@@ -45,7 +45,7 @@ export function newExecutor(deps: Deps, g: GlobalOptions, reporter: Reporter, dr
 }
 
 export function newStepContext(deps: Deps, g: GlobalOptions, config: DevhostConfig, exec: Executor, extra: Partial<StepContext> = {}): StepContext {
-  return { config, home: deps.home, user: deps.user, exec, configPath: g.configPath, ...extra };
+  return { config, home: deps.home, user: deps.user, brewPrefix: deps.brewPrefix, exec, configPath: g.configPath, ...extra };
 }
 
 export interface LongOutcome {

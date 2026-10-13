@@ -104,7 +104,7 @@ describe('plist', () => {
 describe('blocks', () => {
   it('shell block gets direnv hook and one alias per account', () => {
     const config = parseConfig(withAccounts('/Users/x'), '/c');
-    const body = shellBlockBody(config, '/Users/x');
+    const body = shellBlockBody(config, '/Users/x', '/opt/homebrew');
     expect(body).toContain('command -v direnv >/dev/null 2>&1 && eval "$(direnv hook zsh)"');
     expect(body).toContain("alias claude-personal='env -u CLAUDE_CONFIG_DIR claude'");
     expect(body).toContain("alias claude-business='CLAUDE_CONFIG_DIR=/Users/x/.claude-business claude'");

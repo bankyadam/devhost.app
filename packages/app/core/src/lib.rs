@@ -4,9 +4,10 @@
 //! The webview is not trusted with arbitrary commands: it can only ask for `devhost <known
 //! subcommand> ...` on the configured host, a few fixed Terminal actions, and http(s) URLs.
 
-/// Where `bootstrap.sh` links the CLI. Non-interactive ssh shells have a minimal PATH, so the
-/// absolute path is used.
-pub const DEVHOST_PATH: &str = "/opt/homebrew/bin/devhost";
+/// Non-interactive ssh shells have a minimal PATH. `bootstrap.sh` links the CLI into the Homebrew
+/// prefix (/opt/homebrew on Apple Silicon, /usr/local on Intel), and its `#!/usr/bin/env node`
+/// needs Homebrew's node, so `devhost` runs through `env` with a fixed PATH covering both.
+pub const DEVHOST_PATH_ENV: &str = "PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
 /// `devhost` subcommands the app may run (everything else is refused).
 pub const ALLOWED_SUBCOMMANDS: &[&str] = &[
@@ -45,9 +46,9 @@ pub fn validate_devhost_args(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// The command string sent to the remote shell: `/opt/homebrew/bin/devhost 'arg' ...`.
+/// The command string sent to the remote shell: `/usr/bin/env PATH=... devhost 'arg' ...`.
 pub fn remote_command(args: &[String]) -> String {
-    let mut parts = vec![shell_quote(DEVHOST_PATH)];
+    let mut parts = vec!["/usr/bin/env".to_string(), shell_quote(DEVHOST_PATH_ENV), "devhost".to_string()];
     parts.extend(args.iter().map(|a| shell_quote(a)));
     parts.join(" ")
 }
@@ -278,13 +279,13 @@ mod tests {
         let cmd = remote_command(&v(&["env", "create", "--name", "x y", "--repo", "git@github.com:a/b.git; rm -rf ~"]));
         assert_eq!(
             cmd,
-            "/opt/homebrew/bin/devhost env create --name 'x y' --repo 'git@github.com:a/b.git; rm -rf ~'"
+            "/usr/bin/env PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin devhost env create --name 'x y' --repo 'git@github.com:a/b.git; rm -rf ~'"
         );
     }
 
     #[test]
     fn ssh_args_multiplex_and_never_prompt() {
-        let a = ssh_args("macmini", "/Users/me/.ssh/devhost-%C", "/opt/homebrew/bin/devhost version --json", false).unwrap();
+        let a = ssh_args("macmini", "/Users/me/.ssh/devhost-%C", "/usr/bin/env PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin devhost version --json", false).unwrap();
         let joined = a.join(" ");
         for must in ["ControlMaster=auto", "ControlPersist=10m", "BatchMode=yes", "ConnectTimeout=5", "ControlPath=/Users/me/.ssh/devhost-%C", "-T"] {
             assert!(joined.contains(must), "{must} missing in {joined}");
@@ -292,7 +293,7 @@ mod tests {
         // Host comes after `--` so it can never be parsed as an option.
         let dashdash = a.iter().position(|x| x == "--").unwrap();
         assert_eq!(a[dashdash + 1], "macmini");
-        assert_eq!(a.last().unwrap(), "/opt/homebrew/bin/devhost version --json");
+        assert_eq!(a.last().unwrap(), "/usr/bin/env PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin devhost version --json");
         assert!(ssh_args("-oProxyCommand=x", "/p", "r", false).is_err());
         assert!(ssh_args("h", "/p", "r", true).unwrap().contains(&"-tt".to_string()));
     }
@@ -300,7 +301,7 @@ mod tests {
     #[test]
     fn terminal_actions_are_fixed_and_validated() {
         let apply = TerminalAction::Devhost(v(&["apply"]));
-        assert_eq!(terminal_command("macmini", &apply).unwrap(), "ssh -t -- macmini '/opt/homebrew/bin/devhost apply'");
+        assert_eq!(terminal_command("macmini", &apply).unwrap(), "ssh -t -- macmini '/usr/bin/env PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin devhost apply'");
         assert!(terminal_command("macmini", &TerminalAction::Devhost(v(&["bash"]))).is_err());
         assert!(terminal_command("-bad", &apply).is_err());
 

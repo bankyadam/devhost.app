@@ -31,6 +31,7 @@ export async function makeEnv(runner = new MockRunner(), tty = false): Promise<T
     env: {},
     home,
     user: 'tester',
+    brewPrefix: '/opt/homebrew',
     runner,
     now: () => new Date(2026, 9, 12, 20, 30, 15),
     cancel: { cancelled: false },
@@ -77,6 +78,10 @@ export interface FakeState {
   unpushed: Map<string, string>;
   uninstalled: string[];
   fileVault: 'On' | 'Off';
+  /** `uname -m`; Homebrew lives in /opt/homebrew (arm64) or /usr/local (x86_64). */
+  arch: 'arm64' | 'x86_64';
+  /** The CLI's node runs under Rosetta (`sysctl.proc_translated` is 1). */
+  rosetta: boolean;
 }
 
 const BREWED = ['git', 'claude', 'colima', 'docker', 'tailscale', 'direnv', 'mise', 'curl'];
@@ -105,8 +110,11 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     unpushed: new Map(),
     uninstalled: [],
     fileVault: 'On',
+    arch: 'arm64',
+    rosetta: false,
     ...initial,
   };
+  const brewBin = (): string => (state.arch === 'arm64' ? '/opt/homebrew/bin' : '/usr/local/bin');
   const runner = new MockRunner();
   const dispatch = (call: { command: string; args: string[]; opts?: { env?: Record<string, string>; cwd?: string } }) => {
     const line = strip([call.command, ...call.args].join(' '));
@@ -159,7 +167,7 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       return {};
     }
     if ((m = /^sh -c command -v (\S+)$/.exec(line))) {
-      return state.binaries.has(m[1]!) ? { stdout: `/opt/homebrew/bin/${m[1]}\n` } : { code: 1 };
+      return state.binaries.has(m[1]!) ? { stdout: `${brewBin()}/${m[1]}\n` } : { code: 1 };
     }
     if ((m = /^launchctl print system\/(\S+)$/.exec(line))) {
       return state.loaded.has(m[1]!) ? { stdout: 'state = running\n\tpid = 4242\n' } : { code: 113, stderr: 'Could not find service' };
@@ -200,8 +208,8 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       return {};
     }
     const key = call.opts?.env?.['CLAUDE_CONFIG_DIR'] ?? 'default';
-    if (line === '/opt/homebrew/bin/claude auth status') return { code: state.loggedIn.has(key) ? 0 : 1, stdout: '{}' };
-    if (line === '/opt/homebrew/bin/claude auth logout') {
+    if (line === `${brewBin()}/claude auth status`) return { code: state.loggedIn.has(key) ? 0 : 1, stdout: '{}' };
+    if (line === `${brewBin()}/claude auth logout`) {
       state.loggedIn.delete(key);
       return {};
     }
@@ -226,13 +234,14 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     }
     if ((m = /^docker compose -p (\S+) ps -q/.exec(line))) return { stdout: state.composeUp.has(m[1]!) ? 'abc123\n' : '' };
     if (line === 'sw_vers -productVersion') return { stdout: '26.0\n' };
-    if (line === 'uname -m') return { stdout: 'arm64\n' };
+    if (line === 'uname -m') return { stdout: `${state.arch}\n` };
+    if (line === 'sysctl -n sysctl.proc_translated') return state.rosetta ? { stdout: '1\n' } : { code: 1, stderr: 'unknown oid\n' };
     if (line === 'fdesetup status') return { stdout: `FileVault is ${state.fileVault}.\n` };
     if (line === 'brew --version') return { stdout: 'Homebrew 5.0.0\n' };
     if (line.startsWith('df -k /')) return { stdout: 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk3s1 1000000 500000 500000 50% /\n' };
     if (line.startsWith('docker info')) return state.colimaRunning ? { stdout: '27.0\n' } : { code: 1 };
-    if (line === '/opt/homebrew/bin/claude --version') return { stdout: '2.1.300 (Claude Code)\n' };
-    if (line === '/opt/homebrew/bin/claude doctor') return { stdout: 'Remote Control: available\n' };
+    if (line === `${brewBin()}/claude --version`) return { stdout: '2.1.300 (Claude Code)\n' };
+    if (line === `${brewBin()}/claude doctor`) return { stdout: 'Remote Control: available\n' };
     if (line.startsWith('curl -s -m 2 http://127.0.0.1:')) return state.loaded.has('com.devhost.collector') ? { stdout: '{"ok":true}' } : { code: 7 };
     if (line.startsWith('du -sk')) return { stdout: '64\t/x\n' };
     if ((m = /^direnv exec (\S+) sh -c printenv CLAUDE_CONFIG_DIR$/.exec(line))) {

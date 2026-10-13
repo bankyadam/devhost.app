@@ -1,5 +1,6 @@
 #!/bin/bash
-# devhost bootstrap: from a fresh macOS install to a configured Mac mini.
+# devhost bootstrap: from a fresh macOS install to a configured Mac mini
+# (Apple Silicon or Intel).
 #
 # Needs only the built-in shell. Installs Xcode Command Line Tools, Homebrew
 # and Node, builds the devhost CLI from this checkout, links it as `devhost`,
@@ -11,7 +12,6 @@
 set -euo pipefail
 
 NODE_FORMULA="${DEVHOST_NODE_FORMULA:-node@22}"
-BREW_PREFIX="/opt/homebrew"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${HOME}/.config/devhost/config.yaml"
 RUN_APPLY=1
@@ -23,7 +23,7 @@ for arg in "$@"; do
   case "${arg}" in
     --no-apply) RUN_APPLY=0 ;;
     -h | --help)
-      sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) die "unknown argument: ${arg}" ;;
@@ -31,7 +31,18 @@ for arg in "$@"; do
 done
 
 [ "$(uname -s)" = "Darwin" ] || die "devhost targets macOS only."
-[ "$(uname -m)" = "arm64" ] || die "devhost targets Apple Silicon only (this Mac reports $(uname -m))."
+# Under Rosetta uname reports x86_64 on Apple Silicon; that would install the Intel Homebrew.
+if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = "1" ]; then
+  die "this shell runs under Rosetta; run it natively: arch -arm64 /bin/bash ./bootstrap.sh"
+fi
+case "$(uname -m)" in
+  arm64) BREW_PREFIX="/opt/homebrew" ;;
+  x86_64)
+    BREW_PREFIX="/usr/local"
+    echo "Intel Mac: Homebrew no longer ships bottles for Intel, so some packages may build from source (slow)."
+    ;;
+  *) die "unsupported architecture: $(uname -m)" ;;
+esac
 
 install_command_line_tools() {
   if xcode-select -p >/dev/null 2>&1; then

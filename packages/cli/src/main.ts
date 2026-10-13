@@ -58,7 +58,7 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
 
   program
     .name('devhost')
-    .description('Turn an Apple Silicon Mac mini into a headless Claude Code dev server')
+    .description('Turn a Mac mini (Apple Silicon or Intel) into a headless Claude Code dev server')
     .version(cliVersion(), '-V, --cli-version', 'print the CLI version')
     .option('--json', 'machine-readable output (see the contract package)')
     .option('--verbose', 'show every command that is run')
