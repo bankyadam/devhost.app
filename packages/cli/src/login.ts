@@ -9,7 +9,8 @@ import type { Executor } from './runner/executor.js';
 import type { RunOptions } from './runner/types.js';
 import { toolPath } from './state.js';
 import { buildSteps, selectSteps } from './steps/index.js';
-import { envInfoOf } from './steps/env.js';
+import { envInfoOf, workspaceTrusted } from './steps/env.js';
+import { MIN_REMOTE_CONTROL_VERSION } from './claude-version.js';
 import type { EnvInfo, StepContext } from './steps/types.js';
 
 // eslint-disable-next-line no-control-regex
@@ -85,6 +86,14 @@ async function authLogin(ctx: LoginContext): Promise<void> {
   if (code !== 0) throw new HumanActionRequired(`claude auth login exited with code ${code}`, `Run \`devhost login ${a.name}\` again.`);
 }
 
+const TOO_OLD = /too old for Remote Control/i;
+
+export const tooOldForRemoteControl = (dir: string): HumanActionRequired =>
+  new HumanActionRequired(
+    `Claude Code is too old for Remote Control (${MIN_REMOTE_CONTROL_VERSION} or newer is needed), so ${dir} was not trusted`,
+    'Update it with `devhost apply --only claude.binary`, then run this command again.',
+  );
+
 const TRUST = /Trust\s+(.+?)\?\s*\[y\/N\]/i;
 const ENABLE = /Enable Remote Control\?\s*\(y\/n\)/i;
 
@@ -103,7 +112,9 @@ export async function acceptWorkspace(ctx: LoginContext, info: EnvInfo): Promise
   if (ctx.interactive) {
     ctx.reporter.log('info', `Answer the questions below for ${info.dir}, then press Ctrl+C once the server is up.`);
     await deps.runner.run(rcArgs[0]!, rcArgs.slice(1), { ...opts, interactive: true });
-    return true;
+    // Its output went to the terminal, so check the outcome: Claude Code may have stopped before asking
+    // (too old for Remote Control, not logged in) or the questions were answered "no".
+    return workspaceTrusted(ctx.stepContext(), ctx.account, info.dir);
   }
 
   const proc = deps.runner.spawn('script', ['-q', '/dev/null', ...rcArgs], opts);
@@ -164,6 +175,7 @@ export async function acceptWorkspace(ctx: LoginContext, info: EnvInfo): Promise
   const code = await done;
   if (failure) throw failure;
   if (declined) return false;
+  if (TOO_OLD.test(output)) throw tooOldForRemoteControl(info.dir);
   if (code === 127 && output.trim() === '') {
     throw new HumanActionRequired(
       `could not start a pseudo-terminal to accept trust for ${info.dir}`,
@@ -200,7 +212,7 @@ export async function loginAccount(ctx: LoginContext): Promise<LoginData> {
       trusted.push(info.dir);
       reporter.step(`login.trust.${e.name}`, 'ok');
     } else {
-      reporter.step(`login.trust.${e.name}`, 'skipped', 'declined');
+      reporter.step(`login.trust.${e.name}`, 'skipped', 'not trusted: declined, or Claude Code stopped before asking (see above)');
     }
   }
 

@@ -2,18 +2,29 @@ import { join } from 'node:path';
 import { HumanActionRequired } from '../errors.js';
 import { accountsOf, effectiveClaudeDir, type Account } from '../config/accounts.js';
 import { managedSettings, mergeSettings, parseSettings, stringifySettings } from '../claude-settings.js';
+import { MIN_REMOTE_CONTROL_VERSION, parseVersion, versionAtLeast } from '../claude-version.js';
 import { renderTemplate } from '../render.js';
 import { readState, whichBinary, writeState } from '../state.js';
 import { markdownBlock } from './shellblock.js';
 import { ok, skip, todo, type Step, type StepContext } from './types.js';
 
-/** Install Claude Code and record its absolute path for plists (spec A7.5). */
+/** The installed version, or null when `claude --version` gives none. */
+async function claudeVersion(exec: StepContext['exec'], path: string): Promise<number[] | null> {
+  const r = await exec.query(path, ['--version']);
+  return r.code === 0 ? parseVersion(r.stdout) : null;
+}
+
+const tooOld = (v: number[]): string => `Claude Code ${v.join('.')} is too old for Remote Control (${MIN_REMOTE_CONTROL_VERSION} or newer)`;
+
+/** Install Claude Code (new enough for Remote Control) and record its absolute path for plists (spec A7.5). */
 export const claudeBinaryStep: Step = {
   id: 'claude.binary',
-  description: 'Install Claude Code and record its absolute path',
+  description: 'Install Claude Code, update it when too old for Remote Control, record its path',
   async check({ home, exec }) {
     const path = await whichBinary(exec, 'claude');
     if (!path) return todo('Claude Code is not installed');
+    const version = await claudeVersion(exec, path);
+    if (version && !versionAtLeast(version, MIN_REMOTE_CONTROL_VERSION)) return todo(tooOld(version));
     const state = await readState(exec, home);
     if (state.claudePath !== path) return todo('recorded tool paths are out of date');
     return ok();
@@ -30,6 +41,12 @@ export const claudeBinaryStep: Step = {
           'Run `brew install --cask claude-code`, then `devhost apply` again.',
         );
       }
+    }
+    const version = path ? await claudeVersion(exec, path) : null;
+    if (path && version && !versionAtLeast(version, MIN_REMOTE_CONTROL_VERSION)) {
+      const reason = `update ${tooOld(version)}`;
+      if (config.claude?.install === 'native') await exec.exec(path, ['update'], { reason });
+      else await exec.exec('brew', ['upgrade', '--cask', 'claude-code'], { reason, env: { HOMEBREW_NO_ENV_HINTS: '1', HOMEBREW_NO_ANALYTICS: '1' } });
     }
     const state = await readState(exec, home);
     await writeState(exec, home, { ...state, ...(path ? { claudePath: path } : {}) });
