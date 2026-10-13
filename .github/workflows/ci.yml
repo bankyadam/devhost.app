@@ -53,7 +53,7 @@ jobs:
             if (e.type !== "result" || e.ok !== true || e.data.dryRun !== true) { console.error(l); process.exit(1); }'
 
   app:
-    name: desktop app (aarch64-apple-darwin)
+    name: desktop app (universal macOS: arm64 + x86_64)
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -63,11 +63,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:core
-      - run: rustup target add aarch64-apple-darwin
-      - name: Tauri build (Apple Silicon only)
+      - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Tauri build (universal binary)
         run: npm run tauri:build -w @devhost/app
       - uses: actions/upload-artifact@v4
         with:
           name: devhost-desktop-app
-          path: packages/app/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app
+          path: packages/app/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
           if-no-files-found: error

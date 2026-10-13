@@ -108,16 +108,17 @@ A macOS app for the MacBook that configures and controls the Mac mini and shows 
 - **Safety.** The webview can only ask the Rust shell for `devhost <known subcommand> ...` on the configured host, three fixed Terminal actions (`devhost …`, a shell in a project directory, `claude --resume <id>`), `code --remote` and http(s) URLs. Quoting and validation live in `packages/app/core` with unit tests (hostile hosts, directories, arguments).
 - **Session actions.** *Open in claude.ai/code* opens the session list (the page lists Remote Control sessions by name, `<account>-<env>`); *Terminal: resume* runs `claude --resume <id>` in the environment directory with the account's direnv environment; *VS Code* appears only if the `code` CLI is found; *Dev server* opens `http://<host>:<port base>`.
 
-Requirements: Apple Silicon Mac on macOS 26 or later (the bundle's minimum), Node 22, Rust (stable), `ssh` access to the Mac mini. Apple Silicon only (`aarch64-apple-darwin`), no signing or notarization (personal local builds).
+Requirements: a Mac on macOS 26 or later (the bundle's minimum), Node 22, Rust (stable), `ssh` access to the Mac mini. The app is a **universal binary** (Apple Silicon and Intel, `universal-apple-darwin`); the Mac mini server side stays Apple Silicon only. No signing or notarization (personal local builds).
 
 ```sh
 npm ci && npm run build:core
 npm run dev -w @devhost/app            # UI in a browser against a built-in demo host (no ssh)
 npm run tauri -w @devhost/app dev      # the real app
-npm run tauri:build -w @devhost/app    # → packages/app/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/devhost.app
+npm run tauri:build -w @devhost/app    # universal → packages/app/src-tauri/target/universal-apple-darwin/release/bundle/macos/devhost.app
+npm run tauri:build:arm -w @devhost/app # Apple Silicon only (faster)
 ```
 
-What was verified without a Mac: 55 UI tests that drive the screens against the **real CLI** (in-process, on the fake Mac) including both wizards, login and trust prompts, delete confirmations, the config → dry-run → apply flow, the sudo → Terminal path, reconnect after an outage and the version refusal; 13 Rust tests for the shell logic; and the Tauri crate type-checks for `aarch64-apple-darwin` (`cargo check`, with a stub C compiler for one Objective-C helper because the check ran on Linux). **Not verified**: building and running the bundled app on macOS 26, the real `ssh` round trip, the tray item and the Terminal/VS Code launchers.
+What was verified without a Mac: 55 UI tests that drive the screens against the **real CLI** (in-process, on the fake Mac) including both wizards, login and trust prompts, delete confirmations, the config → dry-run → apply flow, the sudo → Terminal path, reconnect after an outage and the version refusal; 13 Rust tests for the shell logic; and the Tauri crate type-checks for both `aarch64-apple-darwin` and `x86_64-apple-darwin` (`cargo check`, with a stub C compiler for one Objective-C helper because the check ran on Linux). **Not verified**: building and running the bundled app on macOS 26 (including the universal lipo step, which only runs on macOS), the real `ssh` round trip, the tray item and the Terminal/VS Code launchers.
 
 ## Development
 
