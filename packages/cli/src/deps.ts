@@ -17,6 +17,8 @@ export interface Deps {
   user: string;
   /** Homebrew prefix: /opt/homebrew (Apple Silicon) or /usr/local (Intel). */
   brewPrefix: string;
+  /** The Node running devhost; the collector service runs on the same one (it may be an nvm Node, on no default PATH). */
+  nodePath: string;
   runner: Runner;
   now: () => Date;
   /** Set by the SIGINT handler; long-running commands stop after the current step. */

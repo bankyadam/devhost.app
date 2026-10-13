@@ -10,7 +10,7 @@ import { fakeMac, makeEnv, ndjson, type TestEnv } from './helpers.js';
 async function converged(opts: { tailscale?: boolean; arch?: 'arm64' | 'x86_64' } = {}) {
   const mac = fakeMac({ arch: opts.arch ?? 'arm64' });
   const env = await makeEnv(mac.runner);
-  if (opts.arch === 'x86_64') env.deps.brewPrefix = '/usr/local';
+  if (opts.arch === 'x86_64') Object.assign(env.deps, { brewPrefix: '/usr/local', nodePath: '/usr/local/opt/node@24/bin/node' });
   env.deps.env['DEVHOST_TRUST_IDLE_MS'] = '30';
   await env.run('init', '--yes', ...(opts.tailscale ? [] : ['--no-tailscale']));
   expect(await env.run('apply')).toBe(0);
@@ -71,7 +71,7 @@ describe('doctor', () => {
     expect(await readFile(join(env.home, '.zshrc'), 'utf8')).toContain('[ -x /usr/local/bin/brew ] && eval "$(/usr/local/bin/brew shellenv)"');
     expect(JSON.parse(await readFile(join(env.home, '.docker', 'config.json'), 'utf8'))).toMatchObject({ cliPluginsExtraDirs: ['/usr/local/lib/docker/cli-plugins'] });
     const plist = await readFile(join(env.home, 'LaunchDaemons', 'com.devhost.collector.plist'), 'utf8');
-    expect(plist).toContain('<string>/usr/local/bin/node</string>');
+    expect(plist).toContain('<string>/usr/local/opt/node@24/bin/node</string>');
     expect(plist).not.toContain('/opt/homebrew/bin/node');
   });
 

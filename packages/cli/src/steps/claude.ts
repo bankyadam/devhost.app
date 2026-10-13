@@ -15,8 +15,7 @@ export const claudeBinaryStep: Step = {
     const path = await whichBinary(exec, 'claude');
     if (!path) return todo('Claude Code is not installed');
     const state = await readState(exec, home);
-    const node = await whichBinary(exec, 'node');
-    if (state.claudePath !== path || (node && state.nodePath !== node)) return todo('recorded tool paths are out of date');
+    if (state.claudePath !== path) return todo('recorded tool paths are out of date');
     return ok();
   },
   async apply({ config, home, exec }) {
@@ -33,8 +32,7 @@ export const claudeBinaryStep: Step = {
       }
     }
     const state = await readState(exec, home);
-    const node = await whichBinary(exec, 'node');
-    await writeState(exec, home, { ...state, ...(path ? { claudePath: path } : {}), ...(node ? { nodePath: node } : {}) });
+    await writeState(exec, home, { ...state, ...(path ? { claudePath: path } : {}) });
   },
 };
 

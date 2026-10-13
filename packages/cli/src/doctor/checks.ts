@@ -37,7 +37,7 @@ const ok = (id: string, message: string): Check => ({ id, status: 'ok', message 
 const warn = (id: string, message: string, fix?: string): Check => ({ id, status: 'warn', message, ...(fix ? { fix } : {}) });
 const fail = (id: string, message: string, fix?: string): Check => ({ id, status: 'fail', message, ...(fix ? { fix } : {}) });
 
-const stepCtx = (c: DoctorContext): StepContext => ({ config: c.config, home: c.deps.home, user: c.deps.user, brewPrefix: c.deps.brewPrefix, exec: c.exec, configPath: c.configPath });
+const stepCtx = (c: DoctorContext): StepContext => ({ config: c.config, home: c.deps.home, user: c.deps.user, brewPrefix: c.deps.brewPrefix, nodePath: c.deps.nodePath, exec: c.exec, configPath: c.configPath });
 
 /** Run a group of checks; a throwing check becomes a failed check instead of aborting the report. */
 async function guarded(id: string, fn: () => Promise<Check[]>): Promise<Check[]> {

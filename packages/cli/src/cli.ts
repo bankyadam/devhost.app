@@ -21,6 +21,7 @@ const deps: Deps = {
   home: homedir(),
   user: userInfo().username,
   brewPrefix: homebrewPrefix(process.arch),
+  nodePath: process.execPath,
   runner: new RealRunner(env),
   now: () => new Date(),
   cancel: { cancelled: false },

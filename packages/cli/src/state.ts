@@ -5,7 +5,6 @@ import type { Executor } from './runner/executor.js';
 /** Machine facts devhost resolved once (spec A7.5: use absolute paths in every plist). */
 export interface DevhostState {
   claudePath?: string;
-  nodePath?: string;
   colimaPath?: string;
 }
 
