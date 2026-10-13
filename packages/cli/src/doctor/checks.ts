@@ -13,7 +13,7 @@ import { COMPOSE_FILES, envrcFor, workspaceTrusted } from '../steps/env.js';
 import { COLIMA_LABEL } from '../steps/docker.js';
 import { COLLECTOR_LABEL } from '../steps/collector.js';
 import { parseTailscale } from '../steps/tailscale.js';
-import { pmsetValues } from '../steps/system.js';
+import { powerState, unsupportedPowerNote } from '../steps/system.js';
 import { parsePs, subtree } from '../collector/samplers.js';
 import type { StepContext } from '../steps/types.js';
 
@@ -89,18 +89,15 @@ async function systemChecks(c: DoctorContext): Promise<Check[]> {
   }
   out.push(names.length === 0 ? ok('system.hostname', `hostname is ${want}`) : fail('system.hostname', `${names.join(', ')} differ from "${want}"`, 'devhost apply --only system.hostname'));
 
-  const p = config.machine.power ?? {};
-  const wanted: [string, number][] = [];
-  if (p.neverSleep) wanted.push(['sleep', 0], ['disksleep', 0]);
-  if (p.autoRestartAfterPowerLoss) wanted.push(['autorestart', 1]);
-  if (p.wakeOnLan) wanted.push(['womp', 1]);
-  if (wanted.length > 0) {
-    const r = await exec.query('pmset', ['-g', 'custom']);
-    const wrong = wanted.filter(([k, v]) => {
-      const seen = pmsetValues(r.stdout, k);
-      return seen.length === 0 || seen.some((x) => x !== v);
-    });
-    out.push(wrong.length === 0 ? ok('system.power', 'never sleeps, restarts after power loss, wake on LAN') : fail('system.power', wrong.map(([k, v]) => `${k} should be ${v}`).join(', '), 'devhost apply --only system.power'));
+  const power = await powerState(config, exec);
+  if (power.want.length > 0 || power.unsupported.length > 0) {
+    const wrong = power.wrong ?? ['could not read power settings'];
+    const done = power.want.map(([k, v]) => `${k} ${v}`).join(', ');
+    out.push(
+      wrong.length > 0 ? fail('system.power', wrong.join(', '), 'devhost apply --only system.power')
+      : power.unsupported.length > 0 ? warn('system.power', `${done ? `${done}; ` : ''}${unsupportedPowerNote(power.unsupported)}`, 'Turn that option off under machine.power in the config to silence this.')
+      : ok('system.power', 'never sleeps, restarts after power loss, wake on LAN'),
+    );
   }
 
   if (config.network?.ssh) {

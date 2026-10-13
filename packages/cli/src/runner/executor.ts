@@ -83,7 +83,9 @@ export class Executor {
   }
 
   warn(message: string): void {
-    if (!this.warnings.includes(message)) this.warnings.push(message);
+    // A step's check runs again after apply to verify; say each warning once.
+    if (this.warnings.includes(message)) return;
+    this.warnings.push(message);
     this.reporter.log('warn', message);
   }
 
