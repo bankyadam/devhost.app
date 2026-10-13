@@ -176,19 +176,31 @@ export class DevhostClient {
     });
   }
 
-  accountAdd(o: { name: string; gitEmail: string; gitName?: string; isDefault: boolean; dailyCostAlert?: number }, h?: LongHandlers): LongRun<AccountChangeData> {
-    return this.run(['account', 'add', '--name', o.name, '--git-email', o.gitEmail, ...flag('--git-name', o.gitName), ...(o.isDefault ? ['--default'] : []), ...flag('--daily-cost-alert', o.dailyCostAlert?.toString())], h);
+  accountAdd(o: AccountAddInput, h?: LongHandlers): LongRun<AccountChangeData> {
+    return this.run(accountAddArgs(o), h);
   }
   accountRemove = (name: string, logout: boolean, h?: LongHandlers): LongRun<AccountChangeData> => this.run(['account', 'remove', name, ...(logout ? ['--logout'] : [])], h);
 
-  envCreate(o: { account: string; name: string; repo?: string; remoteControl: boolean; permissionMode?: string; compose: 'auto' | 'off' }, h?: LongHandlers): LongRun<EnvChangeData> {
-    return this.run(['env', 'create', '--account', o.account, '--name', o.name, ...flag('--repo', o.repo), ...(o.remoteControl ? [] : ['--no-rc']), ...flag('--permission-mode', o.permissionMode), '--compose', o.compose], h);
+  envCreate(o: EnvCreateInput, h?: LongHandlers): LongRun<EnvChangeData> {
+    return this.run(envCreateArgs(o), h);
   }
   envDelete = (name: string, deleteFiles: boolean, h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', 'delete', name, ...(deleteFiles ? ['--delete-files'] : [])], h);
   envService = (name: string, action: 'start' | 'stop' | 'restart', h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', action, name], h);
 }
 
 const flag = (name: string, value: string | undefined): string[] => (value === undefined || value === '' ? [] : [name, value]);
+
+export interface AccountAddInput { name: string; gitEmail: string; gitName?: string; isDefault: boolean; dailyCostAlert?: number }
+export interface EnvCreateInput { account: string; name: string; repo?: string; remoteControl: boolean; permissionMode?: string; compose: 'auto' | 'off' }
+
+/**
+ * Arguments of `devhost account add` / `env create`, shared by the app's own run and its "Open in
+ * Terminal" fallback, so a retry in the Terminal is the same command (it continues the setup).
+ */
+export const accountAddArgs = (o: AccountAddInput): string[] =>
+  ['account', 'add', '--name', o.name, '--git-email', o.gitEmail, ...flag('--git-name', o.gitName), ...(o.isDefault ? ['--default'] : []), ...flag('--daily-cost-alert', o.dailyCostAlert?.toString())];
+export const envCreateArgs = (o: EnvCreateInput): string[] =>
+  ['env', 'create', '--account', o.account, '--name', o.name, ...flag('--repo', o.repo), ...(o.remoteControl ? [] : ['--no-rc']), ...flag('--permission-mode', o.permissionMode), '--compose', o.compose];
 
 export function commandError(a: Answered): CommandError {
   const first = a.errors[0];

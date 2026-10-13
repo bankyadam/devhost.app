@@ -67,6 +67,43 @@ describe('environments (spec B3.2)', () => {
     expect(await screen.findByText('running · pid 4242')).toBeInTheDocument();
   });
 
+  it('create stopped by sudo: Open in Terminal runs the same command, which finishes the setup', async () => {
+    const h = await makeHarness();
+    await withBusiness(h);
+    h.mac.state.sudoNeedsPassword = true;
+    mount(h);
+    await screen.findByText(/connected · devhost/);
+    await goto(h, 'Environments');
+    const dlg = await openWizard(h, 'New environment');
+    await h.user.click(await dlg.findByRole('combobox', { name: 'Account' }).then(() => dlg.getByRole('button', { name: 'Next' })));
+    await h.user.type(dlg.getByLabelText('Name'), 'acme-api');
+    await h.user.click(dlg.getByRole('button', { name: 'Next' }));
+    await h.user.type(dlg.getByLabelText(/Repository URL/), 'git@github.com:acme/api.git');
+    await h.user.click(dlg.getByRole('button', { name: 'Next' }));
+    await h.user.selectOptions(dlg.getByLabelText('Permission mode of its sessions'), 'plan');
+    await h.user.click(dlg.getByRole('button', { name: 'Next' }));
+    await h.user.click(dlg.getByRole('button', { name: 'Next' }));
+    await h.user.click(dlg.getByRole('button', { name: 'Create environment' }));
+    const trust = await screen.findByText(/Trust .* and let Claude Code run there\?/, undefined, { timeout: 8000 });
+    await h.user.click(within(trust.closest('.prompt') as HTMLElement).getByRole('button', { name: 'Yes' }));
+    const enable = await screen.findByText(/Enable Remote Control for this account/, undefined, { timeout: 8000 });
+    await h.user.click(within(enable.closest('.prompt') as HTMLElement).getByRole('button', { name: 'Yes' }));
+
+    const alert = await screen.findByText(/needs you at a keyboard/, undefined, { timeout: 8000 });
+    await h.user.click(within(alert.closest('.notice') as HTMLElement).getByRole('button', { name: 'Open in Terminal' }));
+    const sent = h.transport.calls.find((c) => c[1] === 'create')!;
+    const terminal = h.transport.opened.at(-1)!.terminal!;
+    expect(terminal).toEqual({ kind: 'devhost', args: sent.filter((a) => a !== '--json') });
+
+    // In the Terminal the password is entered; the same command continues instead of "already exists".
+    h.mac.state.sudoNeedsPassword = false;
+    feed(h, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    // (The Terminal asks these on its tty; here they are answered as prompt events.)
+    expect(await h.cli(...(terminal.kind === 'devhost' ? terminal.args : []), '--json')).toBe(0);
+    expect((await cfg(h)).match(/^\s+- name: acme-api$/gm)).toHaveLength(1);
+    expect(h.mac.state.loaded.has('com.devhost.rc.business.acme-api')).toBe(true);
+  });
+
   it('start / stop / restart a service; a missing sudo password offers a Terminal window', async () => {
     const h = await makeHarness();
     await withBusiness(h);

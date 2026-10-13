@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AccountListData, DashData, EnvListData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
+import { accountAddArgs, type AccountAddInput } from '../client/client';
 import { errorMessage } from '../client/errors';
 import { ago } from '../lib/format';
 import { predictAccountRange, SLUG } from '../lib/ports';
@@ -140,11 +141,12 @@ function AddWizard({ accounts, onClose }: { accounts: Account[]; onClose: () => 
   const canNext = step === 0 ? d.name !== '' && !nameError : step === 1 ? emailOk : step === 3 ? alertOk : true;
 
   if (run) {
+    const input: AccountAddInput = { name: d.name, gitEmail: d.gitEmail, gitName: d.gitName || undefined, isDefault: d.isDefault, dailyCostAlert: alertNum };
     return (
       <RunDialog
         title={`Add account ${d.name}`}
-        begin={(h) => client.accountAdd({ name: d.name, gitEmail: d.gitEmail, gitName: d.gitName || undefined, isDefault: d.isDefault, dailyCostAlert: alertNum }, h)}
-        terminal={{ kind: 'devhost', args: ['account', 'add', '--name', d.name, '--git-email', d.gitEmail, ...(d.isDefault ? ['--default'] : [])] }}
+        begin={(h) => client.accountAdd(input, h)}
+        terminal={{ kind: 'devhost', args: accountAddArgs(input) }}
         onClose={onClose}
       >
         <p className="sec">devhost sets the account up, then continues straight into the sign-in: open the URL it shows and paste the code back.</p>
