@@ -109,6 +109,10 @@ export async function acceptWorkspace(ctx: LoginContext, info: EnvInfo): Promise
   const rcArgs = [claude, 'remote-control', '--name', `${info.account}-${info.name}`, '--spawn', 'same-dir', '--no-create-session-in-dir', '--permission-mode', info.permissionMode];
   const opts: RunOptions = { ...claudeRunOptions(ctx.account, deps.home), cwd: info.dir };
 
+  // Already trusted (an earlier login or create answered both questions): running Claude Code again
+  // is pointless, and fails while the environment's own service serves the folder.
+  if (await workspaceTrusted(ctx.stepContext(), ctx.account, info.dir)) return true;
+
   if (ctx.interactive) {
     ctx.reporter.log('info', `Answer the questions below for ${info.dir}, then press Ctrl+C once the server is up.`);
     await deps.runner.run(rcArgs[0]!, rcArgs.slice(1), { ...opts, interactive: true });
