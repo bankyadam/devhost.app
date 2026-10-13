@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "tauri": "tauri",
-    "tauri:build": "tauri build --target aarch64-apple-darwin --bundles app",
+    "tauri:build": "tauri build --target universal-apple-darwin --bundles app",
+    "tauri:build:arm": "tauri build --target aarch64-apple-darwin --bundles app",
     "test:rust": "cargo test --manifest-path core/Cargo.toml"
   },
   "dependencies": {
