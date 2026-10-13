@@ -9,6 +9,7 @@ import type { RunResult, StreamHandle, TerminalRequest, Transport, TrayStatus } 
  */
 export function createDemoTransport(host: string): Transport {
   let config = DEMO_CONFIG;
+  const demoWebApps = new Set<string>();
   const now = Date.now();
 
   const envelope = (data: unknown, ok = true, errors: unknown[] = []): RunResult => ({ code: ok ? 0 : 2, stdout: `${JSON.stringify({ contractVersion: 1, ok, data, errors })}\n`, stderr: '' });
@@ -82,6 +83,12 @@ export function createDemoTransport(host: string): Transport {
     openTerminal: async (r: TerminalRequest) => void console.info('[demo] open Terminal', r),
     openVscode: async (p) => void console.info('[demo] open VS Code', p),
     detectTools: async () => ({ code: true, iterm: false }),
+    webApps: async (accounts) => Object.fromEntries(accounts.map((a) => [a, demoWebApps.has(a)])),
+    setupWebApp: async (account) => {
+      demoWebApps.add(account);
+      return `~/Library/Application Support/app.devhost.desktop/web-app-icons/Claude – ${account}.png`;
+    },
+    openWebApp: async (account) => void console.info('[demo] open web app', account),
     setTray: async (s: TrayStatus, n: number) => void console.info('[demo] tray', s, n),
     onNavigate: () => () => undefined,
   };

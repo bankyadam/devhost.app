@@ -126,7 +126,9 @@ export function ConfirmDialog({ title, children, confirmLabel, danger, onConfirm
   );
 }
 
-export function Menu({ label, items }: { label: string; items: { label: string; onSelect: () => void; hidden?: boolean }[] }) {
+export interface MenuItem { label: string; onSelect: () => void; hidden?: boolean; disabled?: boolean; danger?: boolean }
+
+export function Menu({ label, items, ariaLabel, caret = true }: { label: string; items: MenuItem[]; ariaLabel?: string; caret?: boolean }) {
   const [open, setOpen] = useState(false);
   const visible = items.filter((i) => !i.hidden);
   useEffect(() => {
@@ -137,11 +139,11 @@ export function Menu({ label, items }: { label: string; items: { label: string; 
   }, [open]);
   return (
     <div className="menu">
-      <button className="btn sm" aria-haspopup="menu" aria-expanded={open} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>{label} ▾</button>
+      <button className="btn sm" aria-haspopup="menu" aria-expanded={open} aria-label={ariaLabel} title={ariaLabel} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>{caret ? `${label} ▾` : label}</button>
       {open && (
         <div className="items" role="menu">
           {visible.map((i) => (
-            <button key={i.label} role="menuitem" onClick={() => { setOpen(false); i.onSelect(); }}>{i.label}</button>
+            <button key={i.label} role="menuitem" className={i.danger ? 'danger' : undefined} disabled={i.disabled} onClick={() => { setOpen(false); i.onSelect(); }}>{i.label}</button>
           ))}
         </div>
       )}

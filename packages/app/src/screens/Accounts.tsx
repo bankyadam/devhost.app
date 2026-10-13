@@ -5,19 +5,23 @@ import { accountAddArgs, type AccountAddInput } from '../client/client';
 import { errorMessage } from '../client/errors';
 import { ago } from '../lib/format';
 import { predictAccountRange, SLUG } from '../lib/ports';
-import { Badge, Dialog, Empty, Field, WizardStep } from '../ui/primitives';
+import { Badge, CopyButton, Dialog, Empty, Field, WizardStep } from '../ui/primitives';
 import { RunDialog } from '../ui/run-dialog';
+import { rasterizeIcon, webAppIconSvg } from '../lib/webAppIcon';
+import { useWebApps } from '../use-web-apps';
 
 type Account = AccountListData['accounts'][number];
 
 export function Accounts() {
-  const { client, connection, reportUnreachable } = useApp();
+  const { client, transport, connection, reportUnreachable } = useApp();
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [envs, setEnvs] = useState<EnvListData['environments']>([]);
   const [dash, setDash] = useState<DashData | null>(null);
   const [stores, setStores] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<null | { kind: 'add' } | { kind: 'login'; account: Account } | { kind: 'remove'; account: Account }>(null);
+  const [dialog, setDialog] = useState<null | { kind: 'add' } | { kind: 'login'; account: Account } | { kind: 'remove'; account: Account } | { kind: 'web-app'; account: Account }>(null);
+  const names = (accounts ?? []).map((a) => a.name);
+  const webApps = useWebApps(names);
 
   const refresh = useCallback(async () => {
     try {
@@ -57,7 +61,7 @@ export function Accounts() {
         {accounts === null ? <Empty>Loading…</Empty> : accounts.length === 0 ? <Empty>No accounts yet. Add one to sign in with a claude.ai account.</Empty> : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Account</th><th>Default</th><th>Login</th><th>Credentials</th><th>Last auth check</th><th>Port range</th><th className="num">Environments</th><th><span className="sr">Actions</span></th></tr></thead>
+              <thead><tr><th>Account</th><th>Default</th><th>Login</th><th>Credentials</th><th>Last auth check</th><th>Port range</th><th className="num">Environments</th><th>Web app</th><th><span className="sr">Actions</span></th></tr></thead>
               <tbody>
                 {accounts.map((a) => {
                   const mine = envs.filter((e) => e.account === a.name);
@@ -71,6 +75,11 @@ export function Accounts() {
                       <td>{checked ? ago(checked, Date.now()) : '–'}</td>
                       <td className="mono">{a.portRange[0]}–{a.portRange[1]}</td>
                       <td className="num">{a.environments}</td>
+                      <td>
+                        {webApps.installed[a.name]
+                          ? <button className="btn sm" onClick={() => void transport.openWebApp(a.name)}>Open</button>
+                          : <button className="btn sm" onClick={() => setDialog({ kind: 'web-app', account: a })}>Set up…</button>}
+                      </td>
                       <td>
                         <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
                           <button className="btn sm" onClick={() => setDialog({ kind: 'login', account: a })}>{a.loggedIn ? 'Re-login' : 'Log in'}</button>
@@ -99,8 +108,67 @@ export function Accounts() {
           <p className="sec">devhost prints a sign-in URL. Open it in your browser, sign in as <b>{dialog.account.name}</b> and paste the code back here. Then it accepts workspace trust for the account's environments and restarts their services.</p>
         </RunDialog>
       )}
+      {dialog?.kind === 'web-app' && <WebAppSetup accounts={names} account={dialog.account.name} recheck={webApps.refresh} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'remove' && <RemoveFlow account={dialog.account} onClose={() => { setDialog(null); void refresh(); }} />}
     </div>
+  );
+}
+
+/**
+ * A Safari web app per account keeps several claude.ai logins open side by side. Safari has no API
+ * for "Add to Dock", so the app does the rest: the icon in the account's color, Safari on
+ * claude.ai/code, the icon shown in Finder, then it checks that the web app exists.
+ */
+function WebAppSetup({ accounts, account, recheck, onClose }: { accounts: string[]; account: string; recheck: () => Promise<Record<string, boolean>>; onClose: () => void }) {
+  const { transport } = useApp();
+  const svg = webAppIconSvg(accounts, account);
+  const name = `Claude – ${account}`;
+  const [phase, setPhase] = useState<'intro' | 'busy' | 'started' | 'missing'>('intro');
+  const [error, setError] = useState<string | null>(null);
+
+  const start = async (): Promise<void> => {
+    setPhase('busy');
+    setError(null);
+    try {
+      await transport.setupWebApp(account, await rasterizeIcon(svg));
+      setPhase('started');
+    } catch (e) {
+      setError(errorMessage(e));
+      setPhase('intro');
+    }
+  };
+  const check = async (): Promise<void> => {
+    if ((await recheck())[account]) onClose();
+    else setPhase('missing');
+  };
+
+  return (
+    <Dialog
+      title={`Web app for ${account}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>{phase === 'intro' ? 'Cancel' : 'Close'}</button>
+          {phase === 'intro' || phase === 'busy'
+            ? <button className="btn primary" disabled={phase === 'busy'} onClick={() => void start()}>Open Safari</button>
+            : <button className="btn primary" onClick={() => void check()}>Done, check</button>}
+        </>
+      }
+    >
+      <div className="row" style={{ gap: 16, alignItems: 'flex-start', flexWrap: 'nowrap' }}>
+        <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} width={96} height={96} alt={`Icon for ${account}`} />
+        <p className="sec" style={{ margin: 0 }}>A Safari web app has its own cookies, so it stays signed in as <b>{account}</b> while other accounts use their own web apps or the Claude app.</p>
+      </div>
+      {error && <div className="notice bad" role="alert">{error}</div>}
+      <ol className="sec" style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 6 }}>
+        <li><b>Open Safari</b> below: it opens claude.ai/code and shows the icon in Finder.</li>
+        <li>In Safari: <b>File → Add to Dock…</b></li>
+        <li>Name: <span className="mono">{name}</span> <CopyButton text={name} /></li>
+        <li>Drag the icon from Finder onto the icon in Safari's dialog, then <b>Add</b>.</li>
+        <li>Sign in to claude.ai in the new web app as <b>{account}</b>.</li>
+      </ol>
+      {phase === 'missing' && <div className="notice" role="status">No web app named <span className="mono">{name}</span> in ~/Applications yet. Check the name in Safari's dialog, it has to match exactly.</div>}
+    </Dialog>
   );
 }
 

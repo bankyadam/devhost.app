@@ -4,14 +4,16 @@ import { useApp } from '../app-context';
 import { envCreateArgs, type EnvCreateInput } from '../client/client';
 import { errorMessage } from '../client/errors';
 import { ENV_SLUG, predictEnvBlock } from '../lib/ports';
-import { Badge, Dialog, Empty, Field, WizardStep } from '../ui/primitives';
+import { Badge, Dialog, Empty, Field, Menu, WizardStep } from '../ui/primitives';
 import { RunDialog } from '../ui/run-dialog';
+import { openClaude, useWebApps } from '../use-web-apps';
 
 type Env = EnvListData['environments'][number];
 
 export function Environments() {
-  const { client, connection, reportUnreachable } = useApp();
+  const { client, transport, connection, reportUnreachable } = useApp();
   const [envs, setEnvs] = useState<Env[] | null>(null);
+  const webApps = useWebApps([...new Set((envs ?? []).map((e) => e.account))]);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env }>(null);
 
@@ -53,16 +55,25 @@ export function Environments() {
                     <td>{e.compose}</td>
                     <td className="mono small" title={e.dir}>{e.dir}{e.dirExists === false && <> <Badge tone="bad">missing</Badge></>}</td>
                     <td>
-                      <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-                        {e.remoteControl.enabled && (
-                          <>
-                            <button className="btn sm" disabled={e.service.state === 'running'} onClick={() => setDialog({ kind: 'service', env: e, action: 'start' })}>Start</button>
-                            <button className="btn sm" disabled={e.service.state !== 'running'} onClick={() => setDialog({ kind: 'service', env: e, action: 'stop' })}>Stop</button>
-                            <button className="btn sm" onClick={() => setDialog({ kind: 'service', env: e, action: 'restart' })}>Restart</button>
-                          </>
-                        )}
-                        <button className="btn sm" onClick={() => setDialog({ kind: 'logs', env: e })}>Logs</button>
-                        <button className="btn sm danger" onClick={() => setDialog({ kind: 'delete', env: e })}>Delete…</button>
+                      <div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
+                        <button
+                          className="btn sm primary"
+                          aria-label={`Open Claude for ${e.name}`}
+                          title={webApps.installed[e.account] ? `Open Claude – ${e.account}` : `Open claude.ai/code (no web app for ${e.account} yet, see Accounts)`}
+                          onClick={() => void openClaude(transport, webApps.installed, e.account)}
+                        >▶</button>
+                        <Menu
+                          label="…"
+                          caret={false}
+                          ariaLabel={`More actions for ${e.name}`}
+                          items={[
+                            { label: 'Start', hidden: !e.remoteControl.enabled, disabled: e.service.state === 'running', onSelect: () => setDialog({ kind: 'service', env: e, action: 'start' }) },
+                            { label: 'Stop', hidden: !e.remoteControl.enabled, disabled: e.service.state !== 'running', onSelect: () => setDialog({ kind: 'service', env: e, action: 'stop' }) },
+                            { label: 'Restart', hidden: !e.remoteControl.enabled, onSelect: () => setDialog({ kind: 'service', env: e, action: 'restart' }) },
+                            { label: 'Logs', onSelect: () => setDialog({ kind: 'logs', env: e }) },
+                            { label: 'Delete…', danger: true, onSelect: () => setDialog({ kind: 'delete', env: e }) },
+                          ]}
+                        />
                       </div>
                     </td>
                   </tr>

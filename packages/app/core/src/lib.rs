@@ -169,6 +169,49 @@ pub fn vscode_args(host: &str, path: &str) -> Result<Vec<String>, String> {
     Ok(vec!["--remote".into(), format!("ssh-remote+{host}"), path.into()])
 }
 
+/// An account name as the CLI accepts it (`commands-accounts.ts`). It ends up in file names on
+/// this Mac, so nothing else gets through.
+pub fn valid_account(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some('a'..='z'))
+        && name.len() <= 32
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// Name of the account's Safari web app (Safari → File → Add to Dock). Each web app has its own
+/// cookies, so one per account keeps several claude.ai logins open side by side.
+pub fn web_app_name(account: &str) -> Result<String, String> {
+    if !valid_account(account) {
+        return Err(format!("`{account}` is not a valid account name"));
+    }
+    Ok(format!("Claude – {account}"))
+}
+
+/// Where Safari puts that web app.
+pub fn web_app_path(home: &str, account: &str) -> Result<String, String> {
+    Ok(format!("{home}/Applications/{}.app", web_app_name(account)?))
+}
+
+/// Where the app saves the generated icon offered for that web app.
+pub fn web_app_icon_path(data_dir: &str, account: &str) -> Result<String, String> {
+    Ok(format!("{data_dir}/web-app-icons/{}.png", web_app_name(account)?))
+}
+
+/// Largest icon the webview may hand over; a 1024px PNG of the generated tile is far below it.
+pub const MAX_ICON_BYTES: usize = 4 * 1024 * 1024;
+
+/// The generated icon is written to disk as-is, so it must at least be a PNG of sane size.
+pub fn valid_icon_png(bytes: &[u8]) -> Result<(), String> {
+    const SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+    if bytes.len() > MAX_ICON_BYTES {
+        return Err("the icon is too large".into());
+    }
+    if !bytes.starts_with(SIGNATURE) || bytes.len() <= SIGNATURE.len() {
+        return Err("the icon is not a PNG".into());
+    }
+    Ok(())
+}
+
 /// Status of the menu bar item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayStatus {
@@ -348,6 +391,35 @@ mod tests {
         assert_eq!(vscode_args("macmini", "/Users/me/work/b/x").unwrap(), v(&["--remote", "ssh-remote+macmini", "/Users/me/work/b/x"]));
         assert!(vscode_args("macmini", "x").is_err());
         assert!(vscode_args("-bad", "/x").is_err());
+    }
+
+    #[test]
+    fn web_app_paths_only_take_account_names() {
+        assert!(valid_account("business"));
+        assert!(valid_account("a-1"));
+        assert!(valid_account(&format!("a{}", "b".repeat(31))));
+        for bad in ["", "1a", "-a", "Work", "a b", "a/b", "../x", "a.b", &"a".repeat(33)] {
+            assert!(!valid_account(bad), "{bad:?} accepted");
+        }
+        assert_eq!(web_app_name("business").unwrap(), "Claude – business");
+        assert_eq!(web_app_path("/Users/me", "business").unwrap(), "/Users/me/Applications/Claude – business.app");
+        assert_eq!(
+            web_app_icon_path("/Users/me/Library/Application Support/app.devhost.desktop", "personal").unwrap(),
+            "/Users/me/Library/Application Support/app.devhost.desktop/web-app-icons/Claude – personal.png"
+        );
+        assert!(web_app_path("/Users/me", "../../etc").is_err());
+        assert!(web_app_icon_path("/d", "a/b").is_err());
+    }
+
+    #[test]
+    fn icons_must_be_png() {
+        let png = [b"\x89PNG\r\n\x1a\n".as_slice(), &[0u8; 16]].concat();
+        assert!(valid_icon_png(&png).is_ok());
+        assert!(valid_icon_png(b"\x89PNG\r\n\x1a\n").is_err());
+        assert!(valid_icon_png(b"<svg/>").is_err());
+        assert!(valid_icon_png(&[]).is_err());
+        let huge = [png.as_slice(), &vec![0u8; MAX_ICON_BYTES]].concat();
+        assert!(valid_icon_png(&huge).is_err());
     }
 
     #[test]

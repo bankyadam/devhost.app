@@ -2,8 +2,12 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { feed, makeHarness, mount, type Harness } from './support/harness';
+
+// jsdom has no canvas; the SVG → PNG step is the browser's job.
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+vi.mock('../src/lib/webAppIcon', async (load) => ({ ...(await load<object>()), rasterizeIcon: async () => PNG }));
 
 const cfg = (h: Harness) => readFile(join(h.env.home, '.config', 'devhost', 'config.yaml'), 'utf8');
 const goto = (h: Harness, name: string) => h.user.click(screen.getByRole('button', { name }));
@@ -11,6 +15,12 @@ const goto = (h: Harness, name: string) => h.user.click(screen.getByRole('button
 async function withBusiness(h: Harness, login = true) {
   await h.cli('account', 'add', '--name', 'business', '--git-email', 'me@work.example', '--no-login');
   if (login) h.mac.state.loggedIn.add(join(h.env.home, '.claude-business'));
+}
+
+/** The Environments row actions other than opening Claude live in its "…" menu. */
+async function envAction(h: Harness, env: string, action: string) {
+  await h.user.click(await screen.findByRole('button', { name: `More actions for ${env}` }));
+  await h.user.click(screen.getByRole('menuitem', { name: action }));
 }
 
 async function openWizard(h: Harness, button: string) {
@@ -150,7 +160,9 @@ describe('environments (spec B3.2)', () => {
     await goto(h, 'Environments');
     // `--no-rc` means no service: no start/stop buttons, the row says the service is off.
     expect(await screen.findByText('off')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
+    await h.user.click(screen.getByRole('button', { name: 'More actions for acme-api' }));
+    expect(screen.queryByRole('menuitem', { name: 'Start' })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Logs' })).toBeInTheDocument();
   });
 
   it('delete keeps the files by default; deleting files needs the typed name', async () => {
@@ -159,7 +171,7 @@ describe('environments (spec B3.2)', () => {
     await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
     mount(h);
     await goto(h, 'Environments');
-    await h.user.click(await screen.findByRole('button', { name: 'Delete…' }));
+    await envAction(h, 'acme-api', 'Delete…');
     let dlg = within(await screen.findByRole('dialog'));
     expect(dlg.getByText(/The files stay on disk/)).toBeInTheDocument();
     await h.user.click(dlg.getByLabelText('Also delete the project files'));
@@ -175,7 +187,7 @@ describe('environments (spec B3.2)', () => {
     await h.user.click(screen.getByRole('button', { name: 'Close' }));
 
     // Plain delete: confirm, entry gone, files stay.
-    await h.user.click(await screen.findByRole('button', { name: 'Delete…' }));
+    await envAction(h, 'acme-api', 'Delete…');
     dlg = within(await screen.findByRole('dialog'));
     await h.user.click(dlg.getByRole('button', { name: 'Stop and remove' }));
     const confirm = await screen.findByText(/Stop and remove environment business\/acme-api\?/, undefined, { timeout: 8000 });
@@ -196,12 +208,28 @@ describe('environments (spec B3.2)', () => {
     h.mac.runner.run = async (cmd, args, opts) => (cmd === 'sudo' ? { code: 1, stdout: '', stderr: 'sudo: a password is required\n' } : original(cmd, args, opts));
     mount(h);
     await goto(h, 'Environments');
-    await h.user.click(await screen.findByRole('button', { name: 'Restart' }));
+    await envAction(h, 'acme-api', 'Restart');
     const alert = await screen.findByText(/needs you at a keyboard/, undefined, { timeout: 8000 });
     expect(alert.closest('.notice')).toHaveTextContent('sudo password');
     expect(alert.closest('.notice')).toHaveTextContent('never handles the password');
     await h.user.click(within(alert.closest('.notice') as HTMLElement).getByRole('button', { name: 'Open in Terminal' }));
     expect(h.transport.opened.at(-1)).toEqual({ terminal: { kind: 'devhost', args: ['env', 'restart', 'acme-api'] } });
+  });
+
+  it("▶ opens the account's web app, or claude.ai/code when it has none", async () => {
+    const h = await makeHarness();
+    await withBusiness(h);
+    await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
+    mount(h);
+    await goto(h, 'Environments');
+    const play = await screen.findByRole('button', { name: 'Open Claude for acme-api' });
+    await h.user.click(play);
+    expect(h.transport.opened.at(-1)).toEqual({ url: 'https://claude.ai/code' });
+    h.transport.webAppsInstalled.add('business');
+    await goto(h, 'Dashboard');
+    await goto(h, 'Environments');
+    await h.user.click(await screen.findByRole('button', { name: 'Open Claude for acme-api' }));
+    await waitFor(() => expect(h.transport.opened.at(-1)).toEqual({ webApp: 'business' }));
   });
 
   it('shows the service log in a viewer', async () => {
@@ -213,7 +241,7 @@ describe('environments (spec B3.2)', () => {
     await writeFile(join(h.env.home, 'Library', 'Logs', 'devhost', 'rc-business-acme-api.log'), 'server started\nconnected\n');
     mount(h);
     await goto(h, 'Environments');
-    await h.user.click(await screen.findByRole('button', { name: 'Logs' }));
+    await envAction(h, 'acme-api', 'Logs');
     await waitFor(() => expect(screen.getByLabelText('Log')).toHaveTextContent('server started'));
   });
 });
@@ -334,6 +362,28 @@ describe('accounts (spec B3.3, B6)', () => {
     await h.user.click(within(prompt).getByRole('button', { name: 'Continue' }));
     expect(await screen.findByText('Done.', undefined, { timeout: 8000 })).toBeInTheDocument();
     expect(h.mac.state.loggedIn.size).toBe(1);
+  });
+});
+
+describe('account web apps', () => {
+  it('set up: icon in the account color, Safari and Finder, then it checks the web app exists', async () => {
+    const h = await makeHarness();
+    await withBusiness(h);
+    mount(h);
+    await goto(h, 'Accounts');
+    await h.user.click(await screen.findByRole('button', { name: 'Set up…' }));
+    const dlg = within(await screen.findByRole('dialog', { name: 'Web app for business' }));
+    expect(dlg.getByRole('img', { name: 'Icon for business' }).getAttribute('src')).toContain(encodeURIComponent('>business</text>'));
+    expect(dlg.getByText('Claude – business')).toBeInTheDocument();
+    await h.user.click(dlg.getByRole('button', { name: 'Open Safari' }));
+    await waitFor(() => expect(h.transport.webAppIcons.get('business')).toEqual(PNG));
+    await h.user.click(await dlg.findByRole('button', { name: 'Done, check' }));
+    expect(await dlg.findByRole('status')).toHaveTextContent('No web app named Claude – business');
+    h.transport.webAppsInstalled.add('business');
+    await h.user.click(dlg.getByRole('button', { name: 'Done, check' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await h.user.click(screen.getByRole('button', { name: 'Open' }));
+    expect(h.transport.opened.at(-1)).toEqual({ webApp: 'business' });
   });
 });
 
