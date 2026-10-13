@@ -32,6 +32,7 @@ export async function makeEnv(runner = new MockRunner(), tty = false): Promise<T
     home,
     user: 'tester',
     brewPrefix: '/opt/homebrew',
+    nodePath: '/opt/homebrew/bin/node',
     runner,
     now: () => new Date(2026, 9, 12, 20, 30, 15),
     cancel: { cancelled: false },

@@ -17,7 +17,9 @@ On the Mac mini, from a clone of this repository:
 ./bootstrap.sh
 ```
 
-That installs Xcode Command Line Tools, Homebrew and Node 22, builds and links `devhost` into the Homebrew prefix, runs `devhost init` (three questions), then `devhost apply --dry-run` and `devhost apply`. `--no-apply` stops after `init`.
+That installs Xcode Command Line Tools, Homebrew and Node 24, builds `devhost` and installs it into the Homebrew prefix, runs `devhost init` (three questions), then `devhost apply --dry-run` and `devhost apply`. `--no-apply` stops after `init`.
+
+Node: when nvm is installed (`$NVM_DIR`, default `~/.nvm`), bootstrap runs `nvm install 24` (which also upgrades to the newest 24.x and leaves your nvm default alone); otherwise it installs Homebrew's `node@24`. `DEVHOST_NODE_VERSION=26 ./bootstrap.sh` picks another major. `devhost` is a small wrapper script that runs the CLI with the absolute path of that Node, because ssh and launchd have a minimal PATH that never contains an nvm Node; the collector service uses the same Node. After removing that Node version (for example `nvm uninstall`), run `./bootstrap.sh` again.
 
 Apple Silicon and Intel are both supported. Homebrew lives in `/opt/homebrew` on Apple Silicon and in `/usr/local` on Intel; devhost picks the prefix from the architecture (shell block, Docker CLI plugins, service tool paths). On Intel, Homebrew no longer ships prebuilt bottles, so some formulae build from source (slow, and occasionally failing). Under Rosetta, `bootstrap.sh` stops and `doctor` fails: run them from a native terminal.
 
@@ -71,7 +73,7 @@ Also available for the desktop app (same contract): `config raw` (the file with 
 | `shell` | The `# >>> devhost >>>` block in `~/.zshrc`: Homebrew, mise, direnv hook, `claude-<account>` aliases. |
 | `docker.config`, `docker.runtime` | Compose/buildx plugin path; Colima as a boot-time LaunchDaemon with the configured resources. |
 | `tailscale` | `sudo brew services start tailscale` (system daemon, no GUI login needed). Logging in is never automated: you get `sudo tailscale up` instructions. |
-| `claude.binary` | Records the absolute paths of `claude` and `node` for plists. |
+| `claude.binary` | Records the absolute path of `claude` for plists (the collector runs on the Node that runs devhost). |
 | `accounts.claude` | Per account: merges settings into the user-level `settings.json` (keeps your keys), adds OTel + hooks, and a managed block in `CLAUDE.md`. |
 | `accounts.routing`, `accounts.git` | Account roots, `<root>/.envrc` + `direnv allow`, `includeIf` per account root. |
 | `collector` | LaunchDaemon `com.devhost.collector`. |
@@ -104,13 +106,13 @@ Schemas live in `packages/contract/schemas/*.schema.json`; the TypeScript types 
 
 A macOS app for the MacBook that configures and controls the Mac mini and shows one dashboard across all Claude accounts. It replaces typing `devhost` commands over SSH; it does not replace the Claude app for talking to sessions.
 
-- **No server component.** Every operation is `ssh <host> /usr/bin/env PATH=/opt/homebrew/bin:/usr/local/bin:… devhost <command> --json` (the fixed PATH finds `devhost` and its `node` on either Mac mini architecture) through the system `ssh`, over Tailscale, using your `~/.ssh/config`, agent and keys (`BatchMode`, one multiplexed connection per host via `ControlMaster`/`ControlPersist`). Long commands stream NDJSON; prompt answers (login code, workspace trust, typed confirmations) are written to the command's stdin, never onto a command line. The app stores only the host name and UI preferences (no credentials, no keys, no telemetry copies).
+- **No server component.** Every operation is `ssh <host> /usr/bin/env PATH=/opt/homebrew/bin:/usr/local/bin:… devhost <command> --json` (the fixed PATH finds `devhost` on either Mac mini architecture; the wrapper brings its own Node) through the system `ssh`, over Tailscale, using your `~/.ssh/config`, agent and keys (`BatchMode`, one multiplexed connection per host via `ControlMaster`/`ControlPersist`). Long commands stream NDJSON; prompt answers (login code, workspace trust, typed confirmations) are written to the command's stdin, never onto a command line. The app stores only the host name and UI preferences (no credentials, no keys, no telemetry copies).
 - **Screens.** Dashboard (health, per-account totals with the cost-alert meter, usage chart by account or token type with a table view, environments panel, live sessions table with waiting-for-input highlighted, filters, session actions); Environments (start/stop/restart, logs, create wizard, delete with typed confirmation); Accounts (new-account wizard that continues into the login, re-login with the browser step, remove); Configuration (form generated from the config schema plus a YAML tab, live validation by the CLI on the Mac mini, invalid configs cannot be saved, then dry-run diff → confirm → live apply; steps needing `sudo` open a Terminal window so the app never sees the password); Doctor and logs; menu bar item (status dot, sessions waiting, quick links).
 - **Compatibility.** On connect it runs `devhost version --json` and refuses a different contract major with a clear message. An unreachable Mac mini is shown as such, the last data stays visible, and the app reconnects by itself.
 - **Safety.** The webview can only ask the Rust shell for `devhost <known subcommand> ...` on the configured host, three fixed Terminal actions (`devhost …`, a shell in a project directory, `claude --resume <id>`), `code --remote` and http(s) URLs. Quoting and validation live in `packages/app/core` with unit tests (hostile hosts, directories, arguments).
 - **Session actions.** *Open in claude.ai/code* opens the session list (the page lists Remote Control sessions by name, `<account>-<env>`); *Terminal: resume* runs `claude --resume <id>` in the environment directory with the account's direnv environment; *VS Code* appears only if the `code` CLI is found; *Dev server* opens `http://<host>:<port base>`.
 
-Requirements: a Mac on macOS 26 or later (the bundle's minimum), Node 22, Rust (stable), `ssh` access to the Mac mini. The app is a **universal binary** (Apple Silicon and Intel, `universal-apple-darwin`); the Mac mini server side supports both too. No signing or notarization (personal local builds).
+Requirements: a Mac on macOS 26 or later (the bundle's minimum), Node 24, Rust (stable), `ssh` access to the Mac mini. The app is a **universal binary** (Apple Silicon and Intel, `universal-apple-darwin`); the Mac mini server side supports both too. No signing or notarization (personal local builds).
 
 ```sh
 npm ci && npm run build:core
@@ -166,7 +168,7 @@ Still to verify on a real Mac (not testable on Linux): `mise ls --global --json`
 - **Dry-run is exact**: steps run their `apply()` against a recording executor; read-only checks still execute.
 - **Services are system LaunchDaemons**, so `env start|stop|restart` need `sudo` (a password prompt in a terminal; exit 3 without one). `env stop` lasts until `env start` or the next reboot.
 - **Uninstall leaves** Tailscale, SSH, hostname/power settings, the Colima VM, mise runtimes, `config.yaml`, and (without `--purge-data`) the database, so the machine stays reachable. Packages are only removed after a confirmation, and Homebrew refuses ones others depend on.
-- `node:sqlite` (Node ≥ 22.13) is used so there is no native dependency; its experimental warning is silenced.
+- `node:sqlite` (Node 24) is used so there is no native dependency; its experimental warning is silenced.
 - `account add --force-default-switch` is rejected with an explanation (out of scope for v1, as in the spec).
 
 ## Troubleshooting

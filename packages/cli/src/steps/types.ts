@@ -8,6 +8,8 @@ export interface StepContext {
   user: string;
   /** Homebrew prefix: /opt/homebrew (Apple Silicon) or /usr/local (Intel). */
   brewPrefix: string;
+  /** The Node running devhost (recorded for the collector service). */
+  nodePath: string;
   exec: Executor;
   /** Absolute path of the config file (the collector service needs it). */
   configPath: string;
