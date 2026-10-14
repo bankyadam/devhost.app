@@ -85,7 +85,7 @@ Also available for the desktop app (same contract): `config raw` (the file with 
 
 ## Dashboard, alerts and their limits
 
-The collector is the one long-running process: it receives Claude Code OpenTelemetry (OTLP/HTTP **JSON**) and hook calls on `127.0.0.1:4318`, samples CPU/RAM (system, per environment, best effort per session), Docker, disk, Tailscale and each account's login, and stores everything in SQLite (`~/.local/share/devhost/devhost.db`) with hourly rollups (`retention.rawDays`/`rollupDays`). Remote access is only via SSH (`devhost top`, `devhost dash --json`).
+The collector is the one long-running process: it receives Claude Code OpenTelemetry (OTLP/HTTP **JSON**) and hook calls on `127.0.0.1:4318`, samples CPU/RAM (system, per environment, best effort per session), Docker, disk, Tailscale and each account's login, and stores everything in SQLite (`~/.local/share/devhost/devhost.db`) with hourly rollups (`retention.rawDays`/`rollupDays`). Usage and sessions belong to the account whose login sent them: the collector records each account's organization id and email from `claude auth status`, and a session whose telemetry carries a known one is that account's, even when the process read another account's config directory (the Claude app's own Claude Code always reads `~/.claude`). Otherwise the account comes from the environment directory, then from the config directory's hook URL. Remote access is only via SSH (`devhost top`, `devhost dash --json`).
 
 Alerts (ntfy, one notification per state change): memory above the limit for 5 min, low free disk, an account's estimated daily cost above its limit, a Remote Control service restarting more than 3 times in 10 min, a login that stopped being valid (reminder every 24 h).
 

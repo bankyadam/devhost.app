@@ -153,7 +153,7 @@ export class Db {
  * logged in" (and the alert stayed) for up to an hour after `devhost login`. Best effort: no
  * database yet, or it is busy, and the collector's own check catches up later.
  */
-export function recordLogin(home: string, account: string, now: number): void {
+export function recordLogin(home: string, account: string, now: number, orgId?: string): void {
   const path = dbPath(home);
   if (!existsSync(path)) return;
   try {
@@ -161,6 +161,7 @@ export function recordLogin(home: string, account: string, now: number): void {
     try {
       db.kvSet(`auth:${account}`, 'ok', now);
       db.kvSet(`auth_checked:${account}`, String(now), now);
+      if (orgId) db.kvSet(`auth_org:${orgId}`, account, now);
     } finally {
       db.close();
     }

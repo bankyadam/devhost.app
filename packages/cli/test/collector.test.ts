@@ -117,6 +117,18 @@ describe('OTLP parsing', () => {
     expect(rows[0]).toMatchObject({ account: 'business', env: '' });
   });
 
+  it("the login's organization decides the account, over devhost.account from the config directory", () => {
+    const claimed: [string, string][] = [];
+    const attr = { ...attribution(), ownerOf: (org: string) => (org === 'org-work' ? 'business' : undefined), claim: (s: string, a: string) => void claimed.push([s, a]) };
+    // The Claude app's Claude Code reads ~/.claude (personal's) while signed in to the work org.
+    const rows = parseMetrics(metricsBody({ account: 'personal', email: 'me@work.example', points: [{ name: 'claude_code.cost.usage', value: 1, attrs: { 'organization.id': 'org-work', 'session.id': 's9' } }] }), T0, new CumulativeTracker(), attr);
+    expect(rows[0]).toMatchObject({ account: 'business', sessionId: 's9' });
+    expect(claimed).toEqual([['s9', 'business']]);
+    // Unknown organization: devhost.account as before.
+    const other = parseMetrics(metricsBody({ account: 'personal', points: [{ name: 'claude_code.cost.usage', value: 1, attrs: { 'organization.id': 'org-x' } }] }), T0, new CumulativeTracker(), attr);
+    expect(other[0]).toMatchObject({ account: 'personal' });
+  });
+
   it('keeps only api_request events from logs and never reads prompt text', () => {
     const body = {
       resourceLogs: [
@@ -162,6 +174,19 @@ describe('hooks', () => {
     // A session outside any environment keeps the account from the URL and env ''.
     ingest.hook({ hook_event_name: 'SessionStart', session_id: 's2', cwd: '/tmp/elsewhere' }, 'personal');
     expect(db.get("SELECT account, env FROM sessions WHERE session_id = 's2'")).toMatchObject({ account: 'personal', env: '' });
+  });
+
+  it("a session's telemetry from a known login moves it to that account, and later hooks keep it there", () => {
+    const db = new Db(':memory:');
+    const ingest = new Ingestor(db, () => T0, () => envLocations(CONFIG, HOME));
+    db.kvSet('auth_org:org-work', 'business', T0);
+    // The Claude app's session: ~/.claude's hook says personal, the directory is no environment.
+    ingest.hook({ hook_event_name: 'SessionStart', session_id: 's3', cwd: '/Users/me/Documents/x' }, 'personal');
+    ingest.metrics(metricsBody({ account: 'personal', points: [{ name: 'claude_code.cost.usage', value: 1, attrs: { 'organization.id': 'org-work', 'session.id': 's3' } }] }));
+    expect(db.get("SELECT account FROM sessions WHERE session_id = 's3'")).toMatchObject({ account: 'business' });
+    expect(db.get("SELECT account FROM usage WHERE session_id = 's3'")).toMatchObject({ account: 'business' });
+    ingest.hook({ hook_event_name: 'Stop', session_id: 's3', cwd: '/Users/me/Documents/x' }, 'personal');
+    expect(db.get("SELECT account FROM sessions WHERE session_id = 's3'")).toMatchObject({ account: 'business' });
   });
 
   it('never stores prompt text, assistant output, transcript paths or tool input (privacy)', () => {
@@ -440,6 +465,18 @@ describe('auth check', () => {
     expect(db.kvGet('auth:business')).toBe('invalid');
     await collector.sampleTick();
     expect(notifier.sent.map((n) => n.message)).toContain('Claude login not valid: business. Run: devhost login business');
+  });
+
+  it("records which organization and email are which account's login; an email two accounts share decides nothing", async () => {
+    const runner = new MockRunner()
+      .on('sh -c command -v claude', { stdout: '/opt/homebrew/bin/claude\n' })
+      .on('/opt/homebrew/bin/claude auth status', (c) => ({ stdout: JSON.stringify({ loggedIn: true, email: 'me@same.example', orgId: c.opts?.env?.['CLAUDE_CONFIG_DIR'] ? 'org-work' : 'org-me' }) }));
+    const { db, collector } = setup({ runner });
+    db.kvSet('auth_email:me@same.example', 'personal', 1);
+    await collector.authTick();
+    expect(db.kvGet('auth_org:org-me')).toBe('personal');
+    expect(db.kvGet('auth_org:org-work')).toBe('business');
+    expect(db.kvGet('auth_email:me@same.example')).toBeNull();
   });
 
   it('authProbe also needs a real request to succeed', async () => {

@@ -42,6 +42,7 @@ export function retain(db: Db, now: number, r: Retention): void {
       db.run(`DELETE FROM ${table} WHERE ts < ?`, rawCutoff);
     }
     db.run("DELETE FROM sessions WHERE state = 'ended' AND ended_at < ?", rawCutoff);
+    db.run("DELETE FROM kv WHERE key LIKE 'session_owner:%' AND updated_at < ?", rawCutoff);
     db.run('DELETE FROM rollup_usage WHERE hour < ?', now - r.rollupDays * DAY);
     db.run('DELETE FROM rollup_env WHERE hour < ?', now - r.rollupDays * DAY);
   });
