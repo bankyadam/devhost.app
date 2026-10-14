@@ -70,8 +70,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: none; box-shadow: var(--focus); border-radius: 6px; }
 
 /* layout */
-.app { display: grid; grid-template-columns: 196px 1fr; height: 100%; }
-.sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 14px 10px; display: flex; flex-direction: column; gap: 4px; }
+/* The row is the window's height, so only .main scrolls (an auto row grows with the content and the whole page, sidebar included, scrolled). */
+.app { display: grid; grid-template-columns: 196px 1fr; grid-template-rows: minmax(0, 1fr); height: 100%; overflow: hidden; }
+.sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 14px 10px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
 .brand { font-weight: 700; padding: 6px 10px 12px; display: flex; align-items: center; gap: 8px; }
 .nav { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: 8px; background: none; cursor: pointer; color: var(--ink-2); }
 .nav:hover { background: var(--hover); }
@@ -200,6 +201,6 @@ legend { font-weight: 600; padding: 0 6px; font-size: 13px; }
 .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); }
 .tabs button { border: 0; background: none; padding: 7px 14px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--ink-2); }
 .tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
-@media (max-width: 760px) { .app { grid-template-columns: 1fr; } .sidebar { flex-direction: row; overflow-x: auto; } }
+@media (max-width: 760px) { .app { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); } .sidebar { flex-direction: row; overflow-x: auto; } }
 @media (forced-colors: active) { .chart rect.seg { stroke: CanvasText; } }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
