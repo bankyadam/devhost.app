@@ -110,12 +110,12 @@ describe('system steps', () => {
 });
 
 describe('packages', () => {
-  it('renders the Brewfile from config, adding mise when runtimes are requested', async () => {
+  it('renders the Brewfile from config; mise is not in it (it has its own installer)', async () => {
     const c = config({ packages: { brew: ['git'], cask: ['iterm2'], extra: ['tap "x/y"'] } });
-    expect(brewFormulae(c)).toEqual(['git', 'mise', 'colima', 'docker', 'docker-compose', 'docker-buildx', 'tailscale']);
+    expect(brewFormulae(c)).toEqual(['git', 'colima', 'docker', 'docker-compose', 'docker-buildx', 'tailscale']);
     expect(requiredPackages(c).cask).toEqual(['iterm2', 'claude-code']);
     const text = await renderBrewfile(c);
-    expect(text).toContain('brew "git"\nbrew "mise"\nbrew "colima"');
+    expect(text).toContain('brew "git"\nbrew "colima"');
     expect(text).toContain('cask "iterm2"\ncask "claude-code"\ntap "x/y"\n');
     expect(text).not.toContain('&quot;');
     const bare = config({ packages: { brew: ['git'] }, runtimes: {}, docker: { runtime: 'none' }, network: { tailscale: false }, claude: { install: 'native' } });
@@ -169,9 +169,23 @@ describe('runtimes', () => {
   });
 
   it('lists what is missing', async () => {
-    const runner = new MockRunner().on('mise ls', { stdout: JSON.stringify({ node: [{ requested_version: 'lts', installed: true }] }) });
+    const runner = new MockRunner().on('sh -c command -v mise', { stdout: '/opt/homebrew/bin/mise\n' }).on('mise ls', { stdout: JSON.stringify({ node: [{ requested_version: 'lts', installed: true }] }) });
     const r = await runtimesStep.check({ user: 'tester', brewPrefix: '/opt/homebrew', nodePath: '/opt/homebrew/bin/node', configPath: '/c', config: config({ runtimes: { node: 'lts', python: '3.12' } }), home: '/h', exec: exec(runner) });
     expect(r).toEqual({ state: 'todo', reason: 'missing: python@3.12' });
+  });
+
+  it("installs mise with its installer, and finds it in ~/.local/bin where ssh's PATH does not look", async () => {
+    const ctx = (runner: MockRunner) => ({ user: 'tester', brewPrefix: '/usr/local', nodePath: '/n', configPath: '/c', config: config({ runtimes: { node: 'lts' } }), home: '/h', exec: exec(runner) });
+    const none = new MockRunner().on('sh -c curl', {}).on('/h/.local/bin/mise use', {});
+    expect(await runtimesStep.check(ctx(none))).toEqual({ state: 'todo', reason: 'mise is not installed yet' });
+    await runtimesStep.apply(ctx(none));
+    const install = none.calls.find((c) => c.command === 'sh' && c.args[1]?.startsWith('curl'))!;
+    expect(install.args).toEqual(['-c', 'curl -fsSL https://mise.run | sh']);
+    expect(install.opts?.env).toEqual({ MISE_INSTALL_PATH: '/h/.local/bin/mise' });
+    expect(none.lines().at(-1)).toBe('/h/.local/bin/mise use --global --yes node@lts');
+
+    const installed = new MockRunner().on('test -x /h/.local/bin/mise', {}).on('/h/.local/bin/mise ls', { stdout: JSON.stringify({ node: [{ requested_version: 'lts', installed: true }] }) });
+    expect(await runtimesStep.check(ctx(installed))).toEqual({ state: 'ok' });
   });
 });
 

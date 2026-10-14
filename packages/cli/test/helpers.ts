@@ -63,6 +63,8 @@ export interface FakeState {
   sshOn: boolean;
   bundled: Set<string>;
   mise: Map<string, string>;
+  /** mise from its installer (~/.local/bin/mise), not on PATH. */
+  miseInstalled: boolean;
   /** Binaries on PATH. `brew bundle` installs the usual set. */
   binaries: Set<string>;
   /** LaunchDaemon labels currently loaded (and therefore running). */
@@ -93,7 +95,7 @@ export interface FakeState {
   claudeVersion: string;
 }
 
-const BREWED = ['git', 'claude', 'colima', 'docker', 'tailscale', 'direnv', 'mise', 'curl'];
+const BREWED = ['git', 'claude', 'colima', 'docker', 'tailscale', 'direnv', 'curl'];
 
 /**
  * A stateful stand-in for a Mac: answers read-only commands from its state and
@@ -125,14 +127,22 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     pmsetIgnores: [],
     sudoNeedsPassword: false,
     claudeVersion: '2.1.300',
+    miseInstalled: false,
     ...initial,
   };
   const brewBin = (): string => (state.arch === 'arm64' ? '/opt/homebrew/bin' : '/usr/local/bin');
   const runner = new MockRunner();
   const dispatch = (call: { command: string; args: string[]; opts?: { env?: Record<string, string>; cwd?: string } }) => {
     if (state.sudoNeedsPassword && call.command === 'sudo' && call.args[0] === '-n') return { code: 1, stderr: 'sudo: a password is required\n' };
-    const line = strip([call.command, ...call.args].join(' '));
+    // mise from its installer runs by absolute path (~/.local/bin is not on ssh's PATH).
+    const line = strip([call.command, ...call.args].join(' ')).replace(/^\/\S+\/\.local\/bin\/mise /, 'mise ');
     let m: RegExpExecArray | null;
+    if (line === 'sh -c curl -fsSL https://mise.run | sh') {
+      state.miseInstalled = true;
+      return {};
+    }
+    if (/^test -x \/\S+\/\.local\/bin\/mise$/.test(line)) return { code: state.miseInstalled ? 0 : 1 };
+    if (line.startsWith('mise ') && !state.miseInstalled) return { code: 127, stderr: 'command not found: mise\n' };
     if ((m = /^scutil --get (\w+)$/.exec(line))) {
       return { stdout: `${state.names[m[1] as keyof FakeState['names']]}\n` };
     }

@@ -68,9 +68,9 @@ Also available for the desktop app (same contract): `config raw` (the file with 
 | Step | Does |
 | --- | --- |
 | `system.hostname` / `system.power` / `system.ssh` | `scutil`, `pmset -a sleep 0 disksleep 0 autorestart 1 womp 1`, Remote Login (sudo). A power flag set to `false` means "leave alone". macOS blocking Remote Login (Full Disk Access) → exact manual steps, exit 3. |
-| `packages` | Renders `~/.config/devhost/Brewfile`, `brew bundle install --no-upgrade` (brew's output shows while it runs). Only installs what is missing: upgrading stays `brew upgrade`, so an apply does not upgrade or rebuild everything that had a release. Adds what the config implies: mise, direnv, Colima + docker + compose + buildx (or OrbStack), tailscale, `claude-code`. |
-| `runtimes` | `mise use --global` for each of `runtimes`. |
-| `shell` | The `# >>> devhost >>>` block in `~/.zshrc`: Homebrew, mise, direnv hook, `claude-<account>` aliases. |
+| `packages` | Renders `~/.config/devhost/Brewfile`, `brew bundle install --no-upgrade` (brew's output shows while it runs). Only installs what is missing: upgrading stays `brew upgrade`, so an apply does not upgrade or rebuild everything that had a release. Adds what the config implies: direnv, Colima + docker + compose + buildx (or OrbStack), tailscale, `claude-code`. |
+| `runtimes` | Installs mise with its own installer (`curl -fsSL https://mise.run \| sh`, a checksummed prebuilt binary in `~/.local/bin/mise`, updated with `mise self-update`) unless a `mise` is already on PATH, then `mise use --global` for each of `runtimes`. Not Homebrew: it has no bottles for Intel Macs any more, and building mise there means building llvm and rust first (hours). |
+| `shell` | The `# >>> devhost >>>` block in `~/.zshrc`: Homebrew, mise (from PATH or `~/.local/bin`), direnv hook, `claude-<account>` aliases. |
 | `docker.config`, `docker.runtime` | Compose/buildx plugin path; Colima as a boot-time LaunchDaemon with the configured resources. |
 | `tailscale` | `sudo brew services start tailscale` (system daemon, no GUI login needed). Logging in is never automated: you get `sudo tailscale up` instructions. |
 | `claude.binary` | Records the absolute path of `claude` for plists (the collector runs on the Node that runs devhost). |

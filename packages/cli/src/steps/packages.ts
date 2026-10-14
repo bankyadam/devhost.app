@@ -24,13 +24,12 @@ export const BUNDLE_CHECK_ENV = { ...BREW_ENV, HOMEBREW_NO_AUTO_UPDATE: '1' };
 
 /**
  * Everything devhost needs installed: the user's list plus what the configured
- * features require (mise for runtimes, direnv for accounts, a Docker runtime,
- * Tailscale, Claude Code).
+ * features require (direnv for accounts, a Docker runtime, Tailscale, Claude Code).
+ * mise is not among them: the runtimes step installs it with its own installer (see mise.ts).
  */
 export function requiredPackages(config: DevhostConfig): { brew: string[]; cask: string[] } {
   const brew = [...(config.packages?.brew ?? [])];
   const cask = [...(config.packages?.cask ?? [])];
-  if (Object.keys(config.runtimes ?? {}).length > 0) brew.push('mise');
   if ((config.accounts ?? []).length > 0) brew.push('direnv');
   if (config.docker?.runtime === 'colima') brew.push('colima', 'docker', 'docker-compose', 'docker-buildx');
   if (config.docker?.runtime === 'orbstack') cask.push('orbstack');
