@@ -409,6 +409,16 @@ describe('environments', () => {
     expect(mac.state.loaded.has('com.devhost.rc.business.acme-api')).toBe(true);
   });
 
+  it('login restarts a service that was already running: it still had the old login', async () => {
+    const { env, mac } = await created();
+    expect(mac.state.loaded.has('com.devhost.rc.business.acme-api')).toBe(true);
+    mac.state.loggedIn.clear();
+    feed(env, { id: 'auth-code', value: 'C' }, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    expect(await env.run('login', 'business', '--json')).toBe(0);
+    expect(lastResult(env).data).toMatchObject({ restarted: ['acme-api'] });
+    expect(env.runner.lines()).toContain('sudo -n -- launchctl kickstart -k system/com.devhost.rc.business.acme-api');
+  });
+
   it("login updates the collector's record, so the dashboard does not wait an hour for its next check", async () => {
     const { env, mac } = await created();
     const db = new Db(dbPath(env.home));
