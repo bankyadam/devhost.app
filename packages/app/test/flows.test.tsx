@@ -161,6 +161,8 @@ describe('environments (spec B3.2)', () => {
     // `--no-rc` means no service: no start/stop buttons, the row says the service is off.
     expect(await screen.findByText('off')).toBeInTheDocument();
     await h.user.click(screen.getByRole('button', { name: 'More actions for acme-api' }));
+    // Placed next to the button (position: fixed), so the scrolling table does not clip it.
+    expect(screen.getByRole('menu').style.top).toBe('4px');
     expect(screen.queryByRole('menuitem', { name: 'Start' })).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Logs' })).toBeInTheDocument();
   });

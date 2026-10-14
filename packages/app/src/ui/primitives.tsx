@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 
 export function StatusDot({ tone }: { tone: 'good' | 'warn' | 'bad' | 'none' }) {
   return <span className={`dot ${tone === 'none' ? '' : tone}`} aria-hidden="true" />;
@@ -128,20 +128,41 @@ export function ConfirmDialog({ title, children, confirmLabel, danger, onConfirm
 
 export interface MenuItem { label: string; onSelect: () => void; hidden?: boolean; disabled?: boolean; danger?: boolean }
 
+/**
+ * The items are `position: fixed` next to the button, not absolute inside it: tables sit in a
+ * scrolling `.table-wrap`, which would clip them (you had to scroll the table to reach them).
+ * They open upwards when there is no room below, and close on scroll or resize.
+ */
 export function Menu({ label, items, ariaLabel, caret = true }: { label: string; items: MenuItem[]; ariaLabel?: string; caret?: boolean }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
   const visible = items.filter((i) => !i.hidden);
   useEffect(() => {
     if (!open) return;
     const close = (): void => setOpen(false);
     window.addEventListener('click', close);
-    return () => window.removeEventListener('click', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [open]);
+  useLayoutEffect(() => {
+    if (!open || !button.current) return;
+    const r = button.current.getBoundingClientRect();
+    const height = list.current?.offsetHeight ?? 0;
+    const below = r.bottom + 4;
+    setPos({ top: below + height > window.innerHeight && r.top - 4 - height > 0 ? r.top - 4 - height : below, right: window.innerWidth - r.right });
   }, [open]);
   return (
     <div className="menu">
-      <button className="btn sm" aria-haspopup="menu" aria-expanded={open} aria-label={ariaLabel} title={ariaLabel} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>{caret ? `${label} ▾` : label}</button>
+      <button ref={button} className="btn sm" aria-haspopup="menu" aria-expanded={open} aria-label={ariaLabel} title={ariaLabel} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>{caret ? `${label} ▾` : label}</button>
       {open && (
-        <div className="items" role="menu">
+        <div ref={list} className="items" role="menu" style={pos ? { top: pos.top, right: pos.right } : { visibility: 'hidden' }}>
           {visible.map((i) => (
             <button key={i.label} role="menuitem" className={i.danger ? 'danger' : undefined} disabled={i.disabled} onClick={() => { setOpen(false); i.onSelect(); }}>{i.label}</button>
           ))}
