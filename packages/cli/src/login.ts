@@ -44,6 +44,19 @@ export async function claudeBinary(ctx: { exec: Executor; deps: Pick<Deps, 'home
   return toolPath(ctx.exec, ctx.deps.home, 'claudePath', 'claude', `${ctx.deps.brewPrefix}/bin/claude`);
 }
 
+/** Who a login is, from `claude auth status`'s JSON (organization id and email); fields missing when it does not say. */
+export function loginIdentity(raw: string): { orgId?: string; email?: string } {
+  try {
+    const data = JSON.parse(raw) as { orgId?: unknown; email?: unknown };
+    return {
+      ...(typeof data.orgId === 'string' && data.orgId ? { orgId: data.orgId } : {}),
+      ...(typeof data.email === 'string' && data.email ? { email: data.email } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
 /** `claude auth status` exits 0 when logged in, 1 when not (verified against the CLI reference). */
 export async function authStatus(ctx: { exec: Executor; deps: Pick<Deps, 'home' | 'brewPrefix'> }, a: Account): Promise<{ loggedIn: boolean | null; raw: string }> {
   const r = await ctx.exec.query(await claudeBinary(ctx), ['auth', 'status'], claudeRunOptions(a, ctx.deps.home));
@@ -203,7 +216,7 @@ export async function loginAccount(ctx: LoginContext): Promise<LoginData> {
     throw new HumanActionRequired(`${a.name} is still not logged in`, `Run \`devhost login ${a.name}\` again and paste the code the browser shows.`);
   }
   reporter.step('login.auth', 'changed', 'logged in');
-  recordLogin(deps.home, a.name, deps.now().getTime());
+  recordLogin(deps.home, a.name, deps.now().getTime(), loginIdentity(status.raw).orgId);
 
   const trusted: string[] = [];
   const envs = environmentsOf(config).filter((e) => e.account === a.name);

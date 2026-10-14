@@ -75,13 +75,30 @@ export interface Attribution {
   /** email → account, learned from datapoints that also carry devhost.account. */
   emailToAccount(email: string): string | undefined;
   learn(email: string, account: string): void;
+  /**
+   * The account whose login sent this, from `claude auth status` (organization id, else an email
+   * only one account uses). It wins over devhost.account, which only says which config directory
+   * the process read: the Claude app's own Claude Code reads ~/.claude whatever account it is
+   * signed in with.
+   */
+  ownerOf?(orgId: string, email: string): string | undefined;
+  /** A session whose owner is known, so its hook-based session row can follow. */
+  claim?(sessionId: string, account: string): void;
 }
 
 function attribute(resource: Attrs, point: Attrs, attr: Attribution): { account: string; env: string } {
   const email = str(point, 'user.email') || str(resource, 'user.email');
+  const org = str(point, 'organization.id') || str(resource, 'organization.id');
+  const owner = org || email ? attr.ownerOf?.(org, email) : undefined;
   let account = str(resource, 'devhost.account') || str(point, 'devhost.account');
-  if (account && email) attr.learn(email, account);
-  if (!account && email) account = attr.emailToAccount(email) ?? '';
+  if (owner) {
+    account = owner;
+    const session = str(point, 'session.id') || str(resource, 'session.id');
+    if (session) attr.claim?.(session, owner);
+  } else {
+    if (account && email) attr.learn(email, account);
+    if (!account && email) account = attr.emailToAccount(email) ?? '';
+  }
   return { account, env: str(resource, 'devhost.env') || str(point, 'devhost.env') };
 }
 

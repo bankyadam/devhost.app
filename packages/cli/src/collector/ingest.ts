@@ -17,6 +17,12 @@ export class Ingestor {
     learn: (email, account) => {
       if (this.db.kvGet(`email:${email}`) !== account) this.db.kvSet(`email:${email}`, account, this.now());
     },
+    ownerOf: (org, email) => (org ? this.db.kvGet(`auth_org:${org}`) : null) ?? (email ? this.db.kvGet(`auth_email:${email}`) : null) ?? undefined,
+    claim: (sessionId, account) => {
+      if (this.db.kvGet(`session_owner:${sessionId}`) === account) return;
+      this.db.kvSet(`session_owner:${sessionId}`, account, this.now());
+      this.db.run('UPDATE sessions SET account = ? WHERE session_id = ?', account, sessionId);
+    },
   };
 
   metrics(body: unknown): number {
@@ -52,7 +58,8 @@ export class Ingestor {
     if (!evt) return false;
     const now = this.now();
     const where = locate(this.locations(), evt.cwd);
-    const account = where?.account ?? accountFromUrl;
+    // A login seen in the session's telemetry beats the directory and the hook URL (see ownerOf).
+    const account = this.db.kvGet(`session_owner:${evt.sessionId}`) ?? where?.account ?? accountFromUrl;
     const env = where?.env ?? '';
     const state = stateForEvent(evt.event)!;
     this.db.transaction(() => {
