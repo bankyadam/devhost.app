@@ -11,6 +11,7 @@ import { toolPath } from './state.js';
 import { buildSteps, selectSteps } from './steps/index.js';
 import { envInfoOf, workspaceTrusted } from './steps/env.js';
 import { MIN_REMOTE_CONTROL_VERSION } from './claude-version.js';
+import { recordLogin } from './collector/db.js';
 import type { EnvInfo, StepContext } from './steps/types.js';
 
 // eslint-disable-next-line no-control-regex
@@ -201,6 +202,7 @@ export async function loginAccount(ctx: LoginContext): Promise<LoginData> {
     throw new HumanActionRequired(`${a.name} is still not logged in`, `Run \`devhost login ${a.name}\` again and paste the code the browser shows.`);
   }
   reporter.step('login.auth', 'changed', 'logged in');
+  recordLogin(deps.home, a.name, deps.now().getTime());
 
   const trusted: string[] = [];
   const envs = environmentsOf(config).filter((e) => e.account === a.name);

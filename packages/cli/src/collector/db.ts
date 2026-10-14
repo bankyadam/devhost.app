@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type * as Sqlite from 'node:sqlite';
@@ -144,5 +144,27 @@ export class Db {
 
   close(): void {
     this.raw.close();
+  }
+}
+
+/**
+ * A login that just succeeded, written where the collector keeps its last check. The collector
+ * only checks every `authCheckMinutes` (60), so without this the dashboard kept saying "not
+ * logged in" (and the alert stayed) for up to an hour after `devhost login`. Best effort: no
+ * database yet, or it is busy, and the collector's own check catches up later.
+ */
+export function recordLogin(home: string, account: string, now: number): void {
+  const path = dbPath(home);
+  if (!existsSync(path)) return;
+  try {
+    const db = new Db(path);
+    try {
+      db.kvSet(`auth:${account}`, 'ok', now);
+      db.kvSet(`auth_checked:${account}`, String(now), now);
+    } finally {
+      db.close();
+    }
+  } catch {
+    /* the collector's next check fills it in */
   }
 }

@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { validate } from '@devhost/contract';
 import type { ApplyData, Envelope } from '@devhost/contract';
+import { Db, dbPath } from '../src/collector/db.js';
 import { fakeMac, makeEnv, ndjson, type TestEnv } from './helpers.js';
 
 const j = (...objs: object[]): string => objs.map((o) => JSON.stringify(o)).join('\n') + '\n';
@@ -406,6 +407,20 @@ describe('environments', () => {
     expect(result.data).toMatchObject({ account: 'business', loggedIn: true, restarted: ['acme-api'] });
     expect((result.data as { trusted: string[] }).trusted).toHaveLength(1);
     expect(mac.state.loaded.has('com.devhost.rc.business.acme-api')).toBe(true);
+  });
+
+  it("login updates the collector's record, so the dashboard does not wait an hour for its next check", async () => {
+    const { env, mac } = await created();
+    const db = new Db(dbPath(env.home));
+    db.kvSet('auth:business', 'invalid', 1);
+    db.close();
+    mac.state.loggedIn.clear();
+    feed(env, { id: 'auth-code', value: 'C' }, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    expect(await env.run('login', 'business', '--json')).toBe(0);
+    const after = new Db(dbPath(env.home), { readonly: true });
+    expect(after.kvGet('auth:business')).toBe('ok');
+    expect(Number(after.kvGet('auth_checked:business'))).toBeGreaterThan(1);
+    after.close();
   });
 
   it('login: stdin closed during a prompt is a human-action error (exit 3)', async () => {
