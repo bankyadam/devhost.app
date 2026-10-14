@@ -1,3 +1,4 @@
+import { installMise, miseBinary } from '../mise.js';
 import { ok, skip, todo, type Step, type StepContext } from './types.js';
 
 function wanted(ctx: StepContext): [string, string][] {
@@ -33,11 +34,13 @@ export function installedRequests(json: string): Map<string, Set<string>> | null
 
 export const runtimesStep: Step = {
   id: 'runtimes',
-  description: 'Install language runtimes with mise',
+  description: 'Install mise (its installer) and the language runtimes',
   async check(ctx) {
     const want = wanted(ctx);
     if (want.length === 0) return skip('no runtimes configured');
-    const r = await ctx.exec.query('mise', ['ls', '--global', '--json']);
+    const mise = await miseBinary(ctx.exec, ctx.home);
+    if (!mise) return todo('mise is not installed yet');
+    const r = await ctx.exec.query(mise, ['ls', '--global', '--json']);
     if (r.code === 127) return todo('mise is not installed yet');
     if (r.code !== 0) return todo(`mise ls failed: ${r.stderr.trim() || `exit ${r.code}`}`);
     const have = installedRequests(r.stdout);
@@ -47,6 +50,7 @@ export const runtimesStep: Step = {
   },
   async apply(ctx) {
     const specs = wanted(ctx).map(([tool, version]) => `${tool}@${version}`);
-    await ctx.exec.exec('mise', ['use', '--global', '--yes', ...specs]);
+    const mise = (await miseBinary(ctx.exec, ctx.home)) ?? (await installMise(ctx.exec, ctx.home));
+    await ctx.exec.exec(mise, ['use', '--global', '--yes', ...specs], { progress: true });
   },
 };

@@ -9,6 +9,7 @@ import type { Deps } from '../deps.js';
 import { daemonState, plistPath } from '../launchd.js';
 import { authStatus, claudeBinary, claudeRunOptions } from '../login.js';
 import type { Executor } from '../runner/executor.js';
+import { miseBinary } from '../mise.js';
 import { brewfilePath, renderBrewfile, BUNDLE_CHECK_ENV, bundleCheckArgs } from '../steps/packages.js';
 import { COMPOSE_FILES, envrcFor, workspaceTrusted } from '../steps/env.js';
 import { COLIMA_LABEL } from '../steps/docker.js';
@@ -139,7 +140,8 @@ async function toolChecks(c: DoctorContext): Promise<Check[]> {
 
   const wantedRuntimes = Object.entries(config.runtimes ?? {});
   if (wantedRuntimes.length > 0) {
-    const mise = await exec.query('mise', ['ls', '--global', '--json']);
+    const bin = await miseBinary(exec, deps.home);
+    const mise = bin ? await exec.query(bin, ['ls', '--global', '--json']) : { code: 127, stdout: '', stderr: '' };
     let have: Record<string, { requested_version?: string; installed?: boolean }[]> = {};
     try {
       have = JSON.parse(mise.stdout) as typeof have;

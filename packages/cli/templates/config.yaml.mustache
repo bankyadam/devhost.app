@@ -36,11 +36,11 @@ environments: []                     # managed by `devhost env ...`, editable by
 #    compose: auto                        # auto (start if compose file exists) | off
 
 packages:
-  brew: [git, gh, tmux, mosh, direnv, jq, ripgrep, mise]
+  brew: [git, gh, tmux, mosh, direnv, jq, ripgrep]
   cask: []
   extra: []                          # raw Brewfile lines, appended verbatim
 
-runtimes: { node: lts, python: "3.12", ruby: "3.3", php: "8.3" }   # via mise
+runtimes: { node: lts, python: "3.12", ruby: "3.3", php: "8.3" }   # via mise (installed with its own installer)
 
 docker: { runtime: {{dockerRuntime}}, cpu: 6, memoryGiB: 16, diskGiB: 200 }   # colima | orbstack | none
 

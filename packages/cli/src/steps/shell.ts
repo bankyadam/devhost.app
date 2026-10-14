@@ -15,7 +15,8 @@ export function shellBlockBody(config: DevhostConfig, home: string, brewPrefix: 
     `[ -x ${brewPrefix}/bin/brew ] && eval "$(${brewPrefix}/bin/brew shellenv)"`,
   ];
   if (Object.keys(config.runtimes ?? {}).length > 0) {
-    body.push('command -v mise >/dev/null 2>&1 && eval "$(mise activate zsh)"');
+    // mise's installer puts it in ~/.local/bin, which is not on PATH yet at this point.
+    body.push('if command -v mise >/dev/null 2>&1; then eval "$(mise activate zsh)"; elif [ -x "$HOME/.local/bin/mise" ]; then eval "$("$HOME/.local/bin/mise" activate zsh)"; fi');
   }
   const accounts = accountsOf(config);
   if (accounts.length > 0) {
