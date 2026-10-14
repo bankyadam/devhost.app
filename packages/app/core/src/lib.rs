@@ -256,14 +256,62 @@ impl TrayStatus {
     }
 }
 
-/// Menu bar text: a status dot and the number of sessions waiting for input.
-pub fn tray_title(status: TrayStatus, waiting: u32) -> String {
-    let dot = match status {
-        TrayStatus::Green => "🟢",
-        TrayStatus::Yellow => "🟡",
-        TrayStatus::Red => "🔴",
+/// Menu bar text next to the icon: the number of sessions waiting for input, nothing otherwise
+/// (the status is in the icon).
+pub fn tray_title(waiting: u32) -> Option<String> {
+    (waiting > 0).then(|| waiting.to_string())
+}
+
+/// Side of the menu bar icon in pixels: 22 pt at 2x.
+pub const TRAY_ICON_PX: u32 = 44;
+
+/// The menu bar icon, the app's `>_` like the other menu bar glyphs. Green is a template image
+/// (macOS colours it like its neighbours); yellow and red keep the `>_` in the menu bar's own
+/// colour and colour only the cursor, so the icon can no longer be a template and the caller says
+/// whether the menu bar is dark. Returns RGBA pixels and whether the image is a template.
+pub fn tray_icon(status: TrayStatus, dark_menu_bar: bool) -> (Vec<u8>, bool) {
+    let cursor = match (status, dark_menu_bar) {
+        (TrayStatus::Green, _) => None,
+        (TrayStatus::Yellow, true) => Some([0xff, 0xd6, 0x0a]),
+        (TrayStatus::Yellow, false) => Some([0xe0, 0xa1, 0x00]),
+        (TrayStatus::Red, true) => Some([0xff, 0x45, 0x3a]),
+        (TrayStatus::Red, false) => Some([0xe0, 0x2a, 0x20]),
     };
-    if waiting > 0 { format!("{dot} {waiting}") } else { dot.to_string() }
+    let template = cursor.is_none();
+    let glyph: [u8; 3] = if template || !dark_menu_bar { [0, 0, 0] } else { [0xff, 0xff, 0xff] };
+    // Template images use only alpha; a plain image matches the menu bar's own text alpha.
+    let glyph_alpha = if template { 1.0 } else { 0.85 };
+    let scale = TRAY_ICON_PX as f32 / 22.0;
+    let (half_pt, px_pt) = (1.0, 1.0 / scale); // 2 pt strokes; one pixel in pt for the antialiased edge
+    let chevron = [((4.5, 6.0), (9.5, 11.0)), ((9.5, 11.0), (4.5, 16.0))];
+    let underscore = ((12.5, 16.0), (17.5, 16.0));
+    let n = TRAY_ICON_PX as usize;
+    let mut px = vec![0u8; n * n * 4];
+    for y in 0..n {
+        for x in 0..n {
+            let p = ((x as f32 + 0.5) / scale, (y as f32 + 0.5) / scale);
+            let cover = |seg| ((half_pt + px_pt / 2.0 - segment_distance(p, seg)) / px_pt).clamp(0.0, 1.0);
+            let g = chevron.iter().map(|&s| cover(s)).fold(0.0f32, f32::max);
+            let c = cover(underscore);
+            let (rgb, a) = if c > 0.0 {
+                (cursor.unwrap_or(glyph), c * if cursor.is_some() { 1.0 } else { glyph_alpha })
+            } else {
+                (glyph, g * glyph_alpha)
+            };
+            if a > 0.0 {
+                let i = (y * n + x) * 4;
+                px[i..i + 3].copy_from_slice(&rgb);
+                px[i + 3] = (a * 255.0).round() as u8;
+            }
+        }
+    }
+    (px, template)
+}
+
+fn segment_distance(p: (f32, f32), ((ax, ay), (bx, by)): ((f32, f32), (f32, f32))) -> f32 {
+    let (dx, dy) = (bx - ax, by - ay);
+    let t = (((p.0 - ax) * dx + (p.1 - ay) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
+    ((p.0 - ax - t * dx).powi(2) + (p.1 - ay - t * dy).powi(2)).sqrt()
 }
 
 /// Splits a byte stream into lines, keeping a partial line until its newline arrives.
@@ -461,12 +509,34 @@ mod tests {
     }
 
     #[test]
-    fn tray_title_shows_dot_and_waiting_count() {
-        assert_eq!(tray_title(TrayStatus::Green, 0), "🟢");
-        assert_eq!(tray_title(TrayStatus::Yellow, 2), "🟡 2");
-        assert_eq!(tray_title(TrayStatus::Red, 1), "🔴 1");
-        assert_eq!(TrayStatus::parse("red"), Some(TrayStatus::Red));
-        assert_eq!(TrayStatus::parse("blue"), None);
+    fn tray_title_is_only_the_waiting_count() {
+        assert_eq!(tray_title(0), None);
+        assert_eq!(tray_title(2).as_deref(), Some("2"));
+    }
+
+    fn pixel(px: &[u8], x: u32, y: u32) -> [u8; 4] {
+        let i = ((y * TRAY_ICON_PX + x) * 4) as usize;
+        [px[i], px[i + 1], px[i + 2], px[i + 3]]
+    }
+
+    #[test]
+    fn tray_icon_colours_only_the_cursor() {
+        // Centre of the underscore (15 pt, 16 pt) and of the chevron's tip (9.5 pt, 11 pt), at 2x.
+        let (cx, cy, gx, gy) = (30, 32, 18, 22);
+        let (green, template) = tray_icon(TrayStatus::Green, true);
+        assert!(template);
+        assert_eq!(green.len(), (TRAY_ICON_PX * TRAY_ICON_PX * 4) as usize);
+        assert_eq!(pixel(&green, cx, cy), [0, 0, 0, 255]);
+        assert_eq!(pixel(&green, gx, gy), [0, 0, 0, 255]);
+        assert_eq!(pixel(&green, 1, 1)[3], 0, "transparent around the glyph");
+
+        let (red, template) = tray_icon(TrayStatus::Red, true);
+        assert!(!template);
+        assert_eq!(pixel(&red, cx, cy), [0xff, 0x45, 0x3a, 255]);
+        assert_eq!(pixel(&red, gx, gy), [0xff, 0xff, 0xff, 217], "white >_ on a dark menu bar");
+        let (yellow, _) = tray_icon(TrayStatus::Yellow, false);
+        assert_eq!(pixel(&yellow, cx, cy), [0xe0, 0xa1, 0x00, 255]);
+        assert_eq!(pixel(&yellow, gx, gy), [0, 0, 0, 217], "black >_ on a light menu bar");
     }
 
     #[test]

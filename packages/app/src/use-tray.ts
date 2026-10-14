@@ -3,7 +3,7 @@ import { useApp } from './app-context';
 import { trayState, type TrayState } from './lib/tray';
 
 /**
- * Keeps the menu bar item in sync (status dot, sessions waiting for input) and exposes the same
+ * Keeps the menu bar item in sync (status in the icon's cursor, sessions waiting for input) and exposes the same
  * numbers to the sidebar. Polls a cheap snapshot, independent of which screen is open.
  */
 export function useTraySync(intervalMs = 10_000): TrayState {

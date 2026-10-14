@@ -9,7 +9,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use devhost_core::{
-    control_path, remote_command, ssh_args, terminal_command, terminal_script, tray_title, validate_devhost_args,
+    control_path, remote_command, ssh_args, terminal_command, terminal_script, tray_icon, tray_title, validate_devhost_args,
+    TRAY_ICON_PX,
     is_safari_web_app, valid_icon_png, validate_claude_url, validate_url, vscode_args, web_app_icon_path,
     web_app_path_named, LineBuffer, TerminalAction,
     TrayStatus,
@@ -17,6 +18,7 @@ use devhost_core::{
 use serde::{Deserialize, Serialize};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
+use tauri::image::Image;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 const SSH: &str = "/usr/bin/ssh";
@@ -277,12 +279,51 @@ fn open_web_app(name: String, url: Option<String>) -> Result<(), String> {
     cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// Menu bar: a status dot and the count of sessions waiting for input.
+/// What the menu bar icon shows now, so the 10 s refresh only redraws it when that changes.
+#[derive(Default)]
+struct TrayLook(Mutex<Option<(TrayStatus, bool)>>);
+
+fn tray_image(status: TrayStatus, dark: bool) -> (Image<'static>, bool) {
+    let (px, template) = tray_icon(status, dark);
+    (Image::new_owned(px, TRAY_ICON_PX, TRAY_ICON_PX), template)
+}
+
+/// Whether the menu bar behind the item is dark. It follows the wallpaper as well as Dark Mode, so
+/// this asks the item's own button rather than the system setting.
+#[cfg(target_os = "macos")]
+fn menu_bar_is_dark(tray: &tauri::tray::TrayIcon) -> bool {
+    tray.with_inner_tray_icon(|inner| {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::{NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua};
+        use objc2_foundation::NSArray;
+        let button = inner.ns_status_item()?.button(MainThreadMarker::new()?)?;
+        let (aqua, dark) = unsafe { (NSAppearanceNameAqua, NSAppearanceNameDarkAqua) };
+        let best = button.effectiveAppearance().bestMatchFromAppearancesWithNames(&NSArray::from_slice(&[aqua, dark]))?;
+        Some(best.isEqualToString(dark))
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(true)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn menu_bar_is_dark(_tray: &tauri::tray::TrayIcon) -> bool {
+    true
+}
+
+/// Menu bar: the `>_` icon with the status in its cursor, and the count of sessions waiting for input.
 #[tauri::command]
-fn set_tray(app: AppHandle, status: String, waiting: u32) -> Result<(), String> {
+fn set_tray(app: AppHandle, look: State<TrayLook>, status: String, waiting: u32) -> Result<(), String> {
     let status = TrayStatus::parse(&status).ok_or("unknown status")?;
-    if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        tray.set_title(Some(tray_title(status, waiting))).map_err(|e| e.to_string())?;
+    let Some(tray) = app.tray_by_id(TRAY_ID) else { return Ok(()) };
+    tray.set_title(tray_title(waiting)).map_err(|e| e.to_string())?;
+    let dark = status != TrayStatus::Green && menu_bar_is_dark(&tray);
+    let mut last = look.0.lock().map_err(|e| e.to_string())?;
+    if *last != Some((status, dark)) {
+        let (image, template) = tray_image(status, dark);
+        tray.set_icon(Some(image)).map_err(|e| e.to_string())?;
+        tray.set_icon_as_template(template).map_err(|e| e.to_string())?;
+        *last = Some((status, dark));
     }
     Ok(())
 }
@@ -301,6 +342,7 @@ fn show_main(app: &AppHandle, screen: Option<&str>) {
 pub fn run() {
     tauri::Builder::default()
         .manage(Streams::default())
+        .manage(TrayLook::default())
         .invoke_handler(tauri::generate_handler![
             ssh_run,
             ssh_stream_start,
@@ -323,8 +365,10 @@ pub fn run() {
                 .separator()
                 .item(&MenuItemBuilder::with_id("quit", "Quit devhost").build(app)?)
                 .build()?;
-            let mut tray = TrayIconBuilder::with_id(TRAY_ID)
-                .title("🟡")
+            let (icon, template) = tray_image(TrayStatus::Green, true);
+            TrayIconBuilder::with_id(TRAY_ID)
+                .icon(icon)
+                .icon_as_template(template)
                 .tooltip("devhost")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id().as_ref() {
@@ -335,11 +379,8 @@ pub fn run() {
                     }
                     "quit" => app.exit(0),
                     _ => {}
-                });
-            if let Some(icon) = app.default_window_icon() {
-                tray = tray.icon(icon.clone());
-            }
-            tray.build(app)?;
+                })
+                .build(app)?;
             Ok(())
         })
         // Closing the window keeps the app (and the menu bar item) alive.
