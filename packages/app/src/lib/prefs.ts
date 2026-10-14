@@ -19,6 +19,27 @@ export function loadPrefs(storage: Pick<Storage, 'getItem'> = localStorage): Pre
   }
 }
 
+const WEB_APPS_KEY = 'devhost.webApps.v1';
+
+/** Which Safari web app is which account's, when it is not named `Claude – <account>` (a UI preference too). */
+export function loadWebAppChoices(storage: Pick<Storage, 'getItem'> = localStorage): Record<string, string> {
+  try {
+    const raw = storage.getItem(WEB_APPS_KEY);
+    const v: unknown = raw ? JSON.parse(raw) : {};
+    return v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).filter(([, n]) => typeof n === 'string')) as Record<string, string> : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveWebAppChoices(choices: Record<string, string>, storage: Pick<Storage, 'setItem'> = localStorage): void {
+  try {
+    storage.setItem(WEB_APPS_KEY, JSON.stringify(choices));
+  } catch {
+    /* does not persist */
+  }
+}
+
 export function savePrefs(p: Prefs, storage: Pick<Storage, 'setItem'> = localStorage): void {
   try {
     storage.setItem(KEY, JSON.stringify({ host: p.host, theme: p.theme, range: p.range }));

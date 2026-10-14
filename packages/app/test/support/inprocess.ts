@@ -11,7 +11,7 @@ import type { RunResult, StreamHandle, TerminalRequest, Transport, TrayStatus } 
 export class InProcessTransport implements Transport {
   readonly calls: string[][] = [];
   readonly opened: { url?: string; terminal?: TerminalRequest; vscode?: string; webApp?: string }[] = [];
-  /** Accounts whose Safari web app exists; `setupWebApp` records the icon it was given. */
+  /** Names of the Safari web apps in ~/Applications; `setupWebApp` records the icon it was given. */
   readonly webAppsInstalled = new Set<string>();
   readonly webAppIcons = new Map<string, Uint8Array>();
   readonly tray: { status: TrayStatus; waiting: number }[] = [];
@@ -81,15 +81,15 @@ export class InProcessTransport implements Transport {
   async detectTools(): Promise<{ code: boolean; iterm: boolean }> {
     return this.tools;
   }
-  async webApps(accounts: string[]): Promise<Record<string, boolean>> {
-    return Object.fromEntries(accounts.map((a) => [a, this.webAppsInstalled.has(a)]));
+  async listWebApps(): Promise<string[]> {
+    return [...this.webAppsInstalled].sort();
   }
   async setupWebApp(account: string, png: Uint8Array): Promise<string> {
     this.webAppIcons.set(account, png);
     return `/Users/me/Library/Application Support/app.devhost.desktop/web-app-icons/Claude – ${account}.png`;
   }
-  async openWebApp(account: string): Promise<void> {
-    this.opened.push({ webApp: account });
+  async openWebApp(name: string, url?: string): Promise<void> {
+    this.opened.push({ webApp: name, ...(url ? { url } : {}) });
   }
   async setTray(status: TrayStatus, waiting: number): Promise<void> {
     this.tray.push({ status, waiting });

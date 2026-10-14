@@ -11,6 +11,10 @@ export interface EnvListData {
       enabled: boolean;
       spawn: string;
       permissionMode: string;
+      /**
+       * claude.ai/code link of the Remote Control environment (new sessions start there), from the service log; absent until the service printed it.
+       */
+      url?: string;
     };
     compose: string;
     service: {

@@ -8,7 +8,7 @@ import { predictAccountRange, SLUG } from '../lib/ports';
 import { Badge, CopyButton, Dialog, Empty, Field, WizardStep } from '../ui/primitives';
 import { RunDialog } from '../ui/run-dialog';
 import { rasterizeIcon, webAppIconSvg } from '../lib/webAppIcon';
-import { useWebApps } from '../use-web-apps';
+import { defaultWebAppName, useWebApps } from '../use-web-apps';
 
 type Account = AccountListData['accounts'][number];
 
@@ -21,7 +21,7 @@ export function Accounts() {
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<null | { kind: 'add' } | { kind: 'login'; account: Account } | { kind: 'remove'; account: Account } | { kind: 'web-app'; account: Account }>(null);
   const names = (accounts ?? []).map((a) => a.name);
-  const webApps = useWebApps(names);
+  const webApps = useWebApps();
 
   const refresh = useCallback(async () => {
     try {
@@ -76,9 +76,15 @@ export function Accounts() {
                       <td className="mono">{a.portRange[0]}–{a.portRange[1]}</td>
                       <td className="num">{a.environments}</td>
                       <td>
-                        {webApps.installed[a.name]
-                          ? <button className="btn sm" onClick={() => void transport.openWebApp(a.name)}>Open</button>
-                          : <button className="btn sm" onClick={() => setDialog({ kind: 'web-app', account: a })}>Set up…</button>}
+                        {(() => {
+                          const app = webApps.appFor(a.name);
+                          return app ? (
+                            <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }} title={app}>
+                              <button className="btn sm" onClick={() => void transport.openWebApp(app)}>Open</button>
+                              <button className="btn sm" onClick={() => setDialog({ kind: 'web-app', account: a })}>Change…</button>
+                            </div>
+                          ) : <button className="btn sm" onClick={() => setDialog({ kind: 'web-app', account: a })}>Set up…</button>;
+                        })()}
                       </td>
                       <td>
                         <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
@@ -108,7 +114,18 @@ export function Accounts() {
           <p className="sec">devhost prints a sign-in URL. Open it in your browser, sign in as <b>{dialog.account.name}</b> and paste the code back here. Then it accepts workspace trust for the account's environments and restarts their services.</p>
         </RunDialog>
       )}
-      {dialog?.kind === 'web-app' && <WebAppSetup accounts={names} account={dialog.account.name} recheck={webApps.refresh} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'web-app' && (
+        <WebAppSetup
+          accounts={names}
+          account={dialog.account.name}
+          // A web app another account uses is not offered again.
+          others={webApps.installed.filter((n) => !names.some((x) => x !== dialog.account.name && webApps.appFor(x) === n))}
+          current={webApps.appFor(dialog.account.name)}
+          onChoose={(n) => { webApps.choose(dialog.account.name, n); setDialog(null); }}
+          recheck={webApps.refresh}
+          onClose={() => setDialog(null)}
+        />
+      )}
       {dialog?.kind === 'remove' && <RemoveFlow account={dialog.account} onClose={() => { setDialog(null); void refresh(); }} />}
     </div>
   );
@@ -117,12 +134,23 @@ export function Accounts() {
 /**
  * A Safari web app per account keeps several claude.ai logins open side by side. Safari has no API
  * for "Add to Dock", so the app does the rest: the icon in the account's color, Safari on
- * claude.ai/code, the icon shown in Finder, then it checks that the web app exists.
+ * claude.ai/code, the icon shown in Finder, then it checks that the web app exists. A web app made
+ * earlier under another name can be picked instead.
  */
-function WebAppSetup({ accounts, account, recheck, onClose }: { accounts: string[]; account: string; recheck: () => Promise<Record<string, boolean>>; onClose: () => void }) {
+function WebAppSetup({ accounts, account, others, current, onChoose, recheck, onClose }: {
+  accounts: string[];
+  account: string;
+  /** Web apps in ~/Applications that are free to take. */
+  others: string[];
+  current: string | null;
+  onChoose: (name: string) => void;
+  recheck: () => Promise<string[]>;
+  onClose: () => void;
+}) {
   const { transport } = useApp();
   const svg = webAppIconSvg(accounts, account);
-  const name = `Claude – ${account}`;
+  const name = defaultWebAppName(account);
+  const [pick, setPick] = useState(current ?? others[0] ?? '');
   const [phase, setPhase] = useState<'intro' | 'busy' | 'started' | 'missing'>('intro');
   const [error, setError] = useState<string | null>(null);
 
@@ -138,7 +166,7 @@ function WebAppSetup({ accounts, account, recheck, onClose }: { accounts: string
     }
   };
   const check = async (): Promise<void> => {
-    if ((await recheck())[account]) onClose();
+    if ((await recheck()).includes(name)) onClose();
     else setPhase('missing');
   };
 
@@ -160,6 +188,16 @@ function WebAppSetup({ accounts, account, recheck, onClose }: { accounts: string
         <p className="sec" style={{ margin: 0 }}>A Safari web app has its own cookies, so it stays signed in as <b>{account}</b> while other accounts use their own web apps or the Claude app.</p>
       </div>
       {error && <div className="notice bad" role="alert">{error}</div>}
+      {others.length > 0 && (
+        <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+          <Field label="Already have one?">{(id) => (
+            <select id={id} className="input" value={pick} onChange={(e) => setPick(e.target.value)}>
+              {others.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          )}</Field>
+          <button className="btn" style={{ alignSelf: 'flex-end' }} disabled={pick === ''} onClick={() => onChoose(pick)}>Use this one</button>
+        </div>
+      )}
       <ol className="sec" style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 6 }}>
         <li><b>Open Safari</b> below: it opens claude.ai/code and shows the icon in Finder.</li>
         <li>In Safari: <b>File → Add to Dock…</b></li>

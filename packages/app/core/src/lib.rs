@@ -192,6 +192,31 @@ pub fn web_app_path(home: &str, account: &str) -> Result<String, String> {
     Ok(format!("{home}/Applications/{}.app", web_app_name(account)?))
 }
 
+/// A web app the user named themselves (Add to Dock takes any name): one file name in
+/// ~/Applications, never a path out of it.
+pub fn web_app_path_named(home: &str, name: &str) -> Result<String, String> {
+    let ok = !name.is_empty()
+        && name.len() <= 255
+        && !name.starts_with('.')
+        && !name.chars().any(|c| c == '/' || c == ':' || c.is_control());
+    if !ok {
+        return Err(format!("`{name}` is not a web app name"));
+    }
+    Ok(format!("{home}/Applications/{name}.app"))
+}
+
+/// Safari's web apps are template apps with this bundle identifier prefix in their Info.plist
+/// (XML or binary, the string is stored as is).
+pub fn is_safari_web_app(info_plist: &[u8]) -> bool {
+    info_plist.windows(24).any(|w| w == b"com.apple.Safari.WebApp.")
+}
+
+/// Only claude.ai pages are handed to a web app.
+pub fn validate_claude_url(url: &str) -> Result<(), String> {
+    validate_url(url)?;
+    if url.starts_with("https://claude.ai/") { Ok(()) } else { Err("only claude.ai links open in a web app".into()) }
+}
+
 /// Where the app saves the generated icon offered for that web app.
 pub fn web_app_icon_path(data_dir: &str, account: &str) -> Result<String, String> {
     Ok(format!("{data_dir}/web-app-icons/{}.png", web_app_name(account)?))
@@ -409,6 +434,19 @@ mod tests {
         );
         assert!(web_app_path("/Users/me", "../../etc").is_err());
         assert!(web_app_icon_path("/d", "a/b").is_err());
+    }
+
+    #[test]
+    fn named_web_apps_stay_in_applications() {
+        assert_eq!(web_app_path_named("/Users/me", "Claude - Stylers").unwrap(), "/Users/me/Applications/Claude - Stylers.app");
+        for bad in ["", "../x", "a/b", ".hidden", "a:b", "a\nb"] {
+            assert!(web_app_path_named("/Users/me", bad).is_err(), "{bad:?} accepted");
+        }
+        assert!(is_safari_web_app(b"<key>CFBundleIdentifier</key><string>com.apple.Safari.WebApp.04FDAF15</string>"));
+        assert!(!is_safari_web_app(b"<string>com.anthropic.claudefordesktop</string>"));
+        assert!(validate_claude_url("https://claude.ai/code?environment=env_01Bd").is_ok());
+        assert!(validate_claude_url("https://claude.ai.evil.com/x").is_err());
+        assert!(validate_claude_url("http://claude.ai/code").is_err());
     }
 
     #[test]

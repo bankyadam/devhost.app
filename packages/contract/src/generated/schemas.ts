@@ -1674,6 +1674,10 @@ export const schemas = {
                 },
                 "permissionMode": {
                   "type": "string"
+                },
+                "url": {
+                  "type": "string",
+                  "description": "claude.ai/code link of the Remote Control environment (new sessions start there), from the service log; absent until the service printed it."
                 }
               }
             },

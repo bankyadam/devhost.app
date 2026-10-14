@@ -31,7 +31,7 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
   const [envs, setEnvs] = useState<EnvListData['environments']>([]);
 
   const { dash, loading, error, stale } = useDash(range, { account, env, model });
-  const webApps = useWebApps(known);
+  const webApps = useWebApps();
 
   // Account colors follow the account, not its rank: remember every account ever seen, in order.
   useEffect(() => {
@@ -188,7 +188,7 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
                 </tr>
               </thead>
               <tbody>
-                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envDir(s.env)} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} webApps={webApps.installed} />)}
+                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envDir(s.env)} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} />)}
               </tbody>
             </table>
           </div>
@@ -203,7 +203,7 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
   );
 }
 
-function SessionRow({ s, now, dir, portBase, hostName, webApps }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; webApps: Record<string, boolean> }) {
+function SessionRow({ s, now, dir, portBase, hostName, app, envUrl }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string }) {
   const { transport, tools } = useApp();
   return (
     <tr className={s.state === 'waiting' ? 'waiting' : ''}>
@@ -221,7 +221,7 @@ function SessionRow({ s, now, dir, portBase, hostName, webApps }: { s: Session; 
         <Menu
           label="Open"
           items={[
-            { label: s.account && webApps[s.account] ? `claude.ai/code (Claude – ${s.account})` : 'claude.ai/code', onSelect: () => void openClaude(transport, webApps, s.account) },
+            { label: app ? `claude.ai/code (${app})` : 'claude.ai/code', onSelect: () => void openClaude(transport, app, envUrl) },
             { label: 'Terminal: resume this session', hidden: !dir || s.state === 'ended', onSelect: () => void transport.openTerminal({ kind: 'resume', dir: dir!, sessionId: s.id }) },
             { label: 'Terminal: shell in the environment', hidden: !dir, onSelect: () => void transport.openTerminal({ kind: 'shell', dir: dir! }) },
             { label: 'VS Code (Remote SSH)', hidden: !dir || !tools.code, onSelect: () => void transport.openVscode(dir!) },
