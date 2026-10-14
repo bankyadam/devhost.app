@@ -133,6 +133,31 @@ describe('packages', () => {
     expect(await packagesStep.check(ctx(new MockRunner().on('brew bundle check', { code: 1 })))).toMatchObject({ state: 'todo' });
     expect(await packagesStep.check(ctx(new MockRunner()))).toMatchObject({ reason: expect.stringContaining('Homebrew is not installed') });
   });
+
+  it('only installs what is missing: outdated packages are not upgraded on every apply', async () => {
+    const env = await makeEnv();
+    const c = config();
+    const runner = new MockRunner()
+      .on('brew bundle check', {})
+      .on('brew bundle install', { stdout: 'Using git\nInstalling tmux\n' });
+    const ctx = { user: 'tester', brewPrefix: '/usr/local', nodePath: '/n', configPath: '/c', config: c, home: env.home, exec: exec(runner, {}, logging) };
+    logs.length = 0;
+    await packagesStep.apply(ctx);
+    await packagesStep.check(ctx);
+    const [install, check] = runner.calls;
+    expect(install!.args).toEqual(['bundle', 'install', '--no-upgrade', expect.stringMatching(/^--file=.*Brewfile$/)]);
+    expect(check!.args).toEqual(['bundle', 'check', '--no-upgrade', expect.stringMatching(/^--file=/)]);
+    expect(check!.opts?.env).toMatchObject({ HOMEBREW_NO_AUTO_UPDATE: '1' });
+    // brew's own output shows while it runs, so a long install does not look like a hang.
+    expect(logs).toEqual(['  Using git', '  Installing tmux']);
+  });
+
+  it('a failed package install says how to see the real error', async () => {
+    const env = await makeEnv();
+    const runner = new MockRunner().on('brew bundle install', { code: 1, stderr: 'Installing tmux has failed!\n' });
+    const ctx = { user: 'tester', brewPrefix: '/usr/local', nodePath: '/n', configPath: '/c', config: config(), home: env.home, exec: exec(runner) };
+    await expect(packagesStep.apply(ctx)).rejects.toMatchObject({ message: expect.stringContaining('Installing tmux has failed!'), hint: expect.stringContaining('brew install tmux') });
+  });
 });
 
 describe('runtimes', () => {

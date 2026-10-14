@@ -13,6 +13,8 @@ export interface ExecOptions extends RunOptions {
   reason?: string;
   /** Do not throw on a non-zero exit. */
   allowFailure?: boolean;
+  /** Show the command's output as it runs (log events), for commands that take minutes. */
+  progress?: boolean;
 }
 
 export interface ExecutorOptions {
@@ -65,6 +67,12 @@ export class Executor {
 
     if (sudo) this.reporter.log('warn', `sudo required: ${opts.reason ?? line}`);
     this.trace(command, args, sudo);
+    if (opts.progress) {
+      const report = (l: string): void => {
+        if (l.trim() !== '') this.reporter.log('info', `  ${l.trimEnd()}`);
+      };
+      opts = { ...opts, onLine: report };
+    }
     const result = sudo
       ? await this.runner.run('sudo', [...(this.opts.interactiveSudo ? [] : ['-n']), '--', command, ...args], {
           ...opts,

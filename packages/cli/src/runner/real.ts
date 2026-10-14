@@ -3,6 +3,24 @@ import type { RunOptions, RunResult, Runner, SpawnedProcess } from './types.js';
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 
+/** Calls `onLine` per complete line; `flush` hands over a last line without a newline. */
+function lines(onLine: ((line: string) => void) | undefined) {
+  let pending = '';
+  return {
+    push(chunk: string): void {
+      if (!onLine) return;
+      pending += chunk;
+      const parts = pending.split(/\r?\n/);
+      pending = parts.pop() ?? '';
+      parts.forEach((l) => onLine(l));
+    },
+    flush(): void {
+      if (onLine && pending !== '') onLine(pending);
+      pending = '';
+    },
+  };
+}
+
 export class RealRunner implements Runner {
   constructor(
     private readonly baseEnv: Record<string, string | undefined>,
@@ -39,8 +57,18 @@ export class RealRunner implements Runner {
         finish({ code: 124, stdout, stderr: `${stderr}timed out after ${opts.timeoutMs ?? DEFAULT_TIMEOUT_MS} ms\n` });
       }, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
-      child.stdout?.on('data', (d: Buffer) => (stdout += d.toString('utf8')));
-      child.stderr?.on('data', (d: Buffer) => (stderr += d.toString('utf8')));
+      const out = lines(opts.onLine);
+      const err = lines(opts.onLine);
+      child.stdout?.on('data', (d: Buffer) => {
+        const s = d.toString('utf8');
+        stdout += s;
+        out.push(s);
+      });
+      child.stderr?.on('data', (d: Buffer) => {
+        const s = d.toString('utf8');
+        stderr += s;
+        err.push(s);
+      });
       child.on('error', (err: NodeJS.ErrnoException) => {
         finish({
           code: err.code === 'ENOENT' ? 127 : 126,
@@ -49,6 +77,8 @@ export class RealRunner implements Runner {
         });
       });
       child.on('close', (code, signal) => {
+        out.flush();
+        err.flush();
         finish({ code: code ?? (signal ? 128 : 1), stdout, stderr });
       });
 
