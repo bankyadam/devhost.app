@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
+import { open, readFile, stat } from 'node:fs/promises';
 import type { DevhostConfig, EnvChangeData, EnvListData, EnvLogsData } from '@devhost/contract';
 import { runSteps } from './apply.js';
 import { long, newExecutor, newReporter, newStepContext, short, type GlobalOptions } from './command-support.js';
@@ -21,6 +21,28 @@ function findEnv(config: DevhostConfig, name: string): { env: Environment; accou
   const account = findAccount(config, env.account);
   if (!account) throw new UsageError(`environment "${name}" refers to the unknown account "${env.account}"`);
   return { env, account };
+}
+
+/** Log tail searched for the environment link; the service prints it on every (re)connect. */
+const URL_TAIL_BYTES = 64 * 1024;
+const ENV_URL = /https:\/\/claude\.ai\/code\?environment=env_[A-Za-z0-9]+/g;
+
+/** The claude.ai/code link of an environment's Remote Control environment, the last one its service logged. */
+export async function environmentUrl(logPath: string): Promise<{ url?: string }> {
+  try {
+    const handle = await open(logPath, 'r');
+    try {
+      const size = (await handle.stat()).size;
+      const length = Math.min(size, URL_TAIL_BYTES);
+      const { buffer } = await handle.read(Buffer.alloc(length), 0, length, size - length);
+      const url = buffer.toString('utf8').match(ENV_URL)?.at(-1);
+      return url ? { url } : {};
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return {};
+  }
 }
 
 async function serviceInfo(exec: Executor, env: Environment): Promise<EnvListData['environments'][number]['service']> {
@@ -46,7 +68,7 @@ export function envListCommand(deps: Deps, g: GlobalOptions): Promise<number> {
         dir,
         dirExists: (await exec.query('test', ['-d', dir])).code === 0,
         portBase: e.portBase ?? null,
-        remoteControl: { enabled: e.remoteControl?.enabled !== false, spawn: e.remoteControl?.spawn ?? 'worktree', permissionMode: e.remoteControl?.permissionMode ?? 'acceptEdits' },
+        remoteControl: { enabled: e.remoteControl?.enabled !== false, spawn: e.remoteControl?.spawn ?? 'worktree', permissionMode: e.remoteControl?.permissionMode ?? 'acceptEdits', ...(await environmentUrl(rcLogPath(deps.home, e.account, e.name))) },
         compose: e.compose ?? 'auto',
         service: await serviceInfo(exec, e),
       });

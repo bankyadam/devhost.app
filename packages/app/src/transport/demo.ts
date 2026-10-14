@@ -83,12 +83,12 @@ export function createDemoTransport(host: string): Transport {
     openTerminal: async (r: TerminalRequest) => void console.info('[demo] open Terminal', r),
     openVscode: async (p) => void console.info('[demo] open VS Code', p),
     detectTools: async () => ({ code: true, iterm: false }),
-    webApps: async (accounts) => Object.fromEntries(accounts.map((a) => [a, demoWebApps.has(a)])),
+    listWebApps: async () => [...demoWebApps].sort(),
     setupWebApp: async (account) => {
-      demoWebApps.add(account);
+      demoWebApps.add(`Claude – ${account}`);
       return `~/Library/Application Support/app.devhost.desktop/web-app-icons/Claude – ${account}.png`;
     },
-    openWebApp: async (account) => void console.info('[demo] open web app', account),
+    openWebApp: async (name, url) => void console.info('[demo] open web app', name, url ?? ''),
     setTray: async (s: TrayStatus, n: number) => void console.info('[demo] tray', s, n),
     onNavigate: () => () => undefined,
   };

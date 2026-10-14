@@ -57,9 +57,9 @@ export function createTauriTransport(host: string): Transport {
       }),
     openVscode: (path) => invoke('open_vscode', { host, path }),
     detectTools: () => invoke('detect_tools'),
-    webApps: (accounts) => invoke('web_apps', { accounts }),
+    listWebApps: () => invoke('list_web_apps'),
     setupWebApp: (account, png) => invoke('setup_web_app', { account, png: Array.from(png) }),
-    openWebApp: (account) => invoke('open_web_app', { account }),
+    openWebApp: (name, url) => invoke('open_web_app', { name, url: url ?? null }),
     setTray: (status: TrayStatus, waiting: number) => invoke('set_tray', { status, waiting }),
     onNavigate(cb) {
       let un: (() => void) | undefined;

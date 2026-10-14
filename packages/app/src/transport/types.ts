@@ -34,11 +34,12 @@ export interface Transport {
   openTerminal(request: TerminalRequest): Promise<void>;
   openVscode(path: string): Promise<void>;
   detectTools(): Promise<{ code: boolean; iterm: boolean }>;
-  /** Which accounts have their Safari web app (`~/Applications/Claude – <account>.app`). */
-  webApps(accounts: string[]): Promise<Record<string, boolean>>;
+  /** Names of the Safari web apps in ~/Applications (Add to Dock takes any name). */
+  listWebApps(): Promise<string[]>;
   /** Save the account's icon (PNG), open claude.ai/code in Safari, show the icon in Finder. Resolves with the icon's path. */
   setupWebApp(account: string, png: Uint8Array): Promise<string>;
-  openWebApp(account: string): Promise<void>;
+  /** Open a web app by name, optionally on a claude.ai page. */
+  openWebApp(name: string, url?: string): Promise<void>;
   setTray(status: TrayStatus, waiting: number): Promise<void>;
   /** Subscribe to menu-bar navigation requests ("dashboard" | "environments"). */
   onNavigate(cb: (screen: string) => void): () => void;

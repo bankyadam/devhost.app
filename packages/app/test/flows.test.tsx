@@ -216,20 +216,25 @@ describe('environments (spec B3.2)', () => {
     expect(h.transport.opened.at(-1)).toEqual({ terminal: { kind: 'devhost', args: ['env', 'restart', 'acme-api'] } });
   });
 
-  it("▶ opens the account's web app, or claude.ai/code when it has none", async () => {
+  it("▶ opens the environment's Remote Control link, in the account's web app when it has one", async () => {
+    localStorage.clear();
     const h = await makeHarness();
     await withBusiness(h);
     await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
     mount(h);
     await goto(h, 'Environments');
-    const play = await screen.findByRole('button', { name: 'Open Claude for acme-api' });
-    await h.user.click(play);
+    // No link logged yet: claude.ai/code in the browser.
+    await h.user.click(await screen.findByRole('button', { name: 'Open Claude for acme-api' }));
     expect(h.transport.opened.at(-1)).toEqual({ url: 'https://claude.ai/code' });
-    h.transport.webAppsInstalled.add('business');
+
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    await mkdir(join(h.env.home, 'Library', 'Logs', 'devhost'), { recursive: true });
+    await writeFile(join(h.env.home, 'Library', 'Logs', 'devhost', 'rc-business-acme-api.log'), 'Continue coding in the Claude mobile app or https://claude.ai/code?environment=env_01Abc\n');
+    h.transport.webAppsInstalled.add('Claude – business');
     await goto(h, 'Dashboard');
     await goto(h, 'Environments');
     await h.user.click(await screen.findByRole('button', { name: 'Open Claude for acme-api' }));
-    await waitFor(() => expect(h.transport.opened.at(-1)).toEqual({ webApp: 'business' }));
+    await waitFor(() => expect(h.transport.opened.at(-1)).toEqual({ webApp: 'Claude – business', url: 'https://claude.ai/code?environment=env_01Abc' }));
   });
 
   it('shows the service log in a viewer', async () => {
@@ -379,11 +384,29 @@ describe('account web apps', () => {
     await waitFor(() => expect(h.transport.webAppIcons.get('business')).toEqual(PNG));
     await h.user.click(await dlg.findByRole('button', { name: 'Done, check' }));
     expect(await dlg.findByRole('status')).toHaveTextContent('No web app named Claude – business');
-    h.transport.webAppsInstalled.add('business');
+    h.transport.webAppsInstalled.add('Claude – business');
     await h.user.click(dlg.getByRole('button', { name: 'Done, check' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await h.user.click(screen.getByRole('button', { name: 'Open' }));
-    expect(h.transport.opened.at(-1)).toEqual({ webApp: 'business' });
+    expect(h.transport.opened.at(-1)).toEqual({ webApp: 'Claude – business' });
+  });
+
+  it('a web app made earlier under another name can be picked for the account', async () => {
+    localStorage.clear();
+    const h = await makeHarness();
+    await withBusiness(h);
+    h.transport.webAppsInstalled.add('Claude - Work');
+    mount(h);
+    await goto(h, 'Accounts');
+    await h.user.click(await screen.findByRole('button', { name: 'Set up…' }));
+    const dlg = within(await screen.findByRole('dialog', { name: 'Web app for business' }));
+    expect(dlg.getByLabelText('Already have one?')).toHaveValue('Claude - Work');
+    await h.user.click(dlg.getByRole('button', { name: 'Use this one' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await h.user.click(screen.getByRole('button', { name: 'Open' }));
+    expect(h.transport.opened.at(-1)).toEqual({ webApp: 'Claude - Work' });
+    // The choice is remembered.
+    expect(JSON.parse(localStorage.getItem('devhost.webApps.v1')!)).toEqual({ business: 'Claude - Work' });
   });
 });
 

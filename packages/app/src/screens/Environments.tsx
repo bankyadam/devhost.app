@@ -13,7 +13,7 @@ type Env = EnvListData['environments'][number];
 export function Environments() {
   const { client, transport, connection, reportUnreachable } = useApp();
   const [envs, setEnvs] = useState<Env[] | null>(null);
-  const webApps = useWebApps([...new Set((envs ?? []).map((e) => e.account))]);
+  const webApps = useWebApps();
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env }>(null);
 
@@ -56,12 +56,18 @@ export function Environments() {
                     <td className="mono small" title={e.dir}>{e.dir}{e.dirExists === false && <> <Badge tone="bad">missing</Badge></>}</td>
                     <td>
                       <div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
-                        <button
-                          className="btn sm primary"
-                          aria-label={`Open Claude for ${e.name}`}
-                          title={webApps.installed[e.account] ? `Open Claude – ${e.account}` : `Open claude.ai/code (no web app for ${e.account} yet, see Accounts)`}
-                          onClick={() => void openClaude(transport, webApps.installed, e.account)}
-                        >▶</button>
+                        {(() => {
+                          const app = webApps.appFor(e.account);
+                          const where = e.remoteControl.url ? `${e.name}'s Remote Control environment` : 'claude.ai/code';
+                          return (
+                            <button
+                              className="btn sm primary"
+                              aria-label={`Open Claude for ${e.name}`}
+                              title={app ? `Open ${where} in ${app}` : `Open ${where} in the browser (no web app for ${e.account} yet, see Accounts)`}
+                              onClick={() => void openClaude(transport, app, e.remoteControl.url)}
+                            >▶</button>
+                          );
+                        })()}
                         <Menu
                           label="…"
                           caret={false}

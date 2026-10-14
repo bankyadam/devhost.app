@@ -161,11 +161,11 @@ describe('dashboard (spec B3.1, B6)', () => {
   });
 
   it("claude.ai/code opens the account's web app when it has one", async () => {
-    const h = await dashboard(['business']);
+    const h = await dashboard(['Claude – business']);
     const row = (await screen.findByText('sess-wai')).closest('tr')!;
     await h.user.click(within(row).getByRole('button', { name: /Open/ }));
     await h.user.click(await screen.findByRole('menuitem', { name: 'claude.ai/code (Claude – business)' }));
-    expect(h.transport.opened.at(-1)).toEqual({ webApp: 'business' });
+    expect(h.transport.opened.at(-1)).toEqual({ webApp: 'Claude – business' });
   });
 
   it('time range presets and session actions', async () => {

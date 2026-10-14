@@ -383,6 +383,23 @@ describe('environments', () => {
     expect(mac.runner.lines()).toContain('/opt/homebrew/bin/claude auth logout');
   });
 
+  it('list: the Remote Control environment link is the last one the service logged', async () => {
+    const { env } = await created();
+    const listed = async () => {
+      env.out.length = 0;
+      expect(await env.run('env', 'list', '--json')).toBe(0);
+      return (lastEnvelope(env).data as { environments: { remoteControl: { url?: string } }[] }).environments[0]!.remoteControl;
+    };
+    expect((await listed()).url).toBeUndefined();
+    const logs = join(env.home, 'Library', 'Logs', 'devhost');
+    await mkdir(logs, { recursive: true });
+    const line = (id: string) => `Continue coding in the Claude mobile app or https://claude.ai/code?environment=env_${id}\n\u001b[2K·✔︎· Connected\n`;
+    await writeFile(join(logs, 'rc-business-acme-api.log'), `${line('old1')}${'x'.repeat(70_000)}\n${line('New2')}`);
+    expect((await listed()).url).toBe('https://claude.ai/code?environment=env_New2');
+    const e = lastEnvelope(env);
+    expect(validate('result.env-list', e.data).ok).toBe(true);
+  });
+
   it('logs: reads the tail, errors when there is no log yet', async () => {
     const { env } = await created();
     expect(await env.run('env', 'logs', 'acme-api')).toBe(1);
