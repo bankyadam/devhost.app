@@ -68,7 +68,7 @@ Also available for the desktop app (same contract): `config raw` (the file with 
 | Step | Does |
 | --- | --- |
 | `system.hostname` / `system.power` / `system.ssh` | `scutil`, `pmset -a sleep 0 disksleep 0 autorestart 1 womp 1`, Remote Login (sudo). A power flag set to `false` means "leave alone". macOS blocking Remote Login (Full Disk Access) → exact manual steps, exit 3. |
-| `packages` | Renders `~/.config/devhost/Brewfile`, `brew bundle`. Adds what the config implies: mise, direnv, Colima + docker + compose + buildx (or OrbStack), tailscale, `claude-code`. |
+| `packages` | Renders `~/.config/devhost/Brewfile`, `brew bundle install --no-upgrade` (brew's output shows while it runs). Only installs what is missing: upgrading stays `brew upgrade`, so an apply does not upgrade or rebuild everything that had a release. Adds what the config implies: mise, direnv, Colima + docker + compose + buildx (or OrbStack), tailscale, `claude-code`. |
 | `runtimes` | `mise use --global` for each of `runtimes`. |
 | `shell` | The `# >>> devhost >>>` block in `~/.zshrc`: Homebrew, mise, direnv hook, `claude-<account>` aliases. |
 | `docker.config`, `docker.runtime` | Compose/buildx plugin path; Colima as a boot-time LaunchDaemon with the configured resources. |
@@ -174,6 +174,7 @@ Still to verify on a real Mac (not testable on Linux): `mise ls --global --json`
 
 ## Troubleshooting
 
+- **`packages` fails with "Installing <pkg> has failed!"** → run `brew install <pkg>` to see brew's own error. On an Intel Mac Homebrew no longer ships bottles (Tier 3), so formulae build from source; if that stops at "Cannot find a C++ compiler that supports both C++11" and `clang++` cannot find `<string>`, a stale `/Library/Developer/CommandLineTools/usr/include/c++` (a few leftover files) hides the SDK's libc++ headers: `sudo mv /Library/Developer/CommandLineTools/usr/include/c++ /Library/Developer/CommandLineTools/usr/include/c++.bak`, then `devhost apply` again.
 - **Service exits with "Workspace not trusted"** → `devhost login <account>` (accepts trust, restarts services).
 - **Remote Control service says not logged in, but `claude auth status` works for you** → the services run in the system domain without a GUI session and may not reach the login Keychain. Log in over SSH (the Keychain write fails there and Claude Code falls back to `~/.claude*/.credentials.json`), then `devhost doctor` shows the credential store.
 - **After a reboot nothing starts** → FileVault is on and waiting for the disk to be unlocked; `doctor` reports it.

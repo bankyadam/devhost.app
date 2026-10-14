@@ -38,4 +38,12 @@ describe('RealRunner', () => {
     await new RealRunner(process.env, reading.stdin as unknown as NodeJS.ReadStream).run('true', []);
     expect(reading.calls).toEqual([]);
   });
+
+  it('hands every output line to onLine as it arrives and still captures the output', async () => {
+    const seen: string[] = [];
+    const r = await new RealRunner(process.env).run('sh', ['-c', 'printf "a\\nb"; printf "c\\n" >&2'], { onLine: (l) => seen.push(l) });
+    expect(r.stdout).toBe('a\nb');
+    expect(r.stderr).toBe('c\n');
+    expect(seen.sort()).toEqual(['a', 'b', 'c']);
+  });
 });

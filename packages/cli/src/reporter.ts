@@ -31,17 +31,31 @@ const SYMBOL: Record<Exclude<StepStatus, 'start'>, string> = {
   failed: '❌',
 };
 
-/** Plain text; stays free of ANSI codes so output is also safe to pipe. */
+/**
+ * Plain text; stays free of ANSI codes so output is also safe to pipe. A step's result line only
+ * comes when it ends, so one still running after `slowAfterMs` gets a "… id — description" line:
+ * otherwise a long `brew bundle` looks like a hang.
+ */
 export class HumanReporter implements Reporter {
+  private slow: ReturnType<typeof setTimeout> | undefined;
+
   constructor(
     private readonly out: Sink,
     private readonly err: Sink,
     private readonly verbose: boolean,
+    private readonly slowAfterMs = 3000,
   ) {}
 
   step(id: string, status: StepStatus, message?: string): void {
+    clearTimeout(this.slow);
+    this.slow = undefined;
     if (status === 'start') {
-      if (this.verbose) this.out.write(`… ${id}\n`);
+      const line = `… ${id}${message ? ` — ${message}` : ''}\n`;
+      if (this.verbose) this.out.write(line);
+      else {
+        this.slow = setTimeout(() => this.out.write(line), this.slowAfterMs);
+        this.slow.unref?.();
+      }
       return;
     }
     this.out.write(`${SYMBOL[status]} ${id}${message ? ` — ${message}` : ''}\n`);

@@ -75,7 +75,9 @@ export class MockRunner implements Runner {
     const line = [command, ...args].join(' ');
     for (const rule of this.rules) {
       if (rule.match(line)) {
-        return Promise.resolve(typeof rule.respond === 'function' ? rule.respond(call) : rule.respond);
+        const result = typeof rule.respond === 'function' ? rule.respond(call) : rule.respond;
+        if (opts?.onLine) `${result.stdout}${result.stderr}`.split('\n').filter((l) => l !== '').forEach(opts.onLine);
+        return Promise.resolve(result);
       }
     }
     return Promise.resolve({ code: 127, stdout: '', stderr: `command not found: ${command}\n` });

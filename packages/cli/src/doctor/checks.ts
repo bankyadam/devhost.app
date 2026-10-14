@@ -9,7 +9,7 @@ import type { Deps } from '../deps.js';
 import { daemonState, plistPath } from '../launchd.js';
 import { authStatus, claudeBinary, claudeRunOptions } from '../login.js';
 import type { Executor } from '../runner/executor.js';
-import { brewfilePath, renderBrewfile } from '../steps/packages.js';
+import { brewfilePath, renderBrewfile, BUNDLE_CHECK_ENV, bundleCheckArgs } from '../steps/packages.js';
 import { COMPOSE_FILES, envrcFor, workspaceTrusted } from '../steps/env.js';
 import { COLIMA_LABEL } from '../steps/docker.js';
 import { COLLECTOR_LABEL } from '../steps/collector.js';
@@ -132,7 +132,7 @@ async function toolChecks(c: DoctorContext): Promise<Check[]> {
     if ((await exec.readText(file)) !== (await renderBrewfile(config))) {
       out.push(fail('tools.packages', 'the Brewfile is out of date', 'devhost apply --only packages'));
     } else {
-      const bundle = await exec.query('brew', ['bundle', 'check', `--file=${file}`]);
+      const bundle = await exec.query('brew', bundleCheckArgs(file), { env: BUNDLE_CHECK_ENV });
       out.push(bundle.code === 0 ? ok('tools.packages', 'all Brewfile packages are installed') : fail('tools.packages', 'some Brewfile packages are missing', 'devhost apply --only packages'));
     }
   }

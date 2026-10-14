@@ -8,6 +8,8 @@ export interface RunOptions {
   interactive?: boolean;
   /** Variables removed from the child's environment (e.g. CLAUDE_CONFIG_DIR for the default account). */
   unsetEnv?: string[];
+  /** Each line of stdout and stderr as it arrives (progress for long commands); output is still captured. */
+  onLine?: (line: string) => void;
 }
 
 export interface RunResult {
