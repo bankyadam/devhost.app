@@ -1,8 +1,9 @@
 import type { DevhostConfig, LoginData } from '@devhost/contract';
 import { runSteps } from './apply.js';
-import { accountEnv, environmentsOf, type Account } from './config/accounts.js';
+import { accountEnv, environmentsOf, rcLabel, type Account } from './config/accounts.js';
 import type { Deps } from './deps.js';
 import { HumanActionRequired } from './errors.js';
+import { daemonState } from './launchd.js';
 import type { Prompter } from './prompter.js';
 import type { Reporter } from './reporter.js';
 import type { Executor } from './runner/executor.js';
@@ -227,7 +228,19 @@ export async function loginAccount(ctx: LoginContext): Promise<LoginData> {
     const steps = selectSteps(buildSteps(config), envs.map((e) => `env.${e.name}`));
     const outcome = await runSteps(steps, ctx.stepContext(), reporter, deps.cancel);
     if (outcome.error) throw outcome.error;
-    restarted.push(...envs.map((e) => e.name));
+    // A service whose plist did not change is left running by its step, still on the old login
+    // (its sessions are gone from claude.ai), so restart it here.
+    for (const e of envs) {
+      if (e.remoteControl?.enabled === false) continue;
+      const status = outcome.data.steps.find((s) => s.id === `env.${e.name}`)?.status;
+      const label = rcLabel(a.name, e.name);
+      if (status === 'ok' && (await daemonState(ctx.exec, label)).running) {
+        await ctx.exec.exec('launchctl', ['kickstart', '-k', `system/${label}`], { sudo: true, reason: `restart ${label} so it uses the new login` });
+      } else if (status !== 'changed') {
+        continue;
+      }
+      restarted.push(e.name);
+    }
   }
   return { account: a.name, loggedIn: true, trusted, restarted, remaining: [] };
 }
