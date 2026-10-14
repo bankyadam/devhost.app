@@ -18,6 +18,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 devhost-core = { path = "../core" }
 
+# The menu bar item's appearance (dark or light menu bar) for the status icon.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSAppearance", "NSButton", "NSControl", "NSResponder", "NSStatusBarButton", "NSStatusItem", "NSView"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSString"] }
+
 [profile.release]
 panic = "abort"
 codegen-units = 1
