@@ -18,10 +18,24 @@ export class Ingestor {
       if (this.db.kvGet(`email:${email}`) !== account) this.db.kvSet(`email:${email}`, account, this.now());
     },
     ownerOf: (org, email) => (org ? this.db.kvGet(`auth_org:${org}`) : null) ?? (email ? this.db.kvGet(`auth_email:${email}`) : null) ?? undefined,
+    // The session's whole history moves along: rows written before its owner was known (the
+    // org id is not stored per row, so ended sessions cannot be re-attributed later).
     claim: (sessionId, account) => {
       if (this.db.kvGet(`session_owner:${sessionId}`) === account) return;
-      this.db.kvSet(`session_owner:${sessionId}`, account, this.now());
-      this.db.run('UPDATE sessions SET account = ? WHERE session_id = ?', account, sessionId);
+      this.db.transaction(() => {
+        this.db.kvSet(`session_owner:${sessionId}`, account, this.now());
+        for (const table of ['sessions', 'usage', 'api_requests', 'hook_events']) {
+          this.db.run(`UPDATE ${table} SET account = ? WHERE session_id = ?`, account, sessionId);
+        }
+        // Rollups are keyed by account too: add into the owner's rows instead of colliding with them.
+        this.db.run(
+          `INSERT INTO rollup_usage (hour, account, env, session_id, model, kind, value)
+           SELECT hour, ?, env, session_id, model, kind, SUM(value) FROM rollup_usage WHERE session_id = ? AND account <> ? GROUP BY hour, env, model, kind
+           ON CONFLICT (hour, account, env, session_id, model, kind) DO UPDATE SET value = value + excluded.value`,
+          account, sessionId, account,
+        );
+        this.db.run('DELETE FROM rollup_usage WHERE session_id = ? AND account <> ?', sessionId, account);
+      });
     },
   };
 

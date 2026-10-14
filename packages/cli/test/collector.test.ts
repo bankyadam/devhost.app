@@ -182,9 +182,16 @@ describe('hooks', () => {
     db.kvSet('auth_org:org-work', 'business', T0);
     // The Claude app's session: ~/.claude's hook says personal, the directory is no environment.
     ingest.hook({ hook_event_name: 'SessionStart', session_id: 's3', cwd: '/Users/me/Documents/x' }, 'personal');
+    db.run("INSERT INTO usage VALUES (?, 'personal', '', 's3', 'm', 'cost', 0.5)", T0 - H);
+    db.run("INSERT INTO rollup_usage VALUES (?, 'personal', '', 's3', 'm', 'cost', 0.25)", T0 - 2 * H);
+    db.run("INSERT INTO rollup_usage VALUES (?, '', '', 's3', 'm', 'cost', 0.5)", T0 - 2 * H);
+    db.run("INSERT INTO rollup_usage VALUES (?, 'business', '', 's3', 'm', 'cost', 1)", T0 - 2 * H);
     ingest.metrics(metricsBody({ account: 'personal', points: [{ name: 'claude_code.cost.usage', value: 1, attrs: { 'organization.id': 'org-work', 'session.id': 's3' } }] }));
     expect(db.get("SELECT account FROM sessions WHERE session_id = 's3'")).toMatchObject({ account: 'business' });
-    expect(db.get("SELECT account FROM usage WHERE session_id = 's3'")).toMatchObject({ account: 'business' });
+    // Its history moves too.
+    expect(db.all("SELECT DISTINCT account FROM usage WHERE session_id = 's3'")).toEqual([{ account: 'business' }]);
+    expect(db.all("SELECT account, value FROM rollup_usage WHERE session_id = 's3'")).toEqual([{ account: 'business', value: 1.75 }]);
+    expect(db.all("SELECT DISTINCT account FROM hook_events WHERE session_id = 's3'")).toEqual([{ account: 'business' }]);
     ingest.hook({ hook_event_name: 'Stop', session_id: 's3', cwd: '/Users/me/Documents/x' }, 'personal');
     expect(db.get("SELECT account FROM sessions WHERE session_id = 's3'")).toMatchObject({ account: 'business' });
   });
