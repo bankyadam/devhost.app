@@ -154,9 +154,9 @@ describe('packages', () => {
 
   it('a failed package install says how to see the real error', async () => {
     const env = await makeEnv();
-    const runner = new MockRunner().on('brew bundle install', { code: 1, stderr: 'Installing tmux has failed!\n' });
+    const runner = new MockRunner().on('brew bundle install', { code: 1, stderr: '==> Auto-updating Homebrew...\nInstalling tmux has failed!\nInstalling mosh has failed!\n' });
     const ctx = { user: 'tester', brewPrefix: '/usr/local', nodePath: '/n', configPath: '/c', config: config(), home: env.home, exec: exec(runner) };
-    await expect(packagesStep.apply(ctx)).rejects.toMatchObject({ message: expect.stringContaining('Installing tmux has failed!'), hint: expect.stringContaining('brew install tmux') });
+    await expect(packagesStep.apply(ctx)).rejects.toMatchObject({ message: 'brew bundle could not install tmux, mosh (its output is above)', hint: 'Run `brew install tmux`, `brew install mosh` to see why, fix that, then `devhost apply` again.' });
   });
 });
 

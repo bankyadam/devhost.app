@@ -69,10 +69,12 @@ export const packagesStep: Step = {
     try {
       await exec.exec('brew', ['bundle', 'install', '--no-upgrade', `--file=${path}`], { env: BREW_ENV, progress: true });
     } catch (err) {
-      // brew bundle only says "Installing tmux has failed!"; the reason is in brew install's own output.
-      const failed = err instanceof CommandError ? /Installing (\S+) has failed/.exec(err.stderr)?.[1] : undefined;
-      if (!(err instanceof CommandError) || !failed) throw err;
-      throw new DevhostError(err.message, 'command-failed', undefined, `Run \`brew install ${failed}\` to see why it fails, fix that, then \`devhost apply\` again.`);
+      // The first line of brew's stderr is noise ("Auto-updating Homebrew..."); name what failed.
+      if (!(err instanceof CommandError)) throw err;
+      const failed = [...err.stderr.matchAll(/Installing (\S+) has failed/g)].map((m) => m[1]!);
+      if (failed.length === 0) throw err;
+      const commands = failed.map((p) => `brew install ${p}`).join('`, `');
+      throw new DevhostError(`brew bundle could not install ${failed.join(', ')} (its output is above)`, 'command-failed', undefined, `Run \`${commands}\` to see why, fix that, then \`devhost apply\` again.`);
     }
   },
 };
