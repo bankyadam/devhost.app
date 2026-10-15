@@ -174,7 +174,7 @@ describe('dashboard (spec B3.1, B6)', () => {
     const sessions = within(await screen.findByLabelText('Sessions'));
     expect(await sessions.findByText('Fix the login flow')).toBeInTheDocument();
     const prompt = sessions.getByText('run the tests again');
-    expect(prompt).toHaveClass('prompt');
+    expect(prompt).toHaveClass('last-prompt');
     expect(prompt.closest('td')).toHaveAttribute('title', expect.stringContaining('Last prompt: run the tests again'));
   });
 
