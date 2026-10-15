@@ -16,6 +16,7 @@ import { retain, rollup } from '../src/collector/rollup.js';
 import { Collector, type OsProbe } from '../src/collector/run.js';
 import { cpuPercent, memoryFromVmStat, parseDockerPs, parseDockerStats, parseDu, parseLsofCwd, parsePs, parseSize, parseVmStat, subtree, sumProcs } from '../src/collector/samplers.js';
 import { createCollectorServer, listen } from '../src/collector/server.js';
+import { projectSlug, sessionTitle } from '../src/collector/titles.js';
 import { renderTop } from '../src/collector/top.js';
 import { parseConfig } from '../src/config/load.js';
 import { MockRunner } from '../src/runner/mock.js';
@@ -455,6 +456,29 @@ describe('alerts', () => {
     await engine.evaluate({ memoryPercent: 90, diskFreePercent: 15, dailyCostUsd: new Map() }, { memPct: null, diskFreePct: 1, costToday: new Map(), restarts: new Map(), auth: new Map() });
     expect(logs[0]).toContain('notification failed');
     expect(db.get('SELECT active FROM alert_state WHERE id = ?', 'disk')).toMatchObject({ active: 1 });
+  });
+});
+
+describe('session titles', () => {
+  it('reads the newest title from the transcript in any account directory, else the last prompt', async () => {
+    const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const root = await mkdtemp(join(tmpdir(), 'titles-'));
+    const cwd = '/Users/me/work/b/x/.claude/worktrees/bridge-cse_01';
+    expect(projectSlug(cwd)).toBe('-Users-me-work-b-x--claude-worktrees-bridge-cse-01');
+    const put = async (dir: string, id: string, records: object[]) => {
+      await mkdir(join(root, dir, 'projects', projectSlug(cwd)), { recursive: true });
+      await writeFile(join(root, dir, 'projects', projectSlug(cwd), `${id}.jsonl`), records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    };
+    const dirs = [join(root, 'a'), join(root, 'b')];
+    await put('b', 's1', [{ type: 'custom-title', customTitle: 'Old' }, { type: 'user', message: { content: 'hi' } }, { type: 'custom-title', customTitle: 'New title' }]);
+    expect(await sessionTitle(dirs, cwd, 's1')).toEqual({ title: 'New title', fromPrompt: false });
+    await put('a', 's2', [{ type: 'user', message: { content: [{ type: 'text', text: '<system-reminder>x</system-reminder>' }] } }, { type: 'user', message: { content: 'please\n  fix it' } }]);
+    expect(await sessionTitle(dirs, cwd, 's2')).toEqual({ title: 'please fix it', fromPrompt: true });
+    await put('a', 's3', [{ type: 'last-prompt', lastPrompt: 'x'.repeat(300) }]);
+    expect((await sessionTitle(dirs, cwd, 's3'))?.title).toHaveLength(100);
+    expect(await sessionTitle(dirs, cwd, 'missing')).toBeUndefined();
+    expect(await sessionTitle(dirs, cwd, '../s1')).toBeUndefined();
   });
 });
 

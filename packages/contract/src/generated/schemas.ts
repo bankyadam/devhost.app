@@ -1393,6 +1393,14 @@ export const schemas = {
                 "number",
                 "null"
               ]
+            },
+            "title": {
+              "type": "string",
+              "description": "The session's title (as claude.ai shows it), from its transcript; read when the dashboard is built, never stored."
+            },
+            "titleFromPrompt": {
+              "type": "boolean",
+              "description": "True when the transcript has no title (Remote Control sessions keep theirs on claude.ai) and `title` is the last prompt, shortened."
             }
           }
         }

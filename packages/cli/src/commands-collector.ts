@@ -3,12 +3,13 @@ import { stat } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import type { DashData, DevhostConfig, EnvLogsData, NotifyData } from '@devhost/contract';
-import { logsDir } from './config/accounts.js';
+import { accountsOf, effectiveClaudeDir, logsDir } from './config/accounts.js';
 import { readTextIfExists } from './fsutil.js';
 import { Collector } from './collector/run.js';
 import { Db, dbPath } from './collector/db.js';
 import { createNotifier, maskTopic } from './collector/notify.js';
 import { buildDash, RANGES, type Range } from './collector/query.js';
+import { sessionTitle } from './collector/titles.js';
 import { renderTop } from './collector/top.js';
 import { long, short, type GlobalOptions } from './command-support.js';
 import { loadConfig, parseConfig } from './config/load.js';
@@ -86,7 +87,16 @@ async function snapshot(deps: Deps, g: GlobalOptions, config: DevhostConfig, o: 
   const db = new Db(path, { readonly: true });
   try {
     const size = (await stat(path)).size + (await stat(`${path}-wal`).then((s) => s.size, () => 0));
-    return buildDash(db, config, { range: o.range as Range, account: o.account, env: o.env, model: o.model }, deps.now().getTime(), hostname(), size);
+    const dash = buildDash(db, config, { range: o.range as Range, account: o.account, env: o.env, model: o.model }, deps.now().getTime(), hostname(), size);
+    const dirs = [...new Set(accountsOf(config).map((a) => effectiveClaudeDir(a, deps.home)))];
+    const cwd = (id: string): string => db.get<{ cwd: string }>('SELECT cwd FROM sessions WHERE session_id = ?', id)?.cwd ?? '';
+    const sessions = await Promise.all(
+      dash.sessions.map(async (s) => {
+        const t = await sessionTitle(dirs, cwd(s.id), s.id);
+        return t ? { ...s, title: t.title, ...(t.fromPrompt ? { titleFromPrompt: true } : {}) } : s;
+      }),
+    );
+    return { ...dash, sessions };
   } finally {
     db.close();
   }
