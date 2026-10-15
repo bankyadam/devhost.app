@@ -76,6 +76,14 @@ export interface DashData {
     costToday: number;
     cpuPercent: number | null;
     rssBytes: number | null;
+    /**
+     * The session's title (as claude.ai shows it), from its transcript; read when the dashboard is built, never stored.
+     */
+    title?: string;
+    /**
+     * True when the transcript has no title (Remote Control sessions keep theirs on claude.ai) and `title` is the last prompt, shortened.
+     */
+    titleFromPrompt?: boolean;
   }[];
   /**
    * Time buckets, one row per account and bucket start.

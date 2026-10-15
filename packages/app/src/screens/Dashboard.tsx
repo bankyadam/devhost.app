@@ -209,7 +209,10 @@ function SessionRow({ s, now, dir, portBase, hostName, app, envUrl }: { s: Sessi
     <tr className={s.state === 'waiting' ? 'waiting' : ''}>
       <td>{s.account ?? '–'}</td>
       <td>{s.env ?? '–'}</td>
-      <td className="mono" title={s.id}>{s.id.slice(0, 8)}</td>
+      <td className="session" title={s.title ? `${s.titleFromPrompt ? 'Last prompt: ' : ''}${s.title}\n${s.id}` : s.id}>
+        {s.title && <div className={s.titleFromPrompt ? 'prompt' : undefined}>{s.title}</div>}
+        <div className={s.title ? 'note mono' : 'mono'}>{s.id.slice(0, 8)}</div>
+      </td>
       <td>{s.state === 'waiting' ? <Badge tone="warn">{STATE_LABEL[s.state]}</Badge> : s.state === 'running' ? <Badge tone="good">running</Badge> : <Badge>{STATE_LABEL[s.state]}</Badge>}</td>
       <td>{ago(s.startedAt, now)}</td>
       <td>{ago(s.lastActivityAt, now)}</td>

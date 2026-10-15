@@ -85,10 +85,16 @@ describe('connection (spec B2, B6)', () => {
 });
 
 describe('dashboard (spec B3.1, B6)', () => {
-  async function dashboard(webApps: string[] = []) {
+  async function dashboard(webApps: string[] = [], transcripts: Record<string, string> = {}) {
     const h = await makeHarness();
     webApps.forEach((a) => h.transport.webAppsInstalled.add(a));
     await withBusiness(h);
+    for (const [id, lines] of Object.entries(transcripts)) {
+      const { mkdir, writeFile } = await import('node:fs/promises');
+      const dir = join(h.env.home, '.claude-business', 'projects', join(h.env.home, 'work', 'business', 'acme-api').replace(/[^A-Za-z0-9]/g, '-'));
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, `${id}.jsonl`), lines);
+    }
     await h.cli('account', 'add', '--name', 'personal', '--git-email', 'me@example.com', '--no-login');
     await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
     seedUsage(h, await configText(h));
@@ -158,6 +164,18 @@ describe('dashboard (spec B3.1, B6)', () => {
     await waitFor(() => expect(first()).toBe('sess-run')); // 9,000 > 1,500
     await h.user.click(sessions.getByRole('button', { name: /^Tokens today/ }));
     await waitFor(() => expect(first()).toBe('sess-wai'));
+  });
+
+  it("shows each session's title from its transcript, else its last prompt", async () => {
+    await dashboard([], {
+      'sess-waiting-1': `${JSON.stringify({ type: 'custom-title', customTitle: 'Fix the login flow', sessionId: 'sess-waiting-1' })}\n`,
+      'sess-running-2': `${JSON.stringify({ type: 'last-prompt', lastPrompt: 'run the   tests again', sessionId: 'sess-running-2' })}\n`,
+    });
+    const sessions = within(await screen.findByLabelText('Sessions'));
+    expect(await sessions.findByText('Fix the login flow')).toBeInTheDocument();
+    const prompt = sessions.getByText('run the tests again');
+    expect(prompt).toHaveClass('prompt');
+    expect(prompt.closest('td')).toHaveAttribute('title', expect.stringContaining('Last prompt: run the tests again'));
   });
 
   it("claude.ai/code opens the account's web app when it has one", async () => {
