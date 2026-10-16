@@ -192,9 +192,27 @@ describe('environments', () => {
     await mkdir(join(env.home, '.claude-business'), { recursive: true });
     await writeFile(join(env.home, '.claude-business', '.claude.json'), JSON.stringify({ projects: { [dir]: { hasTrustDialogAccepted: true } } }));
     expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--json')).toBe(0);
-    expect(mac.runner.spawned.filter((s) => s.call.command === 'script')).toEqual([]);
+    expect(mac.runner.spawned.filter((s) => s.call.args.some((a) => a.endsWith('pty-run.py')))).toEqual([]);
     const trust = (ndjson(env.stdout()) as { type: string; id?: string; status?: string }[]).filter((e) => e.type === 'step' && e.id === 'trust.acme-api');
     expect(trust.at(-1)).toMatchObject({ status: 'ok' });
+  });
+
+  it('trust that Claude Code did not record is not reported as done (the pty ran, nothing was written)', async () => {
+    const { env, mac } = await withAccount();
+    mac.state.claudeForgetsTrust = true;
+    feed(env, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--json')).toBe(0);
+    const trust = (ndjson(env.stdout()) as { type: string; id?: string; status?: string; message?: string }[]).filter((e) => e.type === 'step' && e.id === 'trust.acme-api');
+    expect(trust.at(-1)).toMatchObject({ status: 'skipped', message: expect.stringContaining('not trusted') });
+  });
+
+  it('answers the trust question no sooner than Claude Code accepts one (it ignores answers that come too quickly)', async () => {
+    const { env } = await withAccount();
+    env.deps.env['DEVHOST_TRUST_ANSWER_MS'] = '350';
+    feed(env, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    const t0 = Date.now();
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--json')).toBe(0);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(2 * 350 - 50); // the trust question and the Remote Control one
   });
 
   it('refuses to re-run create with a different account or repo', async () => {
@@ -238,7 +256,8 @@ describe('environments', () => {
     expect(mac.runner.lines()).toContain(`git clone -- git@github.com:acme/api.git ${dir}`);
 
     // Trust ran through a pty with the right answers, and the server was stopped with Ctrl+C.
-    const trust = mac.runner.spawned.find((s) => s.call.command === 'script')!;
+    const trust = mac.runner.spawned.find((s) => s.call.args.some((a) => a.endsWith('pty-run.py')))!;
+    expect(trust.call.command).toBe('/usr/bin/python3');
     expect(trust.call.args.join(' ')).toContain('remote-control --name business-acme-api --spawn same-dir --no-create-session-in-dir');
     expect(trust.process.written).toEqual(['y\n', 'y\n', '\u0003']);
 
