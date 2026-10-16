@@ -1,5 +1,6 @@
 import type { DevhostPlugin } from '../api.js';
 import { diskCleanup } from './disk-cleanup.js';
+import { sessionStop } from './session-stop.js';
 
 /** Plugins shipped with devhost (each in its own module here). */
-export const builtinPlugins: DevhostPlugin[] = [diskCleanup];
+export const builtinPlugins: DevhostPlugin[] = [diskCleanup, sessionStop];
