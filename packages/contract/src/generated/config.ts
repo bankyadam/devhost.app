@@ -6,6 +6,10 @@
 export interface DevhostConfig {
   machine: {
     hostname: string;
+    /**
+     * Install a root helper that devhost (and the desktop app, over ssh) may run without the sudo password. It only installs, starts and stops devhost's own services, each running as you, and sets the hostname, power and Remote Login settings; installing it asks for the password once. Tailscale's system daemon still asks.
+     */
+    rootHelper?: boolean;
     power?: {
       neverSleep?: boolean;
       autoRestartAfterPowerLoss?: boolean;

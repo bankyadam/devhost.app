@@ -19,6 +19,7 @@ export interface TestEnv {
 export async function makeEnv(runner = new MockRunner(), tty = false): Promise<TestEnv> {
   const home = await mkdtemp(join(tmpdir(), 'devhost-test-'));
   process.env['DEVHOST_LAUNCHD_DIR'] = join(home, 'LaunchDaemons');
+  process.env['DEVHOST_ROOT_HELPER_DIR'] = join(home, 'PrivilegedHelperTools');
   runner.context['home'] = home;
   const out: string[] = [];
   const err: string[] = [];

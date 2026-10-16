@@ -3,6 +3,7 @@ import { mkdir, rm } from 'node:fs/promises';
 import { CommandError, HumanActionRequired } from '../errors.js';
 import { backupFile, readTextIfExists, writeTextWithBackup } from '../fsutil.js';
 import type { Reporter } from '../reporter.js';
+import { helperArgs } from '../root-helper.js';
 import type { RunOptions, RunResult, Runner } from './types.js';
 
 export type PlanEntry = ApplyData['plan'][number];
@@ -25,6 +26,8 @@ export interface ExecutorOptions {
   now: () => Date;
   /** Replaceable so tests do not wait. */
   sleep?: (ms: number) => Promise<void>;
+  /** The root helper (root-helper.ts): root commands it can do go through it, without a password, when sudo allows it. */
+  rootHelper?: { path: string; launchDaemons: string };
 }
 
 /**
@@ -37,6 +40,7 @@ export class Executor {
   /** Things a human should look at that did not stop the run. */
   readonly warnings: string[] = [];
   private stepId = '';
+  private helperUsable?: Promise<boolean>;
 
   constructor(
     private readonly runner: Runner,
@@ -65,6 +69,13 @@ export class Executor {
     this.plan.push({ stepId: this.stepId, action: line, sudo, ...(opts.reason ? { reason: opts.reason } : {}) });
     if (this.opts.dryRun) return { code: 0, stdout: '', stderr: '' };
 
+    const viaHelper = sudo ? await this.helperCall(command, args) : null;
+    if (viaHelper) {
+      this.trace('sudo', ['-n', '--', ...viaHelper]);
+      const result = await this.runner.run('sudo', ['-n', '--', ...viaHelper], opts);
+      if (result.code !== 0 && !opts.allowFailure) throw new CommandError(line, result.code, result.stderr);
+      return result;
+    }
     if (sudo) this.reporter.log('warn', `sudo required: ${opts.reason ?? line}`);
     this.trace(command, args, sudo);
     if (opts.progress) {
@@ -88,6 +99,15 @@ export class Executor {
     }
     if (result.code !== 0 && !opts.allowFailure) throw new CommandError(line, result.code, result.stderr);
     return result;
+  }
+
+  /** The helper call for a root command, when the helper does it and sudo lets this user run it without a password (asked once). */
+  private async helperCall(command: string, args: string[]): Promise<string[] | null> {
+    const h = this.opts.rootHelper;
+    const call = h ? helperArgs(command, args, h.launchDaemons) : null;
+    if (!h || !call) return null;
+    this.helperUsable ??= this.runner.run('sudo', ['-n', '-l', h.path]).then((r) => r.code === 0);
+    return (await this.helperUsable) ? [h.path, ...call] : null;
   }
 
   warn(message: string): void {
