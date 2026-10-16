@@ -18,5 +18,7 @@ export type { EnvLogsData } from './result.env-logs.js';
 export type { InitData } from './result.init.js';
 export type { LoginData } from './result.login.js';
 export type { NotifyData } from './result.notify.js';
+export type { PluginListData } from './result.plugin-list.js';
+export type { PluginRunData } from './result.plugin-run.js';
 export type { StatusData } from './result.status.js';
 export type { VersionData } from './result.version.js';

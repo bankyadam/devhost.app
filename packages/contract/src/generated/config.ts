@@ -104,4 +104,18 @@ export interface DevhostConfig {
      */
     server?: string;
   };
+  /**
+   * devhost plugins by name: built-in ones (disk-cleanup, session-stop) are on unless enabled is false; one in ~/.config/devhost/plugins/<name>/index.js only with enabled: true.
+   */
+  plugins?: {
+    [k: string]: {
+      enabled?: boolean;
+      /**
+       * Passed to the plugin as ctx.options.
+       */
+      options?: {
+        [k: string]: unknown;
+      };
+    };
+  };
 }

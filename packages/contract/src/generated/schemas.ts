@@ -429,6 +429,25 @@ export const schemas = {
             "default": "https://ntfy.sh"
           }
         }
+      },
+      "plugins": {
+        "type": "object",
+        "description": "devhost plugins by name: built-in ones (disk-cleanup, session-stop) are on unless enabled is false; one in ~/.config/devhost/plugins/<name>/index.js only with enabled: true.",
+        "default": {},
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "options": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Passed to the plugin as ctx.options."
+            }
+          }
+        }
       }
     }
   },
@@ -1850,6 +1869,159 @@ export const schemas = {
       "topic": {
         "type": "string",
         "description": "Masked: the topic works like a password."
+      }
+    }
+  },
+  "result.plugin-list": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.plugin-list.schema.json",
+    "title": "PluginListData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "plugins"
+    ],
+    "properties": {
+      "plugins": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "builtin",
+            "enabled",
+            "source",
+            "actions",
+            "checks"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "builtin": {
+              "type": "boolean"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "source": {
+              "type": "string",
+              "description": "\"built-in\" or the module's path."
+            },
+            "error": {
+              "type": "string",
+              "description": "Why it could not be loaded."
+            },
+            "actions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "title",
+                  "description",
+                  "scope",
+                  "destructive"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string",
+                    "enum": [
+                      "host",
+                      "environment",
+                      "session"
+                    ]
+                  },
+                  "destructive": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "checks": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "result.plugin-run": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.plugin-run.schema.json",
+    "title": "PluginRunData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "plugin",
+      "action",
+      "dryRun",
+      "summary"
+    ],
+    "properties": {
+      "plugin": {
+        "type": "string"
+      },
+      "action": {
+        "type": "string"
+      },
+      "dryRun": {
+        "type": "boolean"
+      },
+      "summary": {
+        "type": "string"
+      },
+      "data": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Whatever the action reports, for the app or scripts."
+      },
+      "plan": {
+        "type": "array",
+        "description": "With --dry-run: what would run.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "stepId",
+            "action",
+            "sudo"
+          ],
+          "properties": {
+            "stepId": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string"
+            },
+            "sudo": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
       }
     }
   },

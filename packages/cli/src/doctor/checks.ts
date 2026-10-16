@@ -17,6 +17,10 @@ import { COLLECTOR_LABEL } from '../steps/collector.js';
 import { parseTailscale } from '../steps/tailscale.js';
 import { powerState, unsupportedPowerNote } from '../steps/system.js';
 import { parsePs, subtree } from '../collector/samplers.js';
+import { pluginContext } from '../plugins/context.js';
+import { loadPlugins } from '../plugins/loader.js';
+import { NoPrompter } from '../prompter.js';
+import type { Reporter } from '../reporter.js';
 import type { StepContext } from '../steps/types.js';
 
 export type Status = 'ok' | 'warn' | 'fail';
@@ -369,5 +373,30 @@ export async function runDoctor(c: DoctorContext): Promise<Check[]> {
     ...(await guarded('accounts', () => accountChecks(c))),
     ...(await guarded('envs', () => envChecks(c))),
     ...(await guarded('collector', () => collectorChecks(c))),
+    ...(await guarded('plugins', () => pluginChecks(c))),
   ];
+}
+
+/** Each enabled plugin's checks, as `plugin.<name>.<check>`; a plugin that does not load is a warning. */
+async function pluginChecks(c: DoctorContext): Promise<Check[]> {
+  const out: Check[] = [];
+  const silent: Reporter = { step: () => undefined, log: () => undefined };
+  for (const p of await loadPlugins(c.config, c.deps.home)) {
+    if (!p.enabled) continue;
+    if (!p.plugin) {
+      out.push(warn(`plugin.${p.name}`, `could not be loaded: ${p.error ?? 'unknown error'}`, `Fix or remove ${p.source}`));
+      continue;
+    }
+    const ctx = pluginContext({ config: c.config, name: p.name, home: c.deps.home, user: c.deps.user, exec: c.exec, reporter: silent, prompter: new NoPrompter() });
+    for (const check of p.plugin.checks ?? []) {
+      const id = `plugin.${p.name}.${check.id}`;
+      try {
+        const r = await check.run(ctx);
+        out.push({ id, status: r.status, message: r.message, ...(r.fix ? { fix: r.fix } : {}) });
+      } catch (err) {
+        out.push(warn(id, `check crashed: ${(err as Error).message}`));
+      }
+    }
+  }
+  return out;
 }
