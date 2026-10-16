@@ -52,7 +52,7 @@ The environment now shows up in the Claude app under the `business` account, and
 | `status` | One-screen summary. |
 | `account list \| add \| remove` | Add: `--name --git-email [--git-name] [--default] [--daily-cost-alert <usd>] [--no-login]`. Remove: refused while the account has environments; `--logout` also signs out; never deletes the root, the config dir or credentials. |
 | `login <account>` | Sign in, accept workspace trust and the one-time Remote Control confirmation for each environment, restart its services. |
-| `env list \| create \| delete \| start \| stop \| restart \| logs` | Create: `--account --name [--repo] [--no-rc] [--compose auto\|off]`. Delete keeps files unless `--delete-files` (shows unpushed commits, asks for the typed name). |
+| `env list \| create \| delete \| start \| stop \| restart \| logs` | Create: `--account --name [--repo] [--no-rc] [--compose auto\|off]`. Delete keeps files unless `--delete-files` (shows unpushed commits, asks for the typed name).  Running `env create` again for an environment that is in the config continues (or repeats) its setup with the config's settings, e.g. after a failed `docker compose up`; the app has *Try again* and Environments → … → *Run setup again*. A compose network left from before is reported with how to remove it (devhost never removes it). |
 | `config get \| set \| validate \| edit` | Always schema-validated, comments preserved; changing config does not apply it. |
 | `dash [--range 1h\|24h\|7d\|30d] [--account] [--env] [--model] [--follow]`, `top [--once]` | Dashboard data (`--json`) and a refreshing terminal table. |
 | `collector run` | The collector in the foreground (launchd runs it for you). |

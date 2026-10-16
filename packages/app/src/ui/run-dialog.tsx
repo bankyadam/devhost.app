@@ -15,10 +15,12 @@ interface Props<T> {
   children?: ReactNode;
   /** Extra content shown after the command ended successfully. */
   after?: (result: LongResult<T>) => ReactNode;
+  /** Offer "Try again" after a failure: for commands that continue where they stopped (env create, apply). */
+  retry?: boolean;
 }
 
 /** A modal that runs one long devhost command with its live log; closing is blocked while it runs unless cancelled. */
-export function RunDialog<T>({ title, begin, terminal, onClose, onFinished, children, after }: Props<T>) {
+export function RunDialog<T>({ title, begin, terminal, onClose, onFinished, children, after, retry }: Props<T>) {
   const op = useOperation<T>();
   const started = useRef(false);
   useEffect(() => {
@@ -27,6 +29,7 @@ export function RunDialog<T>({ title, begin, terminal, onClose, onFinished, chil
     void op.start(begin).then((r) => onFinished?.(r));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const running = op.state.phase === 'running';
+  const failed = op.state.phase === 'done' && op.state.result?.ok === false;
   return (
     <Dialog
       title={title}
@@ -35,7 +38,10 @@ export function RunDialog<T>({ title, begin, terminal, onClose, onFinished, chil
         running ? (
           <button className="btn" onClick={op.cancel}>Cancel</button>
         ) : (
-          <button className="btn primary" onClick={onClose}>Close</button>
+          <>
+            {retry && failed && <button className="btn" onClick={() => void op.start(begin).then((r) => onFinished?.(r))}>Try again</button>}
+            <button className="btn primary" onClick={onClose}>Close</button>
+          </>
         )
       }
     >

@@ -19,7 +19,7 @@ export function Environments() {
   const plugins = usePlugins();
   const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; env: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env }>(null);
+  const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env } | { kind: 'setup'; env: Env }>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -81,6 +81,7 @@ export function Environments() {
                             { label: 'Stop', hidden: !e.remoteControl.enabled, disabled: e.service.state !== 'running', onSelect: () => setDialog({ kind: 'service', env: e, action: 'stop' }) },
                             { label: 'Restart', hidden: !e.remoteControl.enabled, onSelect: () => setDialog({ kind: 'service', env: e, action: 'restart' }) },
                             { label: 'Logs', onSelect: () => setDialog({ kind: 'logs', env: e }) },
+                            { label: 'Run setup again', onSelect: () => setDialog({ kind: 'setup', env: e }) },
                             ...plugins.actions('environment').map((a) => ({ label: `${a.title}${a.destructive ? '…' : ''}`, danger: a.destructive, onSelect: () => setPluginRun({ action: a, env: e.name }) })),
                             { label: 'Delete…', danger: true, onSelect: () => setDialog({ kind: 'delete', env: e }) },
                           ]}
@@ -97,6 +98,17 @@ export function Environments() {
       </section>
 
       {pluginRun && <PluginRunDialog action={pluginRun.action} target={{ env: pluginRun.env }} onClose={() => setPluginRun(null)} />}
+      {dialog?.kind === 'setup' && (
+        <RunDialog
+          title={`Set up ${dialog.env.account}/${dialog.env.name}`}
+          begin={(h) => client.envSetup(dialog.env.account, dialog.env.name, h)}
+          terminal={{ kind: 'devhost', args: ['env', 'create', '--account', dialog.env.account, '--name', dialog.env.name] }}
+          onClose={() => { setDialog(null); void refresh(); }}
+          retry
+        >
+          <p className="sec">Runs the environment's setup again with the settings in the configuration: clone, .envrc, compose services, workspace trust, Remote Control service. Steps that are done already are left alone.</p>
+        </RunDialog>
+      )}
       {dialog?.kind === 'create' && <CreateWizard onClose={() => { setDialog(null); void refresh(); }} />}
       {dialog?.kind === 'service' && (
         <RunDialog
@@ -211,7 +223,10 @@ function CreateWizard({ onClose }: { onClose: () => void }) {
         begin={(h) => client.envCreate(input, h)}
         terminal={{ kind: 'devhost', args: envCreateArgs(input) }}
         onClose={onClose}
-      />
+        retry
+      >
+        <p className="sec">If a step fails, fix its cause and choose Try again: the setup continues where it stopped.</p>
+      </RunDialog>
     );
   }
 

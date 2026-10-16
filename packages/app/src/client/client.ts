@@ -187,6 +187,10 @@ export class DevhostClient {
   envCreate(o: EnvCreateInput, h?: LongHandlers): LongRun<EnvChangeData> {
     return this.run(envCreateArgs(o), h);
   }
+  /** `env create` for an environment in the config: continues or repeats its setup with the config's settings. */
+  envSetup(account: string, name: string, h?: LongHandlers): LongRun<EnvChangeData> {
+    return this.run(['env', 'create', '--account', account, '--name', name], h);
+  }
   envDelete = (name: string, deleteFiles: boolean, h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', 'delete', name, ...(deleteFiles ? ['--delete-files'] : [])], h);
   envService = (name: string, action: 'start' | 'stop' | 'restart', h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', action, name], h);
 
