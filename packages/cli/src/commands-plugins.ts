@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { PluginChangeData, PluginListData, PluginRunData } from '@devhost/contract';
@@ -124,9 +124,10 @@ export function pluginInstallCommand(deps: Deps, g: GlobalOptions, o: PluginInst
       let commit = '';
       if (!exec.dryRun) {
         if (!existsSync(join(tmp, 'index.js'))) throw new DevhostError(`${src.url} has no index.js at its root`, 'plugin-invalid', 1, 'A devhost plugin is an ES module index.js whose default export is the plugin.');
-        if (existsSync(join(tmp, 'package.json'))) {
-          // Its dependencies, without running any of their install scripts.
-          await exec.exec(npmBin(deps.nodePath), ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: tmp, progress: true });
+        if (hasDependencies(join(tmp, 'package.json'))) {
+          // Its dependencies, without running any of their install scripts. npm starts with
+          // `#!/usr/bin/env node`: over ssh (the app) PATH has no nvm Node, so put devhost's first.
+          await exec.exec(npmBin(deps.nodePath), ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: tmp, progress: true, env: { PATH: `${dirname(deps.nodePath)}:${deps.env['PATH'] ?? '/usr/bin:/bin'}` } });
         }
         commit = (await exec.query('git', ['-C', tmp, 'rev-parse', 'HEAD'])).stdout.trim();
       }
@@ -142,6 +143,15 @@ export function pluginInstallCommand(deps: Deps, g: GlobalOptions, o: PluginInst
       return { ok: false, data: null, error: err instanceof Error ? err : new Error(String(err)) };
     }
   });
+}
+
+function hasDependencies(packageJson: string): boolean {
+  try {
+    const p = JSON.parse(readFileSync(packageJson, 'utf8')) as { dependencies?: Record<string, unknown> };
+    return Object.keys(p.dependencies ?? {}).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 const npmBin = (nodePath: string): string => (existsSync(join(dirname(nodePath), 'npm')) ? join(dirname(nodePath), 'npm') : 'npm');

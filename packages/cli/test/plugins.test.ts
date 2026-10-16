@@ -1,5 +1,5 @@
 import { cp, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validate, type DoctorData, type Envelope } from '@devhost/contract';
 import { parsePluginSource } from '../src/plugins/install.js';
@@ -159,6 +159,26 @@ describe('plugin install / uninstall', () => {
     expect(await readFile(join(env.home, '.config', 'devhost', 'config.yaml'), 'utf8')).not.toMatch(/hello:/);
     expect(await env.run('plugin', 'uninstall', 'hello')).toBe(2); // not installed any more
     expect(await env.run('plugin', 'disable', 'nope')).toBe(2);
+  });
+
+  it("npm runs only for real dependencies, with devhost's Node first on PATH (ssh has no nvm Node)", async () => {
+    const fixture = join(await import('node:os').then((o) => o.tmpdir()), `deps-${Date.now()}`);
+    await mkdir(fixture, { recursive: true });
+    await writeFile(join(fixture, 'index.js'), HELLO);
+    await writeFile(join(fixture, 'package.json'), JSON.stringify({ name: 'devhost-plugin-hello', type: 'module', dependencies: { yaml: '^2' } }));
+    const env = await installable(fixture);
+    const npmCalls: { cmd: string; path?: string }[] = [];
+    const inner = env.runner.run.bind(env.runner);
+    env.runner.run = async (cmd, args, opts) => {
+      if (cmd.endsWith('npm')) {
+        npmCalls.push({ cmd, path: opts?.env?.['PATH'] });
+        return { code: 0, stdout: '', stderr: '' };
+      }
+      return inner(cmd, args, opts);
+    };
+    expect(await env.run('plugin', 'install', 'someone/devhost-plugin-hello')).toBe(0);
+    expect(npmCalls).toHaveLength(1);
+    expect(npmCalls[0]!.path?.startsWith(`${dirname(env.deps.nodePath)}:`)).toBe(true);
   });
 
   it('a repository without index.js is not installed, and leaves nothing behind', async () => {
