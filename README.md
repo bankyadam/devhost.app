@@ -48,7 +48,7 @@ The environment now shows up in the Claude app under the `business` account, and
 | `init [--force] [--hostname h] [--docker colima\|orbstack\|none] [--no-tailscale]` | Wizard → `~/.config/devhost/config.yaml`; generates the ntfy topic. |
 | `apply [--dry-run] [--only <step>…]` | Idempotent setup. `--dry-run` prints the plan, including every `sudo` command. |
 | `doctor` | Read-only checks with one-line fixes (✅/⚠️/❌); exit 1 on any ❌. Plugins add theirs as `plugin.<name>.<check>`. |
-| `plugin list`, `plugin run <plugin> <action> [--env n] [--session id] [--dry-run] [--yes]` | devhost plugins (see Plugins below). An action that removes or stops something asks first. |
+| `plugin list`, `plugin run <plugin> <action> [--env n] [--session id] [--dry-run] [--yes]`, `plugin install <source> [--name] [--enable]`, `plugin uninstall <name>`, `plugin enable\|disable <name>` | devhost plugins (see Plugins below). An action that removes or stops something asks first. |
 | `status` | One-screen summary. |
 | `account list \| add \| remove` | Add: `--name --git-email [--git-name] [--default] [--daily-cost-alert <usd>] [--no-login]`. Remove: refused while the account has environments; `--logout` also signs out; never deletes the root, the config dir or credentials. |
 | `login <account>` | Sign in, accept workspace trust and the one-time Remote Control confirmation for each environment, restart its services. |
@@ -111,7 +111,8 @@ A devhost plugin is an ES module whose default export lists actions and checks (
 - **Built in** (on unless `plugins.<name>.enabled: false`):
   - `disk-cleanup`: `report` sizes the Homebrew and npm caches and the Remote Control worktrees (`<env>/.claude/worktrees/*`) that could go, saying why the others stay; `clean` empties the caches and removes those worktrees with `git worktree remove` (no `--force`). A worktree goes only when it is clean, everything in it is on a remote, no process works in it, its session is not active and it was not used for `worktreeIdleHours` (24). The `reclaimable` check warns above `warnGiB` (5). Options: `categories` (`homebrew`, `npm`, `worktrees`), `worktreeIdleHours`, `warnGiB`.
   - `session-stop`: `stop` ends a Remote Control session's local `claude` process to free its memory: only a child of a devhost Remote Control service whose working directory is the session's, never the Claude app's sessions. SIGTERM, then SIGKILL after 5 s. The session stays on claude.ai.
-- **Your own**: `~/.config/devhost/plugins/<name>/index.js`, loaded only with `plugins.<name>.enabled: true`; `plugins.<name>.options` is `ctx.options`.
+- **Your own**: `~/.config/devhost/plugins/<name>/index.js`, loaded only with `plugins.<name>.enabled: true`; `plugins.<name>.options` is `ctx.options`. A plugin uses only the plugin API (`ctx.exec`, `ctx.sessions()`, `ctx.services()`, …) and Node's own modules, never devhost's other modules, so it can live in its own repository.
+- **From GitHub**: `devhost plugin install <https://github.com/owner/repo | owner/repo | git@github.com:owner/repo.git>[#branch-or-tag] [--name n] [--enable]` clones it (shallow) into `~/.config/devhost/plugins/<name>` (name: the repository's without `devhost-plugin-`), installs its npm dependencies with `--ignore-scripts`, and records the source and commit (`plugin list` shows them). Nothing of it runs until it is enabled. `plugin uninstall <name>` removes it and its config entry; `plugin enable|disable <name>`. Built-in plugins can only be disabled. The app's Plugins screen does the same (Install from GitHub…, Enable/Disable, Uninstall…). For a private repository use its `git@github.com:` URL (your SSH key).
 
 ```yaml
 plugins:
