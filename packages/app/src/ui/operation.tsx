@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Event } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import type { LongResult, LongRun, PromptEvent } from '../client/client';
@@ -88,18 +88,40 @@ export function useOperation<T = unknown>() {
 
 const SYMBOL: Record<StepStatus, string> = { start: '…', ok: '✓', changed: '●', skipped: '–', failed: '✕' };
 
+/** An endless spinner: something is running, even when it prints nothing for a while. */
+export function Spinner({ label = 'Working' }: { label?: string }) {
+  return <span className="spinner" role="progressbar" aria-label={label} />;
+}
+
+/** Seconds the operation has been running (ticks once a second while `active`). */
+function useElapsed(active: boolean): number {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const t0 = Date.now();
+    setSecs(0);
+    const t = setInterval(() => setSecs(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [active]);
+  return secs;
+}
+
+const clock = (s: number): string => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
 /** The live step log plus whatever the command is asking for right now. */
 export function OperationView<T>({ op, terminal, children }: { op: ReturnType<typeof useOperation<T>>; terminal?: TerminalRequest; children?: ReactNode }) {
   const { transport } = useApp();
   const { state } = op;
   const needsHuman = state.result?.exit === 3 || state.result?.errors.some((e) => e.code === 'human-action-required');
+  const working = state.phase === 'running' && !state.prompt;
+  const elapsed = useElapsed(state.phase === 'running');
   return (
     <div className="stack" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {(state.steps.length > 0 || state.logs.length > 0) && (
         <div className="oplog" aria-label="Progress" aria-live="polite">
           {state.steps.map((s) => (
             <div className="line" key={s.id}>
-              <span aria-label={s.status}>{SYMBOL[s.status]}</span>
+              {s.status === 'start' && state.phase === 'running' ? <Spinner label={`${s.id} is running`} /> : <span aria-label={s.status}>{SYMBOL[s.status]}</span>}
               <span className="id">{s.id}</span>
               {s.message && <span className="msg">{s.message}</span>}
             </div>
@@ -113,7 +135,12 @@ export function OperationView<T>({ op, terminal, children }: { op: ReturnType<ty
         </div>
       )}
       {state.prompt && <PromptView prompt={state.prompt} onAnswer={op.answer} openUrl={(u) => void transport.openUrl(u)} />}
-      {state.phase === 'running' && !state.prompt && <p className="note">Working on the Mac mini…</p>}
+      {working && (
+        <p className="note working" role="status">
+          <Spinner /> Working on the Mac mini… {clock(elapsed)}
+          {elapsed >= 30 && <span> · it is not stuck: some steps (installs, builds, starting a service) take minutes</span>}
+        </p>
+      )}
       {state.error && <div className="notice bad" role="alert">{state.error}</div>}
       {state.phase === 'done' && state.result && !state.result.ok && !needsHuman && (
         <div className="notice bad" role="alert">

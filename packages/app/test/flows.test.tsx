@@ -239,6 +239,30 @@ describe('environments (spec B3.2)', () => {
     await waitFor(() => expect(h.transport.opened.at(-1)).toEqual({ webApp: 'Claude – business', url: 'https://claude.ai/code?environment=env_01Abc' }));
   });
 
+  it('a running setup shows an endless spinner (and the running step) until it is done', async () => {
+    const h = await makeHarness();
+    await withBusiness(h);
+    await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(join(h.env.home, 'work', 'business', 'acme-api', 'compose.yaml'), 'services: { db: { image: postgres } }\n');
+    const original = h.mac.runner.run.bind(h.mac.runner);
+    let release!: () => void;
+    const slow = new Promise<void>((r) => (release = r));
+    h.mac.runner.run = async (cmd, args, opts) => {
+      if (cmd === 'docker' && args.includes('up')) await slow; // a slow `docker compose up`
+      return original(cmd, args, opts);
+    };
+    mount(h);
+    await goto(h, 'Environments');
+    await envAction(h, 'acme-api', 'Run setup again');
+    const dlg = within(await screen.findByRole('dialog', { name: 'Set up business/acme-api' }));
+    expect(await dlg.findByRole('status')).toHaveTextContent(/Working on the Mac mini… 0:0\d/);
+    expect(dlg.getAllByRole('progressbar').map((e) => e.getAttribute('aria-label'))).toEqual(expect.arrayContaining(['Working', 'env.acme-api is running']));
+    release();
+    expect(await dlg.findByText('Done.', undefined, { timeout: 8000 })).toBeInTheDocument();
+    expect(dlg.queryAllByRole('progressbar')).toEqual([]);
+  });
+
   it('Run setup again repeats a failed setup; Try again continues it once the cause is fixed', async () => {
     const h = await makeHarness();
     await withBusiness(h);
