@@ -1,5 +1,3 @@
-import { environmentsOf, rcLabel } from '../../config/accounts.js';
-import { daemonState } from '../../launchd.js';
 import type { DevhostPlugin, PluginContext, SessionInfo } from '../api.js';
 
 /**
@@ -25,13 +23,7 @@ export function parsePs(out: string): Proc[] {
 
 /** PIDs of the devhost Remote Control services that are running. */
 async function servicePids(ctx: PluginContext): Promise<number[]> {
-  const pids: number[] = [];
-  for (const e of environmentsOf(ctx.config)) {
-    if (e.remoteControl?.enabled === false) continue;
-    const s = await daemonState(ctx.exec, rcLabel(e.account, e.name));
-    if (s.running && s.pid) pids.push(s.pid);
-  }
-  return pids;
+  return (await ctx.services()).flatMap((s) => (s.running && s.pid ? [s.pid] : []));
 }
 
 async function cwdOf(ctx: PluginContext, pid: number): Promise<string | null> {

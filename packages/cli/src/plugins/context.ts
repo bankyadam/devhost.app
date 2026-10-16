@@ -1,12 +1,13 @@
 import { existsSync } from 'node:fs';
 import type { DevhostConfig } from '@devhost/contract';
 import { Db, dbPath } from '../collector/db.js';
-import { accountsOf, effectiveClaudeDir, envDir, environmentsOf, findAccount } from '../config/accounts.js';
+import { accountsOf, effectiveClaudeDir, envDir, environmentsOf, findAccount, rcLabel } from '../config/accounts.js';
+import { daemonState } from '../launchd.js';
 import { UsageError } from '../errors.js';
 import type { Prompter } from '../prompter.js';
 import type { Reporter } from '../reporter.js';
 import type { Executor } from '../runner/executor.js';
-import type { EnvironmentInfo, PluginContext, SessionInfo } from './api.js';
+import type { EnvironmentInfo, PluginContext, ServiceInfo, SessionInfo, SessionState } from './api.js';
 
 export function pluginContext(c: { config: DevhostConfig; name: string; home: string; user: string; nodePath: string; exec: Executor; reporter: Reporter; prompter: Prompter }): PluginContext {
   const environments: EnvironmentInfo[] = environmentsOf(c.config).flatMap((e) => {
@@ -23,8 +24,32 @@ export function pluginContext(c: { config: DevhostConfig; name: string; home: st
     reporter: c.reporter,
     prompter: c.prompter,
     environments,
+    sessions: async () => readSessions(c.home),
+    services: async (): Promise<ServiceInfo[]> => {
+      const out: ServiceInfo[] = [];
+      for (const e of environmentsOf(c.config)) {
+        const label = rcLabel(e.account, e.name);
+        const enabled = e.remoteControl?.enabled !== false;
+        const s = enabled ? await daemonState(c.exec, label) : { running: false, pid: null };
+        out.push({ environment: e.name, account: e.account, label, enabled, running: s.running, pid: s.pid });
+      }
+      return out;
+    },
     claudeDirs: accountsOf(c.config).map((a) => ({ account: a.name, dir: effectiveClaudeDir(a, c.home) })),
   };
+}
+
+function readSessions(home: string): SessionState[] {
+  const path = dbPath(home);
+  if (!existsSync(path)) return [];
+  const db = new Db(path, { readonly: true });
+  try {
+    return db
+      .all<{ session_id: string; account: string; env: string; cwd: string; state: SessionState['state']; last_activity_at: number }>('SELECT session_id, account, env, cwd, state, last_activity_at FROM sessions ORDER BY last_activity_at DESC')
+      .map((r) => ({ id: r.session_id, account: r.account, env: r.env, cwd: r.cwd, state: r.state, lastActivityAt: r.last_activity_at }));
+  } finally {
+    db.close();
+  }
 }
 
 export function findEnvironment(ctx: PluginContext, name: string): EnvironmentInfo {

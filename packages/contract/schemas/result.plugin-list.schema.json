@@ -86,6 +86,28 @@
             "items": {
               "type": "string"
             }
+          },
+          "installedFrom": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "url"
+            ],
+            "description": "For a plugin installed with `devhost plugin install`: where from.",
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              },
+              "commit": {
+                "type": "string"
+              },
+              "installedAt": {
+                "type": "string"
+              }
+            }
           }
         }
       }

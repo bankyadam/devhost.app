@@ -23,5 +23,14 @@ export interface PluginListData {
       destructive: boolean;
     }[];
     checks: string[];
+    /**
+     * For a plugin installed with `devhost plugin install`: where from.
+     */
+    installedFrom?: {
+      url: string;
+      ref?: string;
+      commit?: string;
+      installedAt?: string;
+    };
   }[];
 }

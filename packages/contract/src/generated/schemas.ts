@@ -1872,6 +1872,47 @@ export const schemas = {
       }
     }
   },
+  "result.plugin-change": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.plugin-change.schema.json",
+    "title": "PluginChangeData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "name",
+      "action",
+      "enabled"
+    ],
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "installed",
+          "uninstalled",
+          "enabled",
+          "disabled"
+        ]
+      },
+      "enabled": {
+        "type": "boolean"
+      },
+      "url": {
+        "type": "string"
+      },
+      "ref": {
+        "type": "string"
+      },
+      "commit": {
+        "type": "string"
+      },
+      "dryRun": {
+        "type": "boolean"
+      }
+    }
+  },
   "result.plugin-list": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://devhost.app/schemas/result.plugin-list.schema.json",
@@ -1959,6 +2000,28 @@ export const schemas = {
               "type": "array",
               "items": {
                 "type": "string"
+              }
+            },
+            "installedFrom": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "url"
+              ],
+              "description": "For a plugin installed with `devhost plugin install`: where from.",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "commit": {
+                  "type": "string"
+                },
+                "installedAt": {
+                  "type": "string"
+                }
               }
             }
           }

@@ -8,6 +8,9 @@ import type { Executor } from '../runner/executor.js';
  * built in (src/plugins/builtin) or in ~/.config/devhost/plugins/<name>/index.js. It runs in the
  * CLI on the Mac mini, as the user, and changes things only through `ctx.exec` (so --dry-run,
  * the plan and the root helper work as for apply). Configured under `plugins.<name>` in config.yaml.
+ *
+ * A plugin uses only this API (and Node's own modules), never devhost's other modules: that is
+ * what lets one live in its own repository and be installed with `devhost plugin install`.
  */
 export interface DevhostPlugin {
   name: string;
@@ -60,6 +63,20 @@ export interface SessionInfo {
   cwd: string;
 }
 
+export interface SessionState extends SessionInfo {
+  state: 'running' | 'waiting' | 'idle' | 'ended';
+  lastActivityAt: number;
+}
+
+export interface ServiceInfo {
+  environment: string;
+  account: string;
+  label: string;
+  enabled: boolean;
+  running: boolean;
+  pid: number | null;
+}
+
 export interface PluginContext {
   config: DevhostConfig;
   /** `plugins.<name>.options` from config.yaml. */
@@ -72,6 +89,10 @@ export interface PluginContext {
   reporter: Reporter;
   prompter: Prompter;
   environments: EnvironmentInfo[];
+  /** Sessions the collector knows (newest activity first). */
+  sessions(): Promise<SessionState[]>;
+  /** The environments' Remote Control services and whether they run. */
+  services(): Promise<ServiceInfo[]>;
   /** Each account's Claude config directory (the default account's is ~/.claude). */
   claudeDirs: { account: string; dir: string }[];
 }
