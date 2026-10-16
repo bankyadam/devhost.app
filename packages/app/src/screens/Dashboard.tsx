@@ -5,7 +5,7 @@ import type { Range } from '../client/client';
 import { seriesSlot, seriesVar } from '../lib/colors';
 import { ago, bytes, compact, duration, pct, usd } from '../lib/format';
 import { filterSessions, sortSessions, STATE_LABEL, type Session, type SortDir, type SortKey } from '../lib/sessions';
-import { bucketLabel, buildBuckets, meterTone, TOKEN_TYPES, type Metric, type Stack } from '../lib/usage';
+import { agentBuckets, bucketLabel, buildBuckets, meterTone, TOKEN_TYPES, type Metric, type Stack } from '../lib/usage';
 import { Legend, StackedColumns, type Series } from '../ui/chart';
 import { Badge, Empty, Menu, Segmented } from '../ui/primitives';
 import { useDash } from '../use-dash';
@@ -151,6 +151,20 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
         <p className="note">Cost is an estimate from Claude Code; on a subscription it is API-equivalent value, not billed money. Plan limits are not available.</p>
       </section>
 
+      {dash.agents && (
+        <section className="card" aria-label="Agents at work">
+          <header className="row">
+            <h2>Agents at work</h2>
+            <span className="note">
+              now {dash.agents.now.sessions} {dash.agents.now.sessions === 1 ? 'session' : 'sessions'} + {dash.agents.now.subagents} {dash.agents.now.subagents === 1 ? 'subagent' : 'subagents'}
+              {' · '}most at once in this range: <b>{dash.agents.peak.total}</b>{dash.agents.peak.at !== null ? ` (${label(dash.agents.peak.at)})` : ''}
+            </span>
+          </header>
+          <StackedColumns buckets={agentBuckets(dash)} series={[{ key: 'total', label: 'Agents', color: 'var(--series-1)' }]} format={(v) => String(Math.round(v))} label={label} title={`Most agents at once per ${dash.range === '1h' ? '5 minutes' : dash.range === '24h' ? 'hour' : dash.range === '7d' ? '6 hours' : 'day'}`} height={140} />
+          <p className="note">Sessions running a turn plus the subagents they started, sampled every few seconds{account ? ` (${account})` : ', all accounts'}.</p>
+        </section>
+      )}
+
       <section className="card" aria-label="Environments">
         <header><h2>Environments</h2></header>
         {dash.environments.length === 0 ? <Empty>No environments yet.</Empty> : (
@@ -217,6 +231,11 @@ function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onA
       <td className="session" title={s.title ? `${s.titleFromPrompt ? 'Last prompt: ' : ''}${s.title}\n${s.id}` : s.id}>
         {s.title && <div className={s.titleFromPrompt ? 'last-prompt' : undefined}>{s.title}</div>}
         <div className={s.title ? 'note mono' : 'mono'}>{s.id.slice(0, 8)}</div>
+        {s.subagents && s.subagents.total > 0 && (
+          <div className="note" title={s.subagents.types.join(', ')}>
+            {s.subagents.running > 0 ? <Badge tone="good">{`+${s.subagents.running} ${s.subagents.running === 1 ? 'subagent' : 'subagents'} running`}</Badge> : null} {s.subagents.total} {s.subagents.total === 1 ? 'subagent' : 'subagents'}{s.subagents.types.length > 0 ? ` (${s.subagents.types.join(', ')})` : ''}
+          </div>
+        )}
       </td>
       <td>{s.state === 'waiting' ? <Badge tone="warn">{STATE_LABEL[s.state]}</Badge> : s.state === 'running' ? <Badge tone="good">running</Badge> : <Badge>{STATE_LABEL[s.state]}</Badge>}</td>
       <td>{ago(s.startedAt, now)}</td>

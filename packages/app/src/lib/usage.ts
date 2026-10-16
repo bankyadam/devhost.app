@@ -61,3 +61,15 @@ export function bucketLabel(range: Range): (ts: number) => string {
 export function meterTone(fraction: number): '' | 'warn' | 'bad' {
   return fraction >= 1 ? 'bad' : fraction >= 0.8 ? 'warn' : '';
 }
+
+/** Agents at work at once, one bucket per chart column (missing ones are 0): the most at once in each. */
+export function agentBuckets(d: DashData): Bucket[] {
+  const size = BUCKET_MS[d.range];
+  const end = Math.floor(d.generatedAt / size) * size;
+  const start = Math.floor((d.generatedAt - RANGE_MS[d.range]) / size) * size + size;
+  const got = new Map((d.agents?.buckets ?? []).map((b) => [b.ts, b.total]));
+  const out: Bucket[] = [];
+  for (let t = start; t <= end; t += size) out.push({ ts: t, values: { total: got.get(t) ?? 0 } });
+  return out;
+}
+
