@@ -185,6 +185,7 @@ export async function runLogin(deps: Deps, g: GlobalOptions, config: DevhostConf
     prompter: makePrompter(deps, g.json, g.yes),
     interactive: deps.stdinIsTTY && !g.json,
     idleMs: Number(deps.env['DEVHOST_TRUST_IDLE_MS']) || undefined,
+      answerAfterMs: deps.env['DEVHOST_TRUST_ANSWER_MS'] === undefined ? undefined : Number(deps.env['DEVHOST_TRUST_ANSWER_MS']),
     stepContext: () => newStepContext(deps, g, config, exec),
   };
   return loginAccount(ctx);

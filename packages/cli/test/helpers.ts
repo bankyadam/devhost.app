@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -29,7 +29,8 @@ export async function makeEnv(runner = new MockRunner(), tty = false): Promise<T
     stdin: process.stdin,
     stdinIsTTY: tty,
     stdoutIsTTY: false,
-    env: {},
+    // Claude Code makes an answer wait (login.ts ANSWER_AFTER_MS); the fake needs no pause.
+    env: { DEVHOST_TRUST_ANSWER_MS: '0' },
     home,
     user: 'tester',
     brewPrefix: '/opt/homebrew',
@@ -94,6 +95,8 @@ export interface FakeState {
   sudoNeedsPassword: boolean;
   /** `claude --version`; `brew upgrade --cask claude-code` moves it to 2.1.300. */
   claudeVersion: string;
+  /** The fake claude acknowledges the trust question but does not record it (it stopped, or lost the write). */
+  claudeForgetsTrust: boolean;
 }
 
 const BREWED = ['git', 'claude', 'colima', 'docker', 'tailscale', 'direnv', 'curl'];
@@ -128,6 +131,7 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     pmsetIgnores: [],
     sudoNeedsPassword: false,
     claudeVersion: '2.1.300',
+    claudeForgetsTrust: false,
     miseInstalled: false,
     ...initial,
   };
@@ -316,8 +320,9 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       void data;
     });
   });
-  // `claude remote-control` under a pty: asks for trust, then for the one-time Remote Control confirmation.
-  runner.onSpawn(/^script -q \/dev\/null \/opt\/homebrew\/bin\/claude remote-control/, (p, call) => {
+  // `claude remote-control` under a pty (pty-run.py): asks for trust, then for the one-time Remote
+  // Control confirmation. Like the real one it records the trust in .claude.json once it is answered yes.
+  runner.onSpawn(/^\/usr\/bin\/python3 \S+pty-run\.py \/opt\/homebrew\/bin\/claude remote-control/, (p, call) => {
     const answers: string[] = [];
     if (state.claudeVersion.startsWith('2.1.8')) {
       p.emit(`Your version of Claude Code (${state.claudeVersion}) is too old for Remote Control.\nVersion 2.1.139 or higher is required.\n`);
@@ -327,6 +332,12 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     p.onWrite((data) => {
       if (data === '\u0003') return p.exit(0);
       answers.push(data);
+      if (answers.length === 1 && data === 'y\n' && !state.claudeForgetsTrust) {
+        const file = call.opts?.env?.['CLAUDE_CONFIG_DIR'] ? join(call.opts.env['CLAUDE_CONFIG_DIR'], '.claude.json') : join(runner.context['home'] ?? '', '.claude.json');
+        const known = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { projects?: Record<string, object> }) : {};
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, JSON.stringify({ ...known, projects: { ...known.projects, [call.opts?.cwd ?? '']: { hasTrustDialogAccepted: true } } }));
+      }
       if (answers.length === 1) p.emit('\nEnable Remote Control? (y/n) ');
       else p.emit('\nRemote Control server running.\n');
     });

@@ -151,6 +151,7 @@ export function envCreateCommand(deps: Deps, g: GlobalOptions, opts: EnvCreateOp
       prompter,
       interactive: deps.stdinIsTTY && !g.json,
       idleMs: Number(deps.env['DEVHOST_TRUST_IDLE_MS']) || undefined,
+      answerAfterMs: deps.env['DEVHOST_TRUST_ANSWER_MS'] === undefined ? undefined : Number(deps.env['DEVHOST_TRUST_ANSWER_MS']),
       stepContext: () => newStepContext(deps, g, config, exec),
     };
     const ctx = newStepContext(deps, g, config, exec, {

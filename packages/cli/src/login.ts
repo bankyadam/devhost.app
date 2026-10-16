@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { DevhostConfig, LoginData } from '@devhost/contract';
 import { runSteps } from './apply.js';
 import { accountEnv, environmentsOf, rcLabel, type Account } from './config/accounts.js';
@@ -12,6 +13,7 @@ import { toolPath } from './state.js';
 import { buildSteps, selectSteps } from './steps/index.js';
 import { envInfoOf, workspaceTrusted } from './steps/env.js';
 import { MIN_REMOTE_CONTROL_VERSION } from './claude-version.js';
+import { templatesDir } from './paths.js';
 import { recordLogin } from './collector/db.js';
 import type { EnvInfo, StepContext } from './steps/types.js';
 
@@ -30,6 +32,8 @@ export interface LoginContext {
   interactive: boolean;
   /** How long a spawned `claude remote-control` may stay silent before we stop it. */
   idleMs?: number;
+  /** Least time between one of its questions and our answer (tests set 0). */
+  answerAfterMs?: number;
   /** Builds the step context used to (re)start the account's services. */
   stepContext: () => StepContext;
 }
@@ -112,11 +116,23 @@ export const tooOldForRemoteControl = (dir: string): HumanActionRequired =>
 const TRUST = /Trust\s+(.+?)\?\s*\[y\/N\]/i;
 const ENABLE = /Enable Remote Control\?\s*\(y\/n\)/i;
 
+/** Runs a command on a pseudo-terminal (templates/pty-run.py); the system's own Python, as ssh's PATH has no other. */
+export const PTY_PYTHON = '/usr/bin/python3';
+export const ptyRunPath = (): string => join(templatesDir, 'pty-run.py');
+
+/**
+ * Claude Code ignores an answer to these questions that "arrived too quickly after the question to
+ * count" (it asks again), so a person has to have time to read them. The answer waits at least this
+ * long after the question, whoever or whatever (`--yes`) gave it.
+ */
+const ANSWER_AFTER_MS = 1500;
+
 /**
  * Accept the one-time "Trust <dir>?" and "Enable Remote Control?" questions that
  * `claude remote-control` asks (spec A7.10), then stop the server again. Without a
  * terminal the questions are relayed as confirm prompts through a pseudo-terminal
- * made with `script`. Returns false when the human declined.
+ * (pty-run.py). Returns true only when Claude Code recorded the trust; false when the
+ * human declined or Claude Code stopped before it was recorded.
  */
 export async function acceptWorkspace(ctx: LoginContext, info: EnvInfo): Promise<boolean> {
   const { deps } = ctx;
@@ -136,7 +152,7 @@ export async function acceptWorkspace(ctx: LoginContext, info: EnvInfo): Promise
     return workspaceTrusted(ctx.stepContext(), ctx.account, info.dir);
   }
 
-  const proc = deps.runner.spawn('script', ['-q', '/dev/null', ...rcArgs], opts);
+  const proc = deps.runner.spawn(PTY_PYTHON, [ptyRunPath(), ...rcArgs], opts);
   let seen = '';
   let handled = 0;
   let last = Date.now();
@@ -153,9 +169,12 @@ export async function acceptWorkspace(ctx: LoginContext, info: EnvInfo): Promise
     if (!hit) return;
     handled += hit.index + hit[0].length;
     pending = true;
+    const asked = Date.now();
     try {
       const message = hit === trust ? `Trust ${hit[1]} and let Claude Code run there?` : 'Enable Remote Control for this account (one-time confirmation)?';
       const yes = await ctx.prompter.confirm(hit === trust ? 'trust-workspace' : 'enable-remote-control', message);
+      const wait = (ctx.answerAfterMs ?? ANSWER_AFTER_MS) - (Date.now() - asked);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       proc.write(yes ? 'y\n' : 'n\n');
       if (!yes) {
         declined = true;
@@ -201,7 +220,8 @@ export async function acceptWorkspace(ctx: LoginContext, info: EnvInfo): Promise
       `Run this once in a terminal, answer "y" twice, then press Ctrl+C:\n  cd ${info.dir} && ${rcArgs.map((s) => (s.includes(' ') ? `'${s}'` : s)).join(' ')}`,
     );
   }
-  return true;
+  // What counts is what Claude Code recorded, not that it ran: it may have stopped before asking.
+  return workspaceTrusted(ctx.stepContext(), ctx.account, info.dir);
 }
 
 /** What `devhost login <account>` does (spec A7.10). */
