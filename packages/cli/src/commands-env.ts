@@ -8,7 +8,7 @@ import { appendTo, editConfigFile, removeFrom } from './config/edit.js';
 import { loadConfig } from './config/load.js';
 import type { Deps } from './deps.js';
 import { DevhostError, UsageError } from './errors.js';
-import { daemonInstalled, daemonState, plistPath, removeDaemon } from './launchd.js';
+import { bootstrapDaemon, daemonInstalled, daemonState, plistPath, removeDaemon, stopDaemon } from './launchd.js';
 import { acceptWorkspace, authStatus, type LoginContext } from './login.js';
 import { allocatePortBase } from './ports.js';
 import { makePrompter } from './prompter.js';
@@ -247,11 +247,11 @@ export function envServiceCommand(deps: Deps, g: GlobalOptions, name: string, ac
 
     reporter.step(`env.${name}`, 'start', action);
     if (action === 'stop') {
-      if (state.loaded) await exec.exec('launchctl', ['bootout', `system/${label}`], { sudo: true, reason: `stop ${label}` });
+      if (state.loaded) await stopDaemon(exec, label, `stop ${label}`);
     } else {
       if (!state.loaded) {
         if ((await exec.readText(plist)) === null) throw new DevhostError(`${label} is not installed`, 'service-not-installed', 1, 'Run `devhost apply` to install it.');
-        await exec.exec('launchctl', ['bootstrap', 'system', plist], { sudo: true, reason: `load ${label}` });
+        await bootstrapDaemon(exec, label, `load ${label}`);
       } else {
         await exec.exec('launchctl', ['kickstart', ...(action === 'restart' ? ['-k'] : []), `system/${label}`], { sudo: true, reason: `${action} ${label}` });
       }

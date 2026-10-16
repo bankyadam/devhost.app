@@ -12,6 +12,7 @@ import { pmsetCapabilities, pmsetValues, powerStep, sshStep, hostnameStep } from
 import { buildSteps, selectSteps } from '../src/steps/index.js';
 import { HELPER_PATH, helperArgs, sudoersRule } from '../src/root-helper.js';
 import { rootHelperStep } from '../src/steps/root-helper.js';
+import { bootstrapDaemon } from '../src/launchd.js';
 import { makeEnv } from './helpers.js';
 
 const config = (extra: object = {}): DevhostConfig => {
@@ -265,6 +266,19 @@ describe('root helper', () => {
     expect(sudoers).toBeGreaterThan(visudo);
     const { readFile } = await import('node:fs/promises');
     expect(await readFile(join(env.home, '.config', 'devhost', 'root-helper', 'sudoers'), 'utf8')).toContain(`adam ALL=(root) NOPASSWD: ${HELPER_PATH}`);
+  });
+});
+
+describe('launchd', () => {
+  it('bootstrap retries once when the old job was still going away (5: Input/output error)', async () => {
+    let n = 0;
+    const runner = new MockRunner()
+      .on('sudo -n -- launchctl bootstrap', () => (++n === 1 ? { code: 5, stderr: 'Bootstrap failed: 5: Input/output error\n' } : {}))
+      .on('launchctl print', { code: 113 });
+    await bootstrapDaemon(exec(runner, { sleep: async () => undefined }), 'com.devhost.x', 'start');
+    expect(n).toBe(2);
+    const failing = new MockRunner().on('sudo -n -- launchctl bootstrap', { code: 5, stderr: 'Bootstrap failed: 5: Input/output error\n' }).on('launchctl print', { code: 113 });
+    await expect(bootstrapDaemon(exec(failing, { sleep: async () => undefined }), 'com.devhost.x', 'start')).rejects.toThrow('Input/output error');
   });
 });
 

@@ -1,3 +1,4 @@
+import { CommandError } from './errors.js';
 import { join } from 'node:path';
 import { devhostConfigDir } from './config/paths.js';
 import { logsDir } from './config/accounts.js';
@@ -87,18 +88,40 @@ export async function applyDaemon(ctx: StepContext, spec: DaemonSpec): Promise<v
   if (have !== want) {
     const staged = stagedPlistPath(home, spec.label);
     await exec.writeText(staged, want, { description: `stage ${staged}` });
-    if (state.loaded) {
-      await exec.exec('launchctl', ['bootout', `system/${spec.label}`], { sudo: true, reason: `stop ${spec.label} before updating it`, allowFailure: true });
-    }
+    if (state.loaded) await stopDaemon(exec, spec.label, `stop ${spec.label} before updating it`);
     await exec.exec('install', ['-m', '644', '-o', 'root', '-g', 'wheel', staged, dest], { sudo: true, reason: `install ${dest}` });
-    await exec.exec('launchctl', ['bootstrap', 'system', dest], { sudo: true, reason: `start ${spec.label} (runs at boot without a GUI login)` });
+    await bootstrapDaemon(exec, spec.label, `start ${spec.label} (runs at boot without a GUI login)`);
     return;
   }
   if (!state.loaded) {
-    await exec.exec('launchctl', ['bootstrap', 'system', dest], { sudo: true, reason: `load ${spec.label}` });
+    await bootstrapDaemon(exec, spec.label, `load ${spec.label}`);
   } else if (!state.running) {
     await exec.exec('launchctl', ['kickstart', '-k', `system/${spec.label}`], { sudo: true, reason: `restart ${spec.label}` });
   }
+}
+
+/**
+ * `launchctl bootout` returns while launchd is still tearing the job down (a Remote Control
+ * service first shuts its sessions down), and a `bootstrap` in that window fails with
+ * "5: Input/output error". So wait until the job is gone.
+ */
+export async function stopDaemon(exec: Executor, label: string, reason: string): Promise<void> {
+  await exec.exec('launchctl', ['bootout', `system/${label}`], { sudo: true, reason, allowFailure: true });
+  await exec.waitFor(async () => !(await daemonState(exec, label)).loaded, 30, 1000);
+}
+
+/** Load the installed plist; an EIO from a job still going away is retried once it has gone. */
+export async function bootstrapDaemon(exec: Executor, label: string, reason: string): Promise<void> {
+  const args = ['bootstrap', 'system', plistPath(label)];
+  const first = await exec.exec('launchctl', args, { sudo: true, reason, allowFailure: true });
+  if (first.code === 0) return;
+  if (first.code === 5) {
+    await exec.waitFor(async () => !(await daemonState(exec, label)).loaded, 30, 1000);
+    const again = await exec.exec('launchctl', args, { sudo: true, reason, allowFailure: true });
+    if (again.code === 0 || (await daemonState(exec, label)).running) return;
+    throw new CommandError(`launchctl ${args.join(' ')}`, again.code, again.stderr);
+  }
+  throw new CommandError(`launchctl ${args.join(' ')}`, first.code, first.stderr);
 }
 
 export async function daemonInstalled(exec: Executor, label: string): Promise<boolean> {
