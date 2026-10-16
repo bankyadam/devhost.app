@@ -17,6 +17,9 @@ import {
   cpuPercent, cpuTimes, memoryFromVmStat, parseDockerPs, parseDockerStats, parseDu, parseLsofCwd, parsePs, parseVmStat,
   subtree, sumProcs, type Proc,
 } from './samplers.js';
+
+/** A session quiet this long with no `claude` in its directory has ended (see sampleSessions). */
+const SESSION_GONE_MS = 10 * 60_000;
 import { createCollectorServer, listen } from './server.js';
 
 export interface OsProbe {
@@ -166,20 +169,32 @@ export class Collector {
     await this.sampleSessions(procs, now);
   }
 
-  /** Best effort (spec A10.7): match `claude` processes to sessions by working directory. */
+  /**
+   * Best effort (spec A10.7): match `claude` processes to sessions by working directory. A session
+   * no `claude` works in any more, quiet for SESSION_GONE_MS, ended without a SessionEnd hook (its
+   * process went down with a service restart, or was stopped): it is marked ended, so the
+   * dashboard and the plugins do not take it for alive.
+   */
   private async sampleSessions(procs: Proc[], now: number): Promise<void> {
-    const sessions = this.db.all<{ session_id: string; cwd: string }>("SELECT session_id, cwd FROM sessions WHERE state <> 'ended' AND cwd <> '' AND last_activity_at > ?", now - 24 * 3_600_000);
-    if (sessions.length === 0) return;
+    const open = this.db.all<{ session_id: string; cwd: string; last_activity_at: number }>("SELECT session_id, cwd, last_activity_at FROM sessions WHERE state <> 'ended' AND cwd <> ''");
+    if (open.length === 0 || procs.length === 0) return; // no ps output: nothing is known
     const candidates = procs.filter((p) => /(^|\/)claude(\s|$)/.test(p.command));
-    if (candidates.length === 0) return;
-    const lsof = await this.exec.query('lsof', ['-a', '-d', 'cwd', '-Fpn', '-p', candidates.map((p) => p.pid).join(',')]);
-    const cwds = parseLsofCwd(lsof.stdout);
-    for (const s of sessions) {
+    let cwds = new Map<number, string>();
+    if (candidates.length > 0) {
+      const lsof = await this.exec.query('lsof', ['-a', '-d', 'cwd', '-Fpn', '-p', candidates.map((p) => p.pid).join(',')]);
+      cwds = parseLsofCwd(lsof.stdout);
+      if (cwds.size === 0) return; // lsof said nothing: do not conclude anything ended
+    }
+    for (const s of open) {
       const mine = candidates.filter((p) => {
         const cwd = cwds.get(p.pid);
         return cwd !== undefined && (cwd === s.cwd || cwd.startsWith(`${s.cwd}/`));
       });
-      if (mine.length === 0) continue;
+      if (mine.length === 0) {
+        if (now - s.last_activity_at > SESSION_GONE_MS) this.db.run("UPDATE sessions SET state = 'ended', ended_at = ? WHERE session_id = ?", now, s.session_id);
+        continue;
+      }
+      if (s.last_activity_at <= now - 24 * 3_600_000) continue;
       const sum = sumProcs(mine.flatMap((p) => subtree(procs, p.pid)));
       this.db.run('INSERT INTO samples_session (ts, session_id, cpu_pct, rss_bytes) VALUES (?, ?, ?, ?)', now, s.session_id, sum.cpu, sum.rssBytes);
     }

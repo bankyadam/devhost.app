@@ -58,7 +58,9 @@
 :root[data-theme="light"] { color-scheme: light; }
 
 * { box-sizing: border-box; }
+/* The page itself never scrolls or bounces (WKWebView chains a scroll that reaches .main's end to the page, which moved the sidebar too); .main and the sidebar scroll on their own. */
 html, body, #root { height: 100%; }
+html, body { overflow: hidden; overscroll-behavior: none; }
 body { margin: 0; font: 14px/1.45 var(--font); background: var(--page); color: var(--ink); -webkit-font-smoothing: antialiased; }
 h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.005em; }
 h1 { font-size: 20px; line-height: 26px; }
@@ -72,14 +74,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* layout */
 /* The row is the window's height, so only .main scrolls (an auto row grows with the content and the whole page, sidebar included, scrolled). */
 .app { display: grid; grid-template-columns: 196px 1fr; grid-template-rows: minmax(0, 1fr); height: 100%; overflow: hidden; }
-.sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 14px 10px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+.sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 14px 10px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; overscroll-behavior: contain; }
 .brand { font-weight: 700; padding: 6px 10px 12px; display: flex; align-items: center; gap: 8px; }
 .nav { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: 8px; background: none; cursor: pointer; color: var(--ink-2); }
 .nav:hover { background: var(--hover); }
 .nav[aria-current="page"] { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
 .nav .count { margin-left: auto; font-size: 12px; background: var(--warn); color: #0b0b0b; border-radius: 10px; padding: 0 7px; }
 .spacer { flex: 1; }
-.main { overflow: auto; display: flex; flex-direction: column; min-width: 0; }
+.main { overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; min-width: 0; }
 .topbar { display: flex; align-items: center; gap: 12px; padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 5; }
 .content { padding: 20px 24px 48px; display: flex; flex-direction: column; gap: 20px; max-width: 1280px; width: 100%; }
 .banner { padding: 9px 24px; font-size: 13px; display: flex; gap: 10px; align-items: center; }
