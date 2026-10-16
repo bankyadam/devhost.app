@@ -1,6 +1,7 @@
 import type { DevhostPlugin } from '../api.js';
-import { diskCleanup } from './disk-cleanup.js';
-import { sessionStop } from './session-stop.js';
 
-/** Plugins shipped with devhost (each in its own module here). */
-export const builtinPlugins: DevhostPlugin[] = [diskCleanup, sessionStop];
+/**
+ * Plugins shipped with devhost. None at the moment: disk-cleanup and session-stop live in their
+ * own repositories (bankyadam/devhost-plugin-*) and are installed with `devhost plugin install`.
+ */
+export const builtinPlugins: DevhostPlugin[] = [];

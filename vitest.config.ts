@@ -16,5 +16,8 @@ export default defineConfig({
     include: ['packages/*/test/**/*.test.{ts,tsx}'],
     environment: 'node',
     testTimeout: 20000,
+    // Plugins in a test home are loaded with Node's own import(), as in the CLI; jsdom tests would
+    // otherwise send them through Vite's transform, which cannot read a temporary directory.
+    server: { deps: { external: [/\/\.config\/devhost\/plugins\//] } },
   },
 });

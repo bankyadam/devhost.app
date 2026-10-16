@@ -108,15 +108,16 @@ Schemas live in `packages/contract/schemas/*.schema.json`; the TypeScript types 
 
 A devhost plugin is an ES module whose default export lists actions and checks (`packages/cli/src/plugins/api.ts`; `definePlugin` gives the types). It runs in the CLI on the Mac mini, as you, and changes things only through `ctx.exec`, so `--dry-run`, the plan and the root helper work as for `apply`. An action is scoped to the host, an environment or a session; the desktop app shows host actions on its Plugins screen, environment actions in the environment's "…" menu and session actions in the session's Open menu. Checks appear in `devhost doctor`.
 
-- **Built in** (on unless `plugins.<name>.enabled: false`):
-  - `disk-cleanup`: `report` sizes the Homebrew and npm caches and the Remote Control worktrees (`<env>/.claude/worktrees/*`) that could go, saying why the others stay; `clean` empties the caches and removes those worktrees with `git worktree remove` (no `--force`). A worktree goes only when it is clean, everything in it is on a remote, no process works in it, its session is not active and it was not used for `worktreeIdleHours` (24). The `reclaimable` check warns above `warnGiB` (5). Options: `categories` (`homebrew`, `npm`, `worktrees`), `worktreeIdleHours`, `warnGiB`.
-  - `session-stop`: `stop` ends a Remote Control session's local `claude` process to free its memory: only a child of a devhost Remote Control service whose working directory is the session's, never the Claude app's sessions. SIGTERM, then SIGKILL after 5 s. The session stays on claude.ai.
+- **Plugins of bankyadam's** (private repositories; install with the SSH URL):
+  - [`devhost-plugin-disk-cleanup`](https://github.com/bankyadam/devhost-plugin-disk-cleanup): frees disk space (Homebrew and npm caches, old Remote Control worktrees that are clean and pushed); `report`, `clean`, and a doctor check. `devhost plugin install git@github.com:bankyadam/devhost-plugin-disk-cleanup.git --enable`
+  - [`devhost-plugin-session-stop`](https://github.com/bankyadam/devhost-plugin-session-stop): stops a Remote Control session's local `claude` process to free memory (only a devhost service's child in the session's directory). `devhost plugin install git@github.com:bankyadam/devhost-plugin-session-stop.git --enable`
+- **Built in**: none at the moment; the mechanism stays (`src/plugins/builtin`, on unless `plugins.<name>.enabled: false`, cannot be uninstalled).
 - **Your own**: `~/.config/devhost/plugins/<name>/index.js`, loaded only with `plugins.<name>.enabled: true`; `plugins.<name>.options` is `ctx.options`. A plugin uses only the plugin API (`ctx.exec`, `ctx.sessions()`, `ctx.services()`, …) and Node's own modules, never devhost's other modules, so it can live in its own repository.
 - **From GitHub**: `devhost plugin install <https://github.com/owner/repo | owner/repo | git@github.com:owner/repo.git>[#branch-or-tag] [--name n] [--enable]` clones it (shallow) into `~/.config/devhost/plugins/<name>` (name: the repository's without `devhost-plugin-`), installs its npm dependencies with `--ignore-scripts`, and records the source and commit (`plugin list` shows them). Nothing of it runs until it is enabled. `plugin uninstall <name>` removes it and its config entry; `plugin enable|disable <name>`. Built-in plugins can only be disabled. The app's Plugins screen does the same (Install from GitHub…, Enable/Disable, Uninstall…). For a private repository use its `git@github.com:` URL (your SSH key).
 
 ```yaml
 plugins:
-  disk-cleanup: { options: { warnGiB: 10 } }
+  disk-cleanup: { enabled: true, options: { warnGiB: 10 } }
   my-tool: { enabled: true, options: { who: me } }
 ```
 
