@@ -13,6 +13,8 @@ import {
   type Envelope,
   type Event,
   type LoginData,
+  type PluginListData,
+  type PluginRunData,
   type StatusData,
   type VersionData,
 } from '@devhost/contract/lite';
@@ -186,7 +188,18 @@ export class DevhostClient {
   }
   envDelete = (name: string, deleteFiles: boolean, h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', 'delete', name, ...(deleteFiles ? ['--delete-files'] : [])], h);
   envService = (name: string, action: 'start' | 'stop' | 'restart', h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', action, name], h);
+
+  plugins = (): Promise<PluginListData> => this.short<PluginListData>(['plugin', 'list']);
+  pluginRun = (plugin: string, action: string, target: PluginTarget, dryRun: boolean, h?: LongHandlers): LongRun<PluginRunData> =>
+    this.run<PluginRunData>(pluginRunArgs(plugin, action, target, dryRun), h);
 }
+
+export interface PluginTarget {
+  env?: string;
+  session?: string;
+}
+
+export const pluginRunArgs = (plugin: string, action: string, target: PluginTarget, dryRun: boolean): string[] => ['plugin', 'run', plugin, action, ...flag('--env', target.env), ...flag('--session', target.session), ...(dryRun ? ['--dry-run'] : [])];
 
 const flag = (name: string, value: string | undefined): string[] => (value === undefined || value === '' ? [] : [name, value]);
 

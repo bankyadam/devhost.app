@@ -9,6 +9,8 @@ import { bucketLabel, buildBuckets, meterTone, TOKEN_TYPES, type Metric, type St
 import { Legend, StackedColumns, type Series } from '../ui/chart';
 import { Badge, Empty, Menu, Segmented } from '../ui/primitives';
 import { useDash } from '../use-dash';
+import { PluginRunDialog } from '../ui/plugin-run';
+import { usePlugins, type PluginActionInfo } from '../use-plugins';
 import { openClaude, useWebApps } from '../use-web-apps';
 
 const RANGES: { value: Range; label: string }[] = [
@@ -32,6 +34,8 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
 
   const { dash, loading, error, stale } = useDash(range, { account, env, model });
   const webApps = useWebApps();
+  const plugins = usePlugins();
+  const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; session: string } | null>(null);
 
   // Account colors follow the account, not its rank: remember every account ever seen, in order.
   useEffect(() => {
@@ -188,7 +192,7 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
                 </tr>
               </thead>
               <tbody>
-                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envDir(s.env)} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} />)}
+                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envDir(s.env)} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} />)}
               </tbody>
             </table>
           </div>
@@ -199,11 +203,12 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
       <ul className="note" style={{ margin: 0, paddingLeft: 18 }} aria-label="Known limits">
         {dash.limits.map((l) => <li key={l}>{l}</li>)}
       </ul>
+      {pluginRun && <PluginRunDialog action={pluginRun.action} target={{ session: pluginRun.session }} onClose={() => setPluginRun(null)} />}
     </div>
   );
 }
 
-function SessionRow({ s, now, dir, portBase, hostName, app, envUrl }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string }) {
+function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onAction }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void }) {
   const { transport, tools } = useApp();
   return (
     <tr className={s.state === 'waiting' ? 'waiting' : ''}>
@@ -229,6 +234,7 @@ function SessionRow({ s, now, dir, portBase, hostName, app, envUrl }: { s: Sessi
             { label: 'Terminal: shell in the environment', hidden: !dir, onSelect: () => void transport.openTerminal({ kind: 'shell', dir: dir! }) },
             { label: 'VS Code (Remote SSH)', hidden: !dir || !tools.code, onSelect: () => void transport.openVscode(dir!) },
             { label: portBase ? `Dev server (port ${portBase})` : 'Dev server', hidden: portBase == null, onSelect: () => void transport.openUrl(`http://${hostName}:${portBase}`) },
+            ...actions.map((a) => ({ label: `${a.title}${a.destructive ? '…' : ''}`, danger: a.destructive, hidden: s.state === 'ended', onSelect: () => onAction(a) })),
           ]}
         />
       </td>
