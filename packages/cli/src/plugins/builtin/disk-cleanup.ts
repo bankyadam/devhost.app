@@ -1,8 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { Db, dbPath } from '../../collector/db.js';
-import { parseDu } from '../../collector/samplers.js';
 import type { DevhostPlugin, PluginContext } from '../api.js';
 
 /**
@@ -33,9 +31,10 @@ interface Report {
 
 const human = (bytes: number): string => (bytes >= GiB ? `${(bytes / GiB).toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`);
 
+/** Bytes under a path (`du -sk`); 0 when it cannot be measured. */
 async function du(ctx: PluginContext, path: string): Promise<number> {
-  const r = await ctx.exec.query('du', ['-sk', path]);
-  return r.code === 0 || r.stdout ? (parseDu(r.stdout) ?? 0) : 0;
+  const m = /^(\d+)\s/.exec((await ctx.exec.query('du', ['-sk', path])).stdout.trim());
+  return m ? Number(m[1]) * 1024 : 0;
 }
 
 const brewEnv = { HOMEBREW_NO_AUTO_UPDATE: '1', HOMEBREW_NO_ENV_HINTS: '1', HOMEBREW_NO_ANALYTICS: '1' };
@@ -66,22 +65,10 @@ async function processCwds(ctx: PluginContext): Promise<string[]> {
   return r.stdout.split('\n').filter((l) => l.startsWith('n/')).map((l) => l.slice(1));
 }
 
-/** Sessions the collector still sees as active (not ended), by working directory. */
-function activeSessionCwds(home: string): Set<string> {
-  const path = dbPath(home);
-  if (!existsSync(path)) return new Set();
-  const db = new Db(path, { readonly: true });
-  try {
-    return new Set(db.all<{ cwd: string }>("SELECT cwd FROM sessions WHERE state <> 'ended'").map((r) => r.cwd));
-  } finally {
-    db.close();
-  }
-}
-
 async function worktrees(ctx: PluginContext, now: number): Promise<Worktree[]> {
   const idleHours = Number(ctx.options['worktreeIdleHours'] ?? 24);
   const busy = await processCwds(ctx);
-  const active = activeSessionCwds(ctx.home);
+  const active = new Set((await ctx.sessions()).filter((x) => x.state !== 'ended').map((x) => x.cwd));
   const out: Worktree[] = [];
   for (const e of ctx.environments) {
     const root = join(e.dir, '.claude', 'worktrees');

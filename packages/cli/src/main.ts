@@ -17,7 +17,7 @@ import { accountAddCommand, accountListCommand, accountRemoveCommand, loginComma
 import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, envServiceCommand } from './commands-env.js';
 import { collectorLogsCommand, collectorRunCommand, dashCommand, notifyCommand, topCommand } from './commands-collector.js';
 import { doctorCommand, statusCommand, uninstallCommand } from './commands-doctor.js';
-import { pluginListCommand, pluginRunCommand } from './commands-plugins.js';
+import { pluginInstallCommand, pluginListCommand, pluginRunCommand, pluginToggleCommand, pluginUninstallCommand } from './commands-plugins.js';
 import { closeInput } from './prompter.js';
 import { resolveConfigPath } from './config/paths.js';
 import type { Deps } from './deps.js';
@@ -246,6 +246,17 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .option('--session <id>', 'the session (id or its first 8 characters), for a session action')
     .option('--dry-run', 'show what would change, change nothing')
     .action((name: string, action: string, o: { env?: string; session?: string; dryRun?: boolean }) => run(() => pluginRunCommand(deps, globals(), { plugin: name, action, env: o.env, session: o.session, dryRun: o.dryRun === true }))());
+
+  plugin
+    .command('install <source>')
+    .description('Install a plugin from GitHub (URL or owner/repo, #branch or #tag); it stays off until enabled')
+    .option('--name <name>', 'install under this name (default: the repository name without devhost-plugin-)')
+    .option('--enable', 'enable it right away (it runs code from the repository on this Mac as you)')
+    .option('--dry-run', 'show what would happen')
+    .action((source: string, o: { name?: string; enable?: boolean; dryRun?: boolean }) => run(() => pluginInstallCommand(deps, globals(), { source, name: o.name, enable: o.enable === true, dryRun: o.dryRun === true }))());
+  plugin.command('uninstall <name>').description('Remove an installed plugin and its config entry (built-in ones: disable)').action((name: string) => run(() => pluginUninstallCommand(deps, globals(), name))());
+  plugin.command('enable <name>').description('Turn a plugin on').action((name: string) => run(() => pluginToggleCommand(deps, globals(), name, true))());
+  plugin.command('disable <name>').description('Turn a plugin off').action((name: string) => run(() => pluginToggleCommand(deps, globals(), name, false))());
 
   program.command('doctor').description('Read-only health checks with one-line fixes; exit 1 on any failure').action(run(() => doctorCommand(deps, globals())));
   program.command('status').description('One-screen summary').action(run(() => statusCommand(deps, globals())));

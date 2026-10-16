@@ -1,10 +1,11 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { DevhostConfig } from '@devhost/contract';
 import { devhostConfigDir } from '../config/paths.js';
 import type { DevhostPlugin } from './api.js';
 import { builtinPlugins } from './builtin/index.js';
+import { SOURCE_FILE } from './install.js';
 
 export interface LoadedPlugin {
   name: string;
@@ -14,6 +15,18 @@ export interface LoadedPlugin {
   plugin?: DevhostPlugin;
   /** Why it could not be loaded. */
   error?: string;
+  /** From `devhost plugin install`. */
+  installedFrom?: { url: string; ref?: string; commit?: string; installedAt?: string };
+}
+
+async function readSource(dir: string): Promise<LoadedPlugin['installedFrom']> {
+  try {
+    const d = JSON.parse(await readFile(join(dir, SOURCE_FILE), 'utf8')) as { url?: unknown; ref?: unknown; commit?: unknown; installedAt?: unknown };
+    if (typeof d.url !== 'string') return undefined;
+    return { url: d.url, ...(typeof d.ref === 'string' ? { ref: d.ref } : {}), ...(typeof d.commit === 'string' ? { commit: d.commit } : {}), ...(typeof d.installedAt === 'string' ? { installedAt: d.installedAt } : {}) };
+  } catch {
+    return undefined;
+  }
 }
 
 export const userPluginsDir = (home: string): string => join(devhostConfigDir(home), 'plugins');
@@ -33,7 +46,8 @@ export async function loadPlugins(config: DevhostConfig, home: string): Promise<
   const out: LoadedPlugin[] = builtinPlugins.map((p) => ({ name: p.name, builtin: true, enabled: settings[p.name]?.enabled !== false, source: 'built-in', plugin: p }));
   let dirs: string[] = [];
   try {
-    dirs = (await readdir(userPluginsDir(home), { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name).sort();
+    // Dot directories are installs in progress.
+    dirs = (await readdir(userPluginsDir(home), { withFileTypes: true })).filter((d) => d.isDirectory() && !d.name.startsWith('.')).map((d) => d.name).sort();
   } catch {
     /* no user plugins */
   }
@@ -48,17 +62,19 @@ export async function loadPlugins(config: DevhostConfig, home: string): Promise<
       continue;
     }
     const enabled = settings[name]?.enabled === true;
+    const installedFrom = await readSource(join(userPluginsDir(home), name));
+    const base = { name, builtin: false, enabled, source, ...(installedFrom ? { installedFrom } : {}) };
     if (!enabled) {
-      out.push({ name, builtin: false, enabled, source });
+      out.push(base);
       continue;
     }
     try {
       const mod = (await import(pathToFileURL(source).href)) as { default?: unknown };
       if (!valid(mod.default)) throw new Error('its default export is not a devhost plugin (name, version, description, actions, checks)');
       if (mod.default.name !== name) throw new Error(`it calls itself ${mod.default.name}, its directory is ${name}`);
-      out.push({ name, builtin: false, enabled, source, plugin: mod.default });
+      out.push({ ...base, plugin: mod.default });
     } catch (err) {
-      out.push({ name, builtin: false, enabled, source, error: err instanceof Error ? err.message : String(err) });
+      out.push({ ...base, error: err instanceof Error ? err.message : String(err) });
     }
   }
   return out;

@@ -1,12 +1,18 @@
-import type { PluginListData, PluginRunData } from '@devhost/contract';
+import { existsSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import type { PluginChangeData, PluginListData, PluginRunData } from '@devhost/contract';
 import { long, newExecutor, short, type GlobalOptions } from './command-support.js';
+import { editConfigFile } from './config/edit.js';
 import { loadConfig } from './config/load.js';
 import type { Deps } from './deps.js';
 import { DevhostError, UsageError } from './errors.js';
 import { makePrompter } from './prompter.js';
 import type { ActionTarget } from './plugins/api.js';
 import { findEnvironment, findSession, pluginContext } from './plugins/context.js';
-import { loadPlugins } from './plugins/loader.js';
+import { builtinPlugins } from './plugins/builtin/index.js';
+import { parsePluginSource, PLUGIN_NAME, pluginDir, SOURCE_FILE } from './plugins/install.js';
+import { loadPlugins, userPluginsDir } from './plugins/loader.js';
 
 export function pluginListCommand(deps: Deps, g: GlobalOptions): Promise<number> {
   return short<PluginListData>(deps, g, async () => {
@@ -18,6 +24,7 @@ export function pluginListCommand(deps: Deps, g: GlobalOptions): Promise<number>
       enabled: p.enabled,
       source: p.source,
       ...(p.error ? { error: p.error } : {}),
+      ...(p.installedFrom ? { installedFrom: p.installedFrom } : {}),
       actions: (p.plugin?.actions ?? []).map((a) => ({ id: a.id, title: a.title, description: a.description, scope: a.scope, destructive: a.destructive === true })),
       checks: (p.plugin?.checks ?? []).map((c) => c.id),
     }));
@@ -83,5 +90,87 @@ export function pluginRunCommand(deps: Deps, g: GlobalOptions, o: PluginRunOptio
       reporter.step(step, 'failed', err instanceof Error ? err.message : String(err));
       return { ok: false, data: null, error: err instanceof Error ? err : new Error(String(err)) };
     }
+  });
+}
+
+export interface PluginInstallOptions {
+  source: string;
+  name?: string;
+  enable: boolean;
+  dryRun: boolean;
+}
+
+/**
+ * `devhost plugin install <github URL | owner/repo[#ref]>`: a shallow clone into
+ * ~/.config/devhost/plugins/<name>, its npm dependencies without install scripts, and where it
+ * came from. Nothing of it runs until it is enabled (`--enable`, or `plugin enable` later).
+ */
+export function pluginInstallCommand(deps: Deps, g: GlobalOptions, o: PluginInstallOptions): Promise<number> {
+  return long(deps, g, async (reporter) => {
+    await loadConfig(g.configPath); // a configured host
+    const src = parsePluginSource(o.source, o.name);
+    if (builtinPlugins.some((p) => p.name === src.name)) throw new UsageError(`"${src.name}" is a built-in plugin`, 'Install it under another name with --name.');
+    const dir = pluginDir(userPluginsDir(deps.home), src.name);
+    if (existsSync(dir)) throw new UsageError(`plugin "${src.name}" is installed already`, `Remove it first: devhost plugin uninstall ${src.name}`);
+    const exec = newExecutor(deps, g, reporter, o.dryRun);
+    const step = `plugin.install.${src.name}`;
+    exec.beginStep(step);
+    reporter.step(step, 'start', `install ${src.name} from ${src.url}${src.ref ? `#${src.ref}` : ''}`);
+    const tmp = join(userPluginsDir(deps.home), `.installing-${src.name}`);
+    await exec.mkdirp(userPluginsDir(deps.home));
+    await exec.remove(tmp, { recursive: true });
+    try {
+      await exec.exec('git', ['clone', '--depth', '1', ...(src.ref ? ['--branch', src.ref] : []), '--', src.url, tmp], { progress: true });
+      let commit = '';
+      if (!exec.dryRun) {
+        if (!existsSync(join(tmp, 'index.js'))) throw new DevhostError(`${src.url} has no index.js at its root`, 'plugin-invalid', 1, 'A devhost plugin is an ES module index.js whose default export is the plugin.');
+        if (existsSync(join(tmp, 'package.json'))) {
+          // Its dependencies, without running any of their install scripts.
+          await exec.exec(npmBin(deps.nodePath), ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: tmp, progress: true });
+        }
+        commit = (await exec.query('git', ['-C', tmp, 'rev-parse', 'HEAD'])).stdout.trim();
+      }
+      await exec.writeText(join(tmp, SOURCE_FILE), `${JSON.stringify({ url: src.url, ...(src.ref ? { ref: src.ref } : {}), commit, installedAt: deps.now().toISOString() }, null, 2)}\n`);
+      await exec.exec('mv', [tmp, dir]);
+      if (o.enable && !exec.dryRun) await setEnabled(deps, g, src.name, true);
+      reporter.step(step, 'changed', commit ? `at ${commit.slice(0, 12)}` : undefined);
+      const data: PluginChangeData = { name: src.name, action: 'installed', enabled: o.enable, url: src.url, ...(src.ref ? { ref: src.ref } : {}), ...(commit ? { commit } : {}), ...(o.dryRun ? { dryRun: true } : {}) };
+      return { ok: true, data, human: [o.enable ? `Installed and enabled ${src.name}.` : `Installed ${src.name}. It runs nothing until you enable it: devhost plugin enable ${src.name}`] };
+    } catch (err) {
+      if (!exec.dryRun) await exec.remove(tmp, { recursive: true });
+      reporter.step(step, 'failed', err instanceof Error ? err.message : String(err));
+      return { ok: false, data: null, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  });
+}
+
+const npmBin = (nodePath: string): string => (existsSync(join(dirname(nodePath), 'npm')) ? join(dirname(nodePath), 'npm') : 'npm');
+
+/** `plugins.<name>.enabled` in config.yaml (comments kept, validated, backed up). */
+async function setEnabled(deps: Deps, g: GlobalOptions, name: string, enabled: boolean): Promise<void> {
+  await editConfigFile(g.configPath, deps.now(), (doc) => doc.setIn(['plugins', name, 'enabled'], enabled));
+}
+
+/** `devhost plugin uninstall <name>`: its directory and its config entry. Built-in ones can only be disabled. */
+export function pluginUninstallCommand(deps: Deps, g: GlobalOptions, name: string): Promise<number> {
+  return short<PluginChangeData>(deps, g, async () => {
+    if (builtinPlugins.some((p) => p.name === name)) throw new UsageError(`"${name}" is built in and cannot be uninstalled`, `Turn it off instead: devhost plugin disable ${name}`);
+    if (!PLUGIN_NAME.test(name)) throw new UsageError(`"${name}" is not a plugin name`);
+    const dir = pluginDir(userPluginsDir(deps.home), name);
+    if (!existsSync(dir)) throw new UsageError(`no plugin "${name}" is installed in ${userPluginsDir(deps.home)}`);
+    await rm(dir, { recursive: true, force: true });
+    const { config } = await loadConfig(g.configPath);
+    if (config.plugins?.[name] !== undefined) await editConfigFile(g.configPath, deps.now(), (doc) => doc.deleteIn(['plugins', name]));
+    return { data: { name, action: 'uninstalled', enabled: false }, human: `Removed ${name} (${dir}) and its config entry.` };
+  });
+}
+
+/** `devhost plugin enable|disable <name>`. */
+export function pluginToggleCommand(deps: Deps, g: GlobalOptions, name: string, enabled: boolean): Promise<number> {
+  return short<PluginChangeData>(deps, g, async () => {
+    const { config } = await loadConfig(g.configPath);
+    if (!(await loadPlugins(config, deps.home)).some((p) => p.name === name)) throw new UsageError(`no plugin named "${name}"`, 'See `devhost plugin list`.');
+    await setEnabled(deps, g, name, enabled);
+    return { data: { name, action: enabled ? 'enabled' : 'disabled', enabled }, human: `${name} is ${enabled ? 'on' : 'off'}.` };
   });
 }
