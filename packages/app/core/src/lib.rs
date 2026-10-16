@@ -12,7 +12,7 @@ pub const DEVHOST_PATH_ENV: &str = "PATH=/opt/homebrew/bin:/usr/local/bin:/usr/b
 /// `devhost` subcommands the app may run (everything else is refused).
 pub const ALLOWED_SUBCOMMANDS: &[&str] = &[
     "version", "status", "doctor", "apply", "account", "env", "login", "config", "dash", "collector",
-    "notify", "uninstall",
+    "notify", "uninstall", "plugin",
 ];
 
 /// POSIX single-quote a string so a remote shell sees it as one literal word.
@@ -384,6 +384,7 @@ mod tests {
     fn only_known_devhost_subcommands_are_allowed() {
         assert!(validate_devhost_args(&v(&["env", "list", "--json"])).is_ok());
         assert!(validate_devhost_args(&v(&["config", "put"])).is_ok());
+        assert!(validate_devhost_args(&v(&["plugin", "run", "disk-cleanup", "clean", "--json"])).is_ok());
         assert!(validate_devhost_args(&[]).is_err());
         assert!(validate_devhost_args(&v(&["rm", "-rf", "/"])).is_err());
         assert!(validate_devhost_args(&v(&["--json", "version"])).is_err());

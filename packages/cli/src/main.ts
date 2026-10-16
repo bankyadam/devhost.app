@@ -17,6 +17,7 @@ import { accountAddCommand, accountListCommand, accountRemoveCommand, loginComma
 import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, envServiceCommand } from './commands-env.js';
 import { collectorLogsCommand, collectorRunCommand, dashCommand, notifyCommand, topCommand } from './commands-collector.js';
 import { doctorCommand, statusCommand, uninstallCommand } from './commands-doctor.js';
+import { pluginListCommand, pluginRunCommand } from './commands-plugins.js';
 import { closeInput } from './prompter.js';
 import { resolveConfigPath } from './config/paths.js';
 import type { Deps } from './deps.js';
@@ -235,6 +236,16 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .description('Notifications')
     .option('--test', 'send a test notification')
     .action(run(() => notifyCommand(deps, globals(), { test: program.commands.find((c) => c.name() === 'notify')!.opts<{ test?: boolean }>().test === true })));
+
+  const plugin = program.command('plugin').description('devhost plugins: built-in ones and ~/.config/devhost/plugins');
+  plugin.command('list').description('Plugins, their actions and checks').action(run(() => pluginListCommand(deps, globals())));
+  plugin
+    .command('run <plugin> <action>')
+    .description("Run a plugin's action (one that removes or stops something asks first; --yes answers)")
+    .option('--env <name>', 'the environment, for an environment action')
+    .option('--session <id>', 'the session (id or its first 8 characters), for a session action')
+    .option('--dry-run', 'show what would change, change nothing')
+    .action((name: string, action: string, o: { env?: string; session?: string; dryRun?: boolean }) => run(() => pluginRunCommand(deps, globals(), { plugin: name, action, env: o.env, session: o.session, dryRun: o.dryRun === true }))());
 
   program.command('doctor').description('Read-only health checks with one-line fixes; exit 1 on any failure').action(run(() => doctorCommand(deps, globals())));
   program.command('status').description('One-screen summary').action(run(() => statusCommand(deps, globals())));
