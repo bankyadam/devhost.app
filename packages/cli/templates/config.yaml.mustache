@@ -6,6 +6,9 @@
 
 machine:
   hostname: {{hostname}}
+  # true = devhost may run its root operations (its services, hostname, power, SSH) without the
+  # sudo password, through a helper that checks each one. Installing it asks for the password once.
+  rootHelper: false
   # true = devhost sets the value. false = devhost leaves the setting alone.
   power: { neverSleep: true, autoRestartAfterPowerLoss: true, wakeOnLan: true }
 

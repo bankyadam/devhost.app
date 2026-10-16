@@ -11,6 +11,7 @@ import { COLIMA_LABEL } from './docker.js';
 import { gitDir } from './git.js';
 import { brewfilePath, requiredPackages } from './packages.js';
 import { hashBlock } from './shellblock.js';
+import { installed, removeRootHelper } from './root-helper.js';
 import { ok, skip, todo, type Step } from './types.js';
 
 export interface UninstallOptions {
@@ -41,6 +42,15 @@ export function uninstallSteps(config: DevhostConfig, opts: UninstallOptions): S
       async apply(ctx) {
         for (const l of labels(config)) if (await daemonInstalled(ctx.exec, l)) await removeDaemon(ctx, l);
       },
+    },
+    {
+      id: 'uninstall.helper',
+      description: 'Remove the root helper and its sudoers rule',
+      async check(ctx) {
+        const have = await installed(ctx);
+        return have.helper || have.sudoers ? todo('the root helper is installed') : ok();
+      },
+      apply: (ctx) => removeRootHelper(ctx, 'devhost uninstall'),
     },
     {
       id: 'uninstall.environments',

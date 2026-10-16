@@ -1,6 +1,7 @@
 import type { DevhostConfig } from '@devhost/contract';
 import { HumanActionRequired } from '../errors.js';
 import type { Executor } from '../runner/executor.js';
+import { rootHelperStep } from './root-helper.js';
 import { ok, skip, todo, type Step } from './types.js';
 
 const HOSTNAME_KEYS = ['ComputerName', 'HostName', 'LocalHostName'] as const;
@@ -141,4 +142,4 @@ export const sshStep: Step = {
   },
 };
 
-export const systemSteps: Step[] = [hostnameStep, powerStep, sshStep];
+export const systemSteps: Step[] = [rootHelperStep, hostnameStep, powerStep, sshStep];

@@ -4,6 +4,8 @@ import { type DevhostError } from './errors.js';
 import { errorEntries, exitCodeFor, writeEnvelope, writeHumanError, writeResultEvent } from './output.js';
 import { HumanReporter, NdjsonReporter, type Reporter } from './reporter.js';
 import { Executor } from './runner/executor.js';
+import { launchDaemonsDir } from './launchd.js';
+import { HELPER_PATH, SYSTEM_LAUNCH_DAEMONS } from './root-helper.js';
 import type { StepContext } from './steps/types.js';
 
 export interface GlobalOptions {
@@ -41,6 +43,8 @@ export function newExecutor(deps: Deps, g: GlobalOptions, reporter: Reporter, dr
     verbose: g.verbose,
     interactiveSudo: deps.stdinIsTTY && !g.json,
     now: deps.now,
+    // Tests point launchd at a temporary directory; the helper only knows the real one.
+    ...(launchDaemonsDir() === SYSTEM_LAUNCH_DAEMONS ? { rootHelper: { path: HELPER_PATH, launchDaemons: SYSTEM_LAUNCH_DAEMONS } } : {}),
   });
 }
 

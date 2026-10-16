@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { DevhostConfig } from '@devhost/contract';
 import { validateConfig } from '@devhost/contract';
@@ -9,6 +10,8 @@ import { brewFormulae, packagesStep, renderBrewfile, requiredPackages } from '..
 import { installedRequests, runtimesStep } from '../src/steps/runtimes.js';
 import { pmsetCapabilities, pmsetValues, powerStep, sshStep, hostnameStep } from '../src/steps/system.js';
 import { buildSteps, selectSteps } from '../src/steps/index.js';
+import { HELPER_PATH, helperArgs, sudoersRule } from '../src/root-helper.js';
+import { rootHelperStep } from '../src/steps/root-helper.js';
 import { makeEnv } from './helpers.js';
 
 const config = (extra: object = {}): DevhostConfig => {
@@ -192,9 +195,76 @@ describe('runtimes', () => {
 describe('step selection', () => {
   it('selects by id or group and rejects unknown names', () => {
     const all = buildSteps(config());
-    expect(selectSteps(all, ['system']).map((s) => s.id)).toEqual(['system.hostname', 'system.power', 'system.ssh']);
+    expect(selectSteps(all, ['system']).map((s) => s.id)).toEqual(['system.helper', 'system.hostname', 'system.power', 'system.ssh']);
     expect(selectSteps(all, ['system.power', 'shell']).map((s) => s.id)).toEqual(['system.power', 'shell']);
     expect(selectSteps(all, ['docker']).map((s) => s.id)).toEqual(['docker.config', 'docker.runtime']);
     expect(() => selectSteps(all, ['nope'])).toThrow(/unknown step: nope/);
   });
 });
+
+describe('root helper', () => {
+  const LD = '/Library/LaunchDaemons';
+  it('maps devhost root commands to helper operations, and nothing else', () => {
+    expect(helperArgs('launchctl', ['bootout', 'system/com.devhost.rc.a.b'], LD)).toEqual(['bootout', 'com.devhost.rc.a.b']);
+    expect(helperArgs('launchctl', ['bootstrap', 'system', `${LD}/com.devhost.collector.plist`], LD)).toEqual(['bootstrap', 'com.devhost.collector']);
+    expect(helperArgs('launchctl', ['kickstart', '-k', 'system/com.devhost.collector'], LD)).toEqual(['kickstart', 'com.devhost.collector', '-k']);
+    expect(helperArgs('launchctl', ['kickstart', 'system/com.devhost.collector'], LD)).toEqual(['kickstart', 'com.devhost.collector']);
+    expect(helperArgs('install', ['-m', '644', '-o', 'root', '-g', 'wheel', '/h/.config/devhost/launchd/com.devhost.x.plist', `${LD}/com.devhost.x.plist`], LD)).toEqual(['install', 'com.devhost.x', '/h/.config/devhost/launchd/com.devhost.x.plist']);
+    expect(helperArgs('rm', ['-f', `${LD}/com.devhost.x.plist`], LD)).toEqual(['remove', 'com.devhost.x']);
+    expect(helperArgs('scutil', ['--set', 'HostName', 'macmini'], LD)).toEqual(['hostname', 'HostName', 'macmini']);
+    expect(helperArgs('pmset', ['-a', 'sleep', '0', 'womp', '1'], LD)).toEqual(['pmset', 'sleep', '0', 'womp', '1']);
+    expect(helperArgs('systemsetup', ['-setremotelogin', 'on'], LD)).toEqual(['remote-login']);
+    // Not the helper's: other services, other files, Tailscale (root daemon from a user-writable prefix), the helper itself.
+    for (const [cmd, args] of [
+      ['launchctl', ['bootout', 'system/com.apple.sshd']],
+      ['launchctl', ['bootstrap', 'system', '/tmp/com.devhost.x.plist']],
+      ['install', ['-m', '755', '-o', 'root', '-g', 'wheel', '/s', HELPER_PATH]],
+      ['rm', ['-f', '/etc/sudoers.d/devhost']],
+      ['brew', ['services', 'start', 'tailscale']],
+      ['visudo', ['-c', '-f', '/s']],
+    ] as [string, string[]][]) {
+      expect(helperArgs(cmd, args, LD), `${cmd} ${args.join(' ')}`).toBeNull();
+    }
+  });
+
+  it('the sudoers rule names one user and the helper only', () => {
+    expect(sudoersRule('adam')).toContain(`adam ALL=(root) NOPASSWD: ${HELPER_PATH}\n`);
+    expect(() => sudoersRule('root')).toThrow();
+    expect(() => sudoersRule('a b')).toThrow();
+  });
+
+  it('runs root commands through the helper once sudo allows it without a password, else sudo as before', async () => {
+    const runner = new MockRunner().on('sudo -n -l', {}).on('sudo -n --', {});
+    const e = exec(runner, { rootHelper: { path: HELPER_PATH, launchDaemons: LD } }, logging);
+    logs.length = 0;
+    await e.exec('launchctl', ['kickstart', '-k', 'system/com.devhost.collector'], { sudo: true, reason: 'restart' });
+    await e.exec('launchctl', ['bootout', 'system/com.devhost.collector'], { sudo: true });
+    expect(runner.lines()).toEqual([`sudo -n -l ${HELPER_PATH}`, `sudo -n -- ${HELPER_PATH} kickstart com.devhost.collector -k`, `sudo -n -- ${HELPER_PATH} bootout com.devhost.collector`]);
+    expect(logs.some((l) => l.includes('sudo required'))).toBe(false);
+    // Tailscale is not the helper's: plain sudo (and its password).
+    await e.exec('brew', ['services', 'start', 'tailscale'], { sudo: true, reason: 'tailscale' });
+    expect(runner.lines().at(-1)).toBe('sudo -n -- brew services start tailscale');
+
+    const noRule = new MockRunner().on('sudo -n -l', { code: 1, stderr: 'sudo: a password is required\n' }).on('sudo -n --', {});
+    await exec(noRule, { rootHelper: { path: HELPER_PATH, launchDaemons: LD } }).exec('launchctl', ['bootout', 'system/com.devhost.collector'], { sudo: true, allowFailure: true });
+    expect(noRule.lines().at(-1)).toBe('sudo -n -- launchctl bootout system/com.devhost.collector');
+  });
+
+  it('step: skipped when off, installs helper and a checked sudoers rule when on', async () => {
+    const env = await makeEnv();
+    const ctx = (runner: MockRunner, rootHelper: boolean) => ({ user: 'adam', brewPrefix: '/usr/local', nodePath: '/n', configPath: '/c', config: config({ machine: { hostname: 'm', rootHelper } }), home: env.home, exec: exec(runner) });
+    expect(await rootHelperStep.check(ctx(new MockRunner(), false))).toEqual({ state: 'skip', reason: 'machine.rootHelper is false' });
+    expect(await rootHelperStep.check(ctx(new MockRunner(), true))).toEqual({ state: 'todo', reason: 'the root helper is not installed' });
+    const runner = new MockRunner().on('sudo -n --', {});
+    await rootHelperStep.apply(ctx(runner, true));
+    const lines = runner.lines();
+    const visudo = lines.findIndex((l) => l.includes('visudo -c -f'));
+    const sudoers = lines.findIndex((l) => l.includes('install -m 440 -o root -g wheel'));
+    expect(lines.some((l) => l.includes('install -m 755 -o root -g wheel'))).toBe(true);
+    expect(visudo).toBeGreaterThan(-1);
+    expect(sudoers).toBeGreaterThan(visudo);
+    const { readFile } = await import('node:fs/promises');
+    expect(await readFile(join(env.home, '.config', 'devhost', 'root-helper', 'sudoers'), 'utf8')).toContain(`adam ALL=(root) NOPASSWD: ${HELPER_PATH}`);
+  });
+});
+

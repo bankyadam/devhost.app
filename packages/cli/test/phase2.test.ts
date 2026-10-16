@@ -1,9 +1,12 @@
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ApplyData } from '@devhost/contract';
 import { managedSettings, mergeSettings, parseSettings, removeManaged } from '../src/claude-settings.js';
-import { renderPlist } from '../src/launchd.js';
+import { loggedArgs, renderPlist } from '../src/launchd.js';
+import { templatesDir } from '../src/paths.js';
 import { gitconfigBlockBody } from '../src/steps/git.js';
 import { shellBlockBody } from '../src/steps/shell.js';
 import { markdownBlock } from '../src/steps/shellblock.js';
@@ -98,6 +101,45 @@ describe('plist', () => {
     expect(text).toContain('<key>HOME</key>\n    <string>/Users/x</string>');
     expect(text).toContain('<key>KeepAlive</key>\n  <true/>');
     expect(text).toContain('<integer>30</integer>');
+    // Logs through /bin/sh as the user, not launchd's root-opened StandardOutPath.
+    expect(text).not.toContain('StandardOutPath');
+    expect(text).toContain('<string>/bin/sh</string>\n    <string>-c</string>\n    <string>exec &gt;&gt;&quot;$0&quot; 2&gt;&amp;1 &amp;&amp; exec &quot;$@&quot;</string>\n    <string>/l.log</string>\n    <string>/opt/homebrew/bin/claude</string>');
+  });
+
+  it('the log wrapper appends stdout and stderr and runs the program with its arguments', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wrap-'));
+    const log = join(dir, 'svc.log');
+    await writeFile(log, 'before\n');
+    const r = spawnSync(loggedArgs({ args: ['/bin/sh', '-c', 'echo out "$1"; echo err >&2', 'x', 'a b'], logPath: log })[0]!, loggedArgs({ args: ['/bin/sh', '-c', 'echo out "$1"; echo err >&2', 'x', 'a b'], logPath: log }).slice(1));
+    expect(r.status).toBe(0);
+    expect(await readFile(log, 'utf8')).toBe('before\nout a b\nerr\n');
+  });
+
+  describe.runIf(process.platform === 'darwin')('root helper (templates/devhost-root.js)', () => {
+    const helper = join(templatesDir, 'devhost-root.js');
+    const check = async (text: string, label = 'com.devhost.rc.a.b', user = 'adam', home = '/Users/adam') => {
+      const dir = await mkdtemp(join(tmpdir(), 'helper-'));
+      await writeFile(join(dir, 'p.plist'), text);
+      const r = spawnSync('/usr/bin/osascript', ['-l', 'JavaScript', helper, 'check', join(dir, 'p.plist'), label, user, home], { encoding: 'utf8' });
+      return { ok: r.status === 0, error: r.stderr };
+    };
+    const spec = { label: 'com.devhost.rc.a.b', args: ['/usr/local/bin/claude', 'remote-control'], workingDirectory: '/Users/adam/work/a/b', env: { HOME: '/Users/adam' }, logPath: '/Users/adam/Library/Logs/devhost/rc-a-b.log' };
+
+    it('accepts what devhost renders', async () => {
+      expect(await check(await renderPlist(spec, 'adam'))).toMatchObject({ ok: true });
+    });
+
+    it('refuses what would run as root or let launchd write for the service', async () => {
+      const good = await renderPlist(spec, 'adam');
+      expect((await check(await renderPlist(spec, 'root'), 'com.devhost.rc.a.b', 'root')).ok).toBe(false);
+      expect((await check(good, 'com.devhost.rc.a.b', 'eve')).error).toContain('UserName must be eve');
+      expect((await check(good.replace('<key>RunAtLoad</key>', '<key>StandardOutPath</key><string>/Users/adam/Library/Logs/devhost/x</string><key>RunAtLoad</key>'))).error).toContain('key StandardOutPath is not allowed');
+      expect((await check(good.replace('<key>RunAtLoad</key>', '<key>Sockets</key><dict/><key>RunAtLoad</key>'))).error).toContain('key Sockets is not allowed');
+      expect((await check(good, 'com.apple.evil')).error).toContain('is not a devhost service label');
+      expect((await check(good, 'com.devhost.other')).error).toContain('Label must be com.devhost.other');
+      expect((await check(good.replace('/Users/adam/work/a/b', '/etc'))).error).toContain('WorkingDirectory must be inside /Users/adam');
+      expect((await check('not a plist')).ok).toBe(false);
+    });
   });
 });
 

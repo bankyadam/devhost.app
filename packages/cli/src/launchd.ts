@@ -23,17 +23,24 @@ export const stagedPlistPath = (home: string, label: string): string => join(dev
 const xml = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/**
+ * The service appends its own output to its log, through /bin/sh as the service's user. No
+ * StandardOutPath: launchd opens that as root, so a symlink in the user's log directory could
+ * point it at any file; the root helper refuses such plists (templates/devhost-root.js).
+ */
+export const LOG_WRAPPER = 'exec >>"$0" 2>&1 && exec "$@"';
+export const loggedArgs = (spec: Pick<DaemonSpec, 'args' | 'logPath'>): string[] => ['/bin/sh', '-c', LOG_WRAPPER, spec.logPath, ...spec.args];
+
 export async function renderPlist(spec: DaemonSpec, user: string): Promise<string> {
   return renderTemplate('launchd.plist', {
     label: xml(spec.label),
     user: xml(user),
     workingDirectory: spec.workingDirectory ? xml(spec.workingDirectory) : null,
-    args: spec.args.map(xml),
+    args: loggedArgs(spec).map(xml),
     env: Object.entries(spec.env)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => ({ key: xml(key), value: xml(value) })),
     throttle: spec.throttle ?? 30,
-    logPath: xml(spec.logPath),
   });
 }
 
