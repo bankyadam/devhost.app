@@ -8,7 +8,7 @@ import type { Reporter } from '../reporter.js';
 import type { Executor } from '../runner/executor.js';
 import type { EnvironmentInfo, PluginContext, SessionInfo } from './api.js';
 
-export function pluginContext(c: { config: DevhostConfig; name: string; home: string; user: string; exec: Executor; reporter: Reporter; prompter: Prompter }): PluginContext {
+export function pluginContext(c: { config: DevhostConfig; name: string; home: string; user: string; nodePath: string; exec: Executor; reporter: Reporter; prompter: Prompter }): PluginContext {
   const environments: EnvironmentInfo[] = environmentsOf(c.config).flatMap((e) => {
     const a = findAccount(c.config, e.account);
     return a ? [{ name: e.name, account: e.account, dir: envDir(a, e, c.home) }] : [];
@@ -18,6 +18,7 @@ export function pluginContext(c: { config: DevhostConfig; name: string; home: st
     options: (c.config.plugins?.[c.name]?.options ?? {}) as Record<string, unknown>,
     home: c.home,
     user: c.user,
+    nodePath: c.nodePath,
     exec: c.exec,
     reporter: c.reporter,
     prompter: c.prompter,
