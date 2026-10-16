@@ -85,10 +85,27 @@ describe('connection (spec B2, B6)', () => {
 });
 
 describe('dashboard (spec B3.1, B6)', () => {
-  async function dashboard(webApps: string[] = [], transcripts: Record<string, string> = {}) {
+  /** A plugin of yours (installed in ~/.config/devhost/plugins and enabled): a host action that removes things, a session one. */
+  const FIXTURE = `export default {
+    name: 'tidy', version: '0.1.0', description: 'test plugin',
+    actions: [
+      { id: 'clean', title: 'Free disk space', description: 'removes caches', scope: 'host', destructive: true,
+        async run(ctx) { await ctx.exec.exec('rm', ['-rf', ctx.home + '/cache']); return { summary: ctx.exec.dryRun ? 'would free 1 GB' : 'freed 1 GB' }; } },
+      { id: 'stop', title: 'Stop the session process', description: 'ends it', scope: 'session', destructive: true,
+        async run(ctx, t) { return { summary: 'stopped ' + t.session.id + ' in ' + t.session.cwd }; } },
+    ],
+  };`;
+
+  async function dashboard(webApps: string[] = [], transcripts: Record<string, string> = {}, plugin = false) {
     const h = await makeHarness();
     webApps.forEach((a) => h.transport.webAppsInstalled.add(a));
     await withBusiness(h);
+    if (plugin) {
+      const { mkdir, writeFile } = await import('node:fs/promises');
+      await mkdir(join(h.env.home, '.config', 'devhost', 'plugins', 'tidy'), { recursive: true });
+      await writeFile(join(h.env.home, '.config', 'devhost', 'plugins', 'tidy', 'index.js'), FIXTURE);
+      await h.cli('plugin', 'enable', 'tidy');
+    }
     for (const [id, lines] of Object.entries(transcripts)) {
       const { mkdir, writeFile } = await import('node:fs/promises');
       const dir = join(h.env.home, '.claude-business', 'projects', join(h.env.home, 'work', 'business', 'acme-api').replace(/[^A-Za-z0-9]/g, '-'));
@@ -179,35 +196,37 @@ describe('dashboard (spec B3.1, B6)', () => {
   });
 
   it("plugin session actions are in the session's Open menu and ask before they stop anything", async () => {
-    const h = await dashboard();
+    const h = await dashboard([], {}, true);
     const row = (await screen.findByText('sess-wai')).closest('tr')!;
     await h.user.click(within(row).getByRole('button', { name: /Open/ }));
     await h.user.click(await screen.findByRole('menuitem', { name: 'Stop the session process…' }));
     const dlg = within(await screen.findByRole('dialog', { name: /Stop the session process · sess-wai/ }));
     const ask = await dlg.findByText(/Stop the session process for session sess-wai/, undefined, { timeout: 8000 });
     await h.user.click(within(ask.closest('.prompt') as HTMLElement).getByRole('button', { name: 'Yes' }));
-    expect(await dlg.findByLabelText('Result', undefined, { timeout: 8000 })).toHaveTextContent('has no process of a devhost Remote Control service');
-    expect(h.transport.calls.some((c) => c.join(' ').startsWith('plugin run session-stop stop --session sess-waiting-1'))).toBe(true);
+    expect(await dlg.findByLabelText('Result', undefined, { timeout: 8000 })).toHaveTextContent(`stopped sess-waiting-1 in ${join(h.env.home, 'work', 'business', 'acme-api')}`);
+    expect(h.transport.calls.some((c) => c.join(' ').startsWith('plugin run tidy stop --session sess-waiting-1'))).toBe(true);
   });
 
   it('the Plugins screen lists the plugins and runs host actions, with a preview for the ones that remove things', async () => {
-    const h = await dashboard();
+    const h = await dashboard([], {}, true);
     await h.user.click(screen.getByRole('button', { name: 'Plugins' }));
-    const card = within(await screen.findByRole('region', { name: 'Plugin disk-cleanup' }));
-    expect(card.getByText('built-in')).toBeInTheDocument();
+    const card = within(await screen.findByRole('region', { name: 'Plugin tidy' }));
+    expect(card).not.toBeNull();
     await h.user.click(card.getByRole('button', { name: 'Preview' }));
     const dlg = within(await screen.findByRole('dialog', { name: 'Preview: Free disk space' }));
-    expect(await dlg.findByLabelText('Result', undefined, { timeout: 8000 })).toHaveTextContent('reclaim');
-    expect(h.transport.calls.some((c) => c.join(' ') === 'plugin run disk-cleanup clean --dry-run --json')).toBe(true);
-    expect(screen.getByRole('region', { name: 'Plugin session-stop' })).toHaveTextContent("In each session's Open menu");
+    expect(await dlg.findByLabelText('Result', undefined, { timeout: 8000 })).toHaveTextContent('would free 1 GB');
+    expect(h.transport.calls.some((c) => c.join(' ') === 'plugin run tidy clean --dry-run --json')).toBe(true);
+    expect(screen.getByRole('region', { name: 'Plugin tidy' })).toHaveTextContent("In each session's Open menu");
+    await h.user.click(dlg.getByRole('button', { name: 'Close' }));
 
-    // Turning a plugin off takes its actions out of the menus.
-    const stop = within(screen.getByRole('region', { name: 'Plugin session-stop' }));
-    await h.user.click(stop.getByRole('button', { name: 'Disable' }));
-    await waitFor(() => expect(stop.getByText('off')).toBeInTheDocument());
-    expect(stop.queryByRole('button', { name: 'Uninstall…' })).toBeNull(); // built in: only disable
-    await h.user.click(stop.getByRole('button', { name: 'Enable' }));
-    await waitFor(() => expect(stop.getByText('on')).toBeInTheDocument());
+    // Off and on again; uninstall removes it.
+    await h.user.click(card.getByRole('button', { name: 'Disable' }));
+    await waitFor(() => expect(card.getByText('off')).toBeInTheDocument());
+    await h.user.click(card.getByRole('button', { name: 'Enable' }));
+    await waitFor(() => expect(card.getByText('on')).toBeInTheDocument());
+    await h.user.click(card.getByRole('button', { name: 'Uninstall…' }));
+    await h.user.click(within(await screen.findByRole('dialog', { name: 'Uninstall tidy?' })).getByRole('button', { name: 'Uninstall' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Plugin tidy' })).toBeNull());
     // Install asks for a repository and says the plugin stays off.
     await h.user.click(screen.getByRole('button', { name: 'Install from GitHub…' }));
     const inst = within(await screen.findByRole('dialog', { name: 'Install a plugin' }));

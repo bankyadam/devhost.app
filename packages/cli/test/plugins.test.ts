@@ -157,8 +157,8 @@ describe('plugin install / uninstall', () => {
     expect(await env.run('plugin', 'uninstall', 'hello', '--json')).toBe(0);
     await expect(stat(join(env.home, '.config', 'devhost', 'plugins', 'hello'))).rejects.toThrow();
     expect(await readFile(join(env.home, '.config', 'devhost', 'config.yaml'), 'utf8')).not.toMatch(/hello:/);
-    expect(await env.run('plugin', 'uninstall', 'disk-cleanup')).toBe(2); // built in: disable instead
-    expect(await env.run('plugin', 'disable', 'disk-cleanup')).toBe(0);
+    expect(await env.run('plugin', 'uninstall', 'hello')).toBe(2); // not installed any more
+    expect(await env.run('plugin', 'disable', 'nope')).toBe(2);
   });
 
   it('a repository without index.js is not installed, and leaves nothing behind', async () => {
