@@ -13,6 +13,7 @@ import {
   type Envelope,
   type Event,
   type LoginData,
+  type PluginChangeData,
   type PluginListData,
   type PluginRunData,
   type StatusData,
@@ -190,6 +191,9 @@ export class DevhostClient {
   envService = (name: string, action: 'start' | 'stop' | 'restart', h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', action, name], h);
 
   plugins = (): Promise<PluginListData> => this.short<PluginListData>(['plugin', 'list']);
+  pluginInstall = (source: string, enable: boolean, h?: LongHandlers): LongRun<PluginChangeData> => this.run<PluginChangeData>(['plugin', 'install', source, ...(enable ? ['--enable'] : [])], h);
+  pluginUninstall = (name: string): Promise<PluginChangeData> => this.short<PluginChangeData>(['plugin', 'uninstall', name]);
+  pluginToggle = (name: string, enabled: boolean): Promise<PluginChangeData> => this.short<PluginChangeData>(['plugin', enabled ? 'enable' : 'disable', name]);
   pluginRun = (plugin: string, action: string, target: PluginTarget, dryRun: boolean, h?: LongHandlers): LongRun<PluginRunData> =>
     this.run<PluginRunData>(pluginRunArgs(plugin, action, target, dryRun), h);
 }

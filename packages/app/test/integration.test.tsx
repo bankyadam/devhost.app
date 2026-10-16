@@ -200,6 +200,22 @@ describe('dashboard (spec B3.1, B6)', () => {
     expect(await dlg.findByLabelText('Result', undefined, { timeout: 8000 })).toHaveTextContent('reclaim');
     expect(h.transport.calls.some((c) => c.join(' ') === 'plugin run disk-cleanup clean --dry-run --json')).toBe(true);
     expect(screen.getByRole('region', { name: 'Plugin session-stop' })).toHaveTextContent("In each session's Open menu");
+
+    // Turning a plugin off takes its actions out of the menus.
+    const stop = within(screen.getByRole('region', { name: 'Plugin session-stop' }));
+    await h.user.click(stop.getByRole('button', { name: 'Disable' }));
+    await waitFor(() => expect(stop.getByText('off')).toBeInTheDocument());
+    expect(stop.queryByRole('button', { name: 'Uninstall…' })).toBeNull(); // built in: only disable
+    await h.user.click(stop.getByRole('button', { name: 'Enable' }));
+    await waitFor(() => expect(stop.getByText('on')).toBeInTheDocument());
+    // Install asks for a repository and says the plugin stays off.
+    await h.user.click(screen.getByRole('button', { name: 'Install from GitHub…' }));
+    const inst = within(await screen.findByRole('dialog', { name: 'Install a plugin' }));
+    expect(inst.getByRole('button', { name: 'Install' })).toBeDisabled();
+    await h.user.type(inst.getByLabelText('GitHub repository'), 'someone/devhost-plugin-x');
+    expect(inst.getByText(/stays off until you enable it/)).toBeInTheDocument();
+    await h.user.click(inst.getByRole('button', { name: 'Install' }));
+    await waitFor(() => expect(h.transport.calls.some((c) => c.join(' ') === 'plugin install someone/devhost-plugin-x --json')).toBe(true));
   });
 
   it("claude.ai/code opens the account's web app when it has one", async () => {
