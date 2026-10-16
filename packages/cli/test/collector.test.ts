@@ -346,6 +346,30 @@ describe('Collector sampling', () => {
     expect(db.get('SELECT cpu_pct, rss_bytes FROM samples_session ORDER BY ts DESC LIMIT 1')).toMatchObject({ cpu_pct: 9, rss_bytes: (20480 + 1024) * 1024 });
   });
 
+  it('a session nothing works in any more, quiet for 10 min, is ended (no SessionEnd came)', async () => {
+    const runner = new MockRunner()
+      .on('launchctl print system/com.devhost.rc.business.acme-api', { stdout: 'state = running\n\tpid = 100\n' })
+      .on('ps', { stdout: ` 100 1 2.0 10240 /opt/homebrew/bin/claude remote-control --name business-acme-api\n 101 100 8.0 20480 /opt/homebrew/bin/claude --worktree x\n` })
+      .on('lsof', { stdout: `p100\nn${HOME}/work/business/acme-api\np101\nn${HOME}/work/business/acme-api/.claude/worktrees/x\n` });
+    const { db, collector, clock } = setup({ runner });
+    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 'alive', cwd: `${HOME}/work/business/acme-api/.claude/worktrees/x` }, 'business');
+    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 'gone', cwd: `${HOME}/work/business/acme-api/.claude/worktrees/y` }, 'business');
+    await collector.sampleTick();
+    expect(db.get("SELECT state FROM sessions WHERE session_id = 'gone'")).toMatchObject({ state: 'idle' }); // just started
+    clock.now += 11 * 60_000;
+    await collector.sampleTick();
+    expect(db.all('SELECT session_id, state FROM sessions ORDER BY session_id')).toEqual([{ session_id: 'alive', state: 'idle' }, { session_id: 'gone', state: 'ended' }]);
+  });
+
+  it('nothing is ended when ps or lsof gave no answer', async () => {
+    const runner = new MockRunner().on('ps', { stdout: ' 101 1 8.0 20480 /opt/homebrew/bin/claude --worktree x\n' }).on('lsof', { code: 1 });
+    const { db, collector, clock } = setup({ runner });
+    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 's', cwd: `${HOME}/somewhere` }, 'business');
+    clock.now += 60 * 60_000;
+    await collector.sampleTick();
+    expect(db.get("SELECT state FROM sessions WHERE session_id = 's'")).toMatchObject({ state: 'idle' });
+  });
+
   it('records a service restart when the launchd job gets a new pid', async () => {
     let pid = 100;
     const runner = new MockRunner()
