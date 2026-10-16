@@ -6,6 +6,8 @@ import { errorMessage } from '../client/errors';
 import { ENV_SLUG, predictEnvBlock } from '../lib/ports';
 import { Badge, Dialog, Empty, Field, Menu, WizardStep } from '../ui/primitives';
 import { RunDialog } from '../ui/run-dialog';
+import { PluginRunDialog } from '../ui/plugin-run';
+import { usePlugins, type PluginActionInfo } from '../use-plugins';
 import { openClaude, useWebApps } from '../use-web-apps';
 
 type Env = EnvListData['environments'][number];
@@ -14,6 +16,8 @@ export function Environments() {
   const { client, transport, connection, reportUnreachable } = useApp();
   const [envs, setEnvs] = useState<Env[] | null>(null);
   const webApps = useWebApps();
+  const plugins = usePlugins();
+  const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; env: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env }>(null);
 
@@ -77,6 +81,7 @@ export function Environments() {
                             { label: 'Stop', hidden: !e.remoteControl.enabled, disabled: e.service.state !== 'running', onSelect: () => setDialog({ kind: 'service', env: e, action: 'stop' }) },
                             { label: 'Restart', hidden: !e.remoteControl.enabled, onSelect: () => setDialog({ kind: 'service', env: e, action: 'restart' }) },
                             { label: 'Logs', onSelect: () => setDialog({ kind: 'logs', env: e }) },
+                            ...plugins.actions('environment').map((a) => ({ label: `${a.title}${a.destructive ? '…' : ''}`, danger: a.destructive, onSelect: () => setPluginRun({ action: a, env: e.name }) })),
                             { label: 'Delete…', danger: true, onSelect: () => setDialog({ kind: 'delete', env: e }) },
                           ]}
                         />
@@ -91,6 +96,7 @@ export function Environments() {
         <p className="note">Start, stop and restart change a system service, so they need the sudo password; if it cannot be asked here you get a Terminal window for it. A stopped service stays stopped until you start it or the Mac mini reboots.</p>
       </section>
 
+      {pluginRun && <PluginRunDialog action={pluginRun.action} target={{ env: pluginRun.env }} onClose={() => setPluginRun(null)} />}
       {dialog?.kind === 'create' && <CreateWizard onClose={() => { setDialog(null); void refresh(); }} />}
       {dialog?.kind === 'service' && (
         <RunDialog

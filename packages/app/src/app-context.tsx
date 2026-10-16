@@ -21,7 +21,7 @@ export interface AppCtx {
   tools: { code: boolean; iterm: boolean };
 }
 
-export type Screen = 'dashboard' | 'environments' | 'accounts' | 'configuration' | 'doctor';
+export type Screen = 'dashboard' | 'environments' | 'accounts' | 'plugins' | 'configuration' | 'doctor';
 
 const Ctx = createContext<AppCtx | null>(null);
 export const useApp = (): AppCtx => {

@@ -178,6 +178,30 @@ describe('dashboard (spec B3.1, B6)', () => {
     expect(prompt.closest('td')).toHaveAttribute('title', expect.stringContaining('Last prompt: run the tests again'));
   });
 
+  it("plugin session actions are in the session's Open menu and ask before they stop anything", async () => {
+    const h = await dashboard();
+    const row = (await screen.findByText('sess-wai')).closest('tr')!;
+    await h.user.click(within(row).getByRole('button', { name: /Open/ }));
+    await h.user.click(await screen.findByRole('menuitem', { name: 'Stop the session process…' }));
+    const dlg = within(await screen.findByRole('dialog', { name: /Stop the session process · sess-wai/ }));
+    const ask = await dlg.findByText(/Stop the session process for session sess-wai/, undefined, { timeout: 8000 });
+    await h.user.click(within(ask.closest('.prompt') as HTMLElement).getByRole('button', { name: 'Yes' }));
+    expect(await dlg.findByLabelText('Result', undefined, { timeout: 8000 })).toHaveTextContent('has no process of a devhost Remote Control service');
+    expect(h.transport.calls.some((c) => c.join(' ').startsWith('plugin run session-stop stop --session sess-waiting-1'))).toBe(true);
+  });
+
+  it('the Plugins screen lists the plugins and runs host actions, with a preview for the ones that remove things', async () => {
+    const h = await dashboard();
+    await h.user.click(screen.getByRole('button', { name: 'Plugins' }));
+    const card = within(await screen.findByRole('region', { name: 'Plugin disk-cleanup' }));
+    expect(card.getByText('built-in')).toBeInTheDocument();
+    await h.user.click(card.getByRole('button', { name: 'Preview' }));
+    const dlg = within(await screen.findByRole('dialog', { name: 'Preview: Free disk space' }));
+    expect(await dlg.findByLabelText('Result', undefined, { timeout: 8000 })).toHaveTextContent('reclaim');
+    expect(h.transport.calls.some((c) => c.join(' ') === 'plugin run disk-cleanup clean --dry-run --json')).toBe(true);
+    expect(screen.getByRole('region', { name: 'Plugin session-stop' })).toHaveTextContent("In each session's Open menu");
+  });
+
   it("claude.ai/code opens the account's web app when it has one", async () => {
     const h = await dashboard(['Claude – business']);
     const row = (await screen.findByText('sess-wai')).closest('tr')!;

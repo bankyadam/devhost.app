@@ -8,12 +8,14 @@ import { Doctor } from './screens/Doctor';
 import { Environments } from './screens/Environments';
 import type { Transport } from './transport/types';
 import { Badge, ConfirmDialog, Field } from './ui/primitives';
+import { Plugins } from './screens/Plugins';
 import { useTraySync } from './use-tray';
 
 const NAV: { id: Screen; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'environments', label: 'Environments' },
   { id: 'accounts', label: 'Accounts' },
+  { id: 'plugins', label: 'Plugins' },
   { id: 'configuration', label: 'Configuration' },
   { id: 'doctor', label: 'Doctor and logs' },
 ];
@@ -137,6 +139,8 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
           <Environments />
         ) : screen === 'accounts' ? (
           <Accounts />
+        ) : screen === 'plugins' ? (
+          <Plugins />
         ) : screen === 'configuration' ? (
           <Configuration />
         ) : (
