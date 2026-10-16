@@ -351,6 +351,31 @@ describe('environments', () => {
     expect(await readdir(join(env.home, 'LaunchDaemons'))).toEqual([]);
   });
 
+  it('a setup that failed at compose (a network left from before) says how to fix it and continues when run again', async () => {
+    const { env, mac } = await withAccount();
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc')).toBe(0);
+    const dir = join(env.home, 'work', 'business', 'acme-api');
+    await writeFile(join(dir, 'compose.yaml'), 'services: { db: { image: postgres } }\n');
+    const original = mac.runner.run.bind(mac.runner);
+    let networkLeft = true;
+    mac.runner.run = async (cmd, args, opts) =>
+      networkLeft && cmd === 'docker' && args.includes('up')
+        ? { code: 1, stdout: '', stderr: 'network devhost-acme-api_default was found but has incorrect label com.docker.compose.network set to ""\n' }
+        : original(cmd, args, opts);
+    env.out.length = 0;
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--json')).toBe(1);
+    const failed = lastResult(env).errors?.[0] as { code: string; message: string; hint?: string };
+    expect(failed.code).toBe('compose-network-exists');
+    expect(failed.message).toContain('could not create the network "devhost-acme-api_default"');
+    expect(failed.hint).toContain('docker network rm devhost-acme-api_default');
+    expect(failed.hint).toContain('Run setup again');
+    // Fixed by hand; the same command continues instead of saying the environment exists.
+    networkLeft = false;
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api')).toBe(0);
+    expect(mac.state.composeUp.has('devhost-acme-api')).toBe(true);
+    expect((await cfg(env)).match(/^\s+- name: acme-api$/gm)).toHaveLength(1);
+  });
+
   it('delete without --delete-files leaves the directory', async () => {
     const { env, dir, mac } = await created();
     expect(await env.run('env', 'delete', 'acme-api', '--yes')).toBe(0);

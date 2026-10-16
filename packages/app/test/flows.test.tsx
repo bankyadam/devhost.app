@@ -239,6 +239,27 @@ describe('environments (spec B3.2)', () => {
     await waitFor(() => expect(h.transport.opened.at(-1)).toEqual({ webApp: 'Claude – business', url: 'https://claude.ai/code?environment=env_01Abc' }));
   });
 
+  it('Run setup again repeats a failed setup; Try again continues it once the cause is fixed', async () => {
+    const h = await makeHarness();
+    await withBusiness(h);
+    await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(join(h.env.home, 'work', 'business', 'acme-api', 'compose.yaml'), 'services: { db: { image: postgres } }\n');
+    const original = h.mac.runner.run.bind(h.mac.runner);
+    let broken = true;
+    h.mac.runner.run = async (cmd, args, opts) =>
+      broken && cmd === 'docker' && args.includes('up') ? { code: 1, stdout: '', stderr: 'Error response from daemon: network with name devhost-acme-api_default already exists\n' } : original(cmd, args, opts);
+    mount(h);
+    await goto(h, 'Environments');
+    await envAction(h, 'acme-api', 'Run setup again');
+    const dlg = within(await screen.findByRole('dialog', { name: 'Set up business/acme-api' }));
+    expect(await dlg.findByText(/could not create the network "devhost-acme-api_default"/, undefined, { timeout: 8000 })).toBeInTheDocument();
+    broken = false;
+    await h.user.click(dlg.getByRole('button', { name: 'Try again' }));
+    expect(await dlg.findByText('Done.', undefined, { timeout: 8000 })).toBeInTheDocument();
+    expect(h.mac.state.composeUp.has('devhost-acme-api')).toBe(true);
+  });
+
   it('shows the service log in a viewer', async () => {
     const h = await makeHarness();
     await withBusiness(h);

@@ -14,6 +14,7 @@ import {
 } from '../config/accounts.js';
 import { applyDaemon, checkDaemon, daemonInstalled, removeDaemon, serviceEnv, type DaemonSpec } from '../launchd.js';
 import { toolPath } from '../state.js';
+import { DevhostError } from '../errors.js';
 import { ok, todo, type EnvInfo, type Step, type StepContext } from './types.js';
 
 export const COMPOSE_FILES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
@@ -89,6 +90,20 @@ async function composeUp(ctx: StepContext, e: Environment, dir: string): Promise
   return running.code === 0 && count(running.stdout) > 0 && count(running.stdout) === count(all.stdout);
 }
 
+/**
+ * `docker compose up` failed. A network left from an earlier run or another project is the usual
+ * cause (compose refuses one it did not create for this project); devhost never removes it, since
+ * something else may use it, but says how to.
+ */
+export function composeError(a: Account, e: Environment, code: number, stderr: string): DevhostError {
+  const network = /network (?:with name )?["']?([\w.-]+)["']? (?:already exists|was found but|exists but)/i.exec(stderr)?.[1];
+  const again = `then run the setup again: devhost env create --account ${a.name} --name ${e.name} (the app: Environments → … → Run setup again)`;
+  const detail = stderr.trim().split('\n').filter(Boolean).at(-1) ?? `exit ${code}`;
+  return network
+    ? new DevhostError(`docker compose could not create the network "${network}": it exists already (${detail})`, 'compose-network-exists', 1, `See what uses it: docker network inspect ${network}. If nothing does: docker network rm ${network}, ${again}.`)
+    : new DevhostError(`docker compose up failed for ${e.name}: ${detail}`, 'compose-failed', 1, `Fix the compose project in ${e.name}, ${again}.`);
+}
+
 async function isGitRepo(ctx: StepContext, dir: string): Promise<boolean> {
   return (await ctx.exec.query('git', ['-C', dir, 'rev-parse', '--git-dir'])).code === 0;
 }
@@ -149,7 +164,8 @@ export function envStep(a: Account, e: Environment): Step {
       await exec.exec('direnv', ['allow', dir]);
 
       if (e.compose !== 'off' && (await composeFile(ctx, dir))) {
-        await exec.exec('docker', ['compose', '-p', composeProject(e.name), 'up', '-d'], { cwd: dir, reason: 'start the environment\'s compose services' });
+        const up = await exec.exec('docker', ['compose', '-p', composeProject(e.name), 'up', '-d'], { cwd: dir, reason: 'start the environment\'s compose services', allowFailure: true, progress: true });
+        if (up.code !== 0) throw composeError(a, e, up.code, up.stderr);
       }
 
       if (e.remoteControl?.enabled === false) {
