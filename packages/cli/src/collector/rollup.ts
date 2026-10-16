@@ -24,6 +24,12 @@ export function rollup(db: Db, now: number): void {
        WHERE ts >= ? AND ts < ? GROUP BY 1, account, env`,
       from, upTo,
     );
+    db.run(
+      `INSERT OR REPLACE INTO rollup_agents (hour, account, sessions_max, subagents_max, total_max, total_avg, samples)
+       SELECT (ts / ${HOUR}) * ${HOUR}, account, MAX(sessions), MAX(subagents), MAX(sessions + subagents), AVG(sessions + subagents), COUNT(*) FROM samples_agents
+       WHERE ts >= ? AND ts < ? GROUP BY 1, account`,
+      from, upTo,
+    );
     db.kvSet('rolled_through', String(upTo), now);
   });
 }
@@ -38,12 +44,14 @@ export function retain(db: Db, now: number, r: Retention): void {
   const rolled = Number(db.kvGet('rolled_through') ?? 0);
   const rawCutoff = Math.min(now - r.rawDays * DAY, rolled);
   db.transaction(() => {
-    for (const table of ['usage', 'api_requests', 'hook_events', 'samples_system', 'samples_env', 'samples_session', 'service_events']) {
+    for (const table of ['usage', 'api_requests', 'hook_events', 'samples_system', 'samples_env', 'samples_session', 'samples_agents', 'service_events']) {
       db.run(`DELETE FROM ${table} WHERE ts < ?`, rawCutoff);
     }
     db.run("DELETE FROM sessions WHERE state = 'ended' AND ended_at < ?", rawCutoff);
     db.run("DELETE FROM kv WHERE key LIKE 'session_owner:%' AND updated_at < ?", rawCutoff);
     db.run('DELETE FROM rollup_usage WHERE hour < ?', now - r.rollupDays * DAY);
     db.run('DELETE FROM rollup_env WHERE hour < ?', now - r.rollupDays * DAY);
+    db.run('DELETE FROM rollup_agents WHERE hour < ?', now - r.rollupDays * DAY);
+    db.run('DELETE FROM agents WHERE ended_at IS NOT NULL AND ended_at < ?', rawCutoff);
   });
 }

@@ -67,7 +67,7 @@ const attribution = () => {
 describe('db', () => {
   it('migrates once and keeps the version', () => {
     const db = new Db(':memory:');
-    expect(db.schemaVersion).toBe(1);
+    expect(db.schemaVersion).toBe(2);
     db.kvSet('a', '1', 5);
     expect(db.kvGet('a')).toBe('1');
     expect(db.kvGet('missing')).toBeNull();
@@ -346,6 +346,39 @@ describe('Collector sampling', () => {
     expect(db.get('SELECT cpu_pct, rss_bytes FROM samples_session ORDER BY ts DESC LIMIT 1')).toMatchObject({ cpu_pct: 9, rss_bytes: (20480 + 1024) * 1024 });
   });
 
+  it('records subagents from their hooks (id and type only), ends them with their session, and counts agents at work', async () => {
+    const { db, collector, clock } = setup({ runner: new MockRunner().on('ps', { stdout: '' }) });
+    const cwd = `${HOME}/work/business/acme-api`;
+    const hook = (b: Record<string, unknown>) => collector.ingest.hook({ cwd, ...b }, 'business');
+    hook({ hook_event_name: 'SessionStart', session_id: 's1' });
+    hook({ hook_event_name: 'UserPromptSubmit', session_id: 's1' });
+    hook({ hook_event_name: 'SubagentStart', session_id: 's1', agent_id: 'a1', agent_type: 'Explore' });
+    hook({ hook_event_name: 'SubagentStart', session_id: 's1', agent_id: 'a2', agent_type: 'general-purpose' });
+    hook({ hook_event_name: 'SubagentStop', session_id: 's1', agent_id: 'a1', agent_type: 'Explore', last_assistant_message: 'SECRET ANSWER', agent_transcript_path: '/x' });
+    expect(db.all('SELECT agent_id, agent_type, ended_at IS NOT NULL AS ended FROM agents ORDER BY agent_id')).toEqual([{ agent_id: 'a1', agent_type: 'Explore', ended: 1 }, { agent_id: 'a2', agent_type: 'general-purpose', ended: 0 }]);
+    expect(JSON.stringify(db.all('SELECT * FROM hook_events')) + JSON.stringify(db.all('SELECT * FROM agents'))).not.toContain('SECRET');
+    expect(db.get("SELECT state FROM sessions WHERE session_id = 's1'")).toMatchObject({ state: 'running' }); // subagent events leave the session's state
+
+    collector.sampleAgents(clock.now);
+    expect(db.all('SELECT account, sessions, subagents FROM samples_agents WHERE ts = ? ORDER BY account', clock.now)).toEqual([{ account: '', sessions: 1, subagents: 1 }, { account: 'business', sessions: 1, subagents: 1 }, { account: 'personal', sessions: 0, subagents: 0 }]);
+
+    hook({ hook_event_name: 'SessionEnd', session_id: 's1' });
+    expect(db.get("SELECT ended_at IS NOT NULL AS ended FROM agents WHERE agent_id = 'a2'")).toMatchObject({ ended: 1 });
+    clock.now += 5000;
+    collector.sampleAgents(clock.now);
+    expect(db.get("SELECT sessions, subagents FROM samples_agents WHERE ts = ? AND account = ''", clock.now)).toMatchObject({ sessions: 0, subagents: 0 });
+  });
+
+  it('rolls agent concurrency up per hour: peaks and average, per account and in total', () => {
+    const db = new Db(':memory:');
+    const hour = Math.floor(T0 / H) * H;
+    for (const [ts, s, a] of [[hour + 1000, 1, 3], [hour + 2000, 2, 0], [hour + 3000, 0, 0]] as const) {
+      db.run("INSERT INTO samples_agents VALUES (?, '', ?, ?)", ts, s, a);
+    }
+    rollup(db, hour + H + 1);
+    expect(db.get("SELECT sessions_max, subagents_max, total_max, total_avg, samples FROM rollup_agents WHERE account = ''")).toEqual({ sessions_max: 2, subagents_max: 3, total_max: 4, total_avg: 2, samples: 3 });
+  });
+
   it('a session nothing works in any more, quiet for 10 min, is ended (no SessionEnd came)', async () => {
     const runner = new MockRunner()
       .on('launchctl print system/com.devhost.rc.business.acme-api', { stdout: 'state = running\n\tpid = 100\n' })
@@ -608,10 +641,29 @@ describe('dashboard', () => {
     expect(data.sessions[0]).toMatchObject({ id: 'sess-aaaa1111', state: 'waiting', tokensToday: 1200, costToday: 1.25, cpuPercent: 3 });
     expect(data.usage.reduce((a, r) => a + r.input + r.output, 0)).toBe(1200);
     expect(data.limits.join(' ')).toContain('estimate');
-    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 1 });
+    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 2 });
 
     expect(buildDash(db, CONFIG, { range: '24h', account: 'personal' }, now, 'm', null).sessions).toEqual([]);
     expect(buildDash(db, CONFIG, { range: '24h', env: 'acme-api', model: 'other' }, now, 'm', null).usage).toEqual([]);
+  });
+
+  it("shows each session's subagents and how many agents worked at once", () => {
+    const { db, now } = populated();
+    db.run("INSERT INTO agents VALUES ('a1', 'sess-aaaa1111', 'Explore', ?, NULL)", now - 60_000);
+    db.run("INSERT INTO agents VALUES ('a2', 'sess-aaaa1111', 'Explore', ?, ?)", now - 120_000, now - 90_000);
+    db.run("INSERT INTO agents VALUES ('a3', 'sess-aaaa1111', 'Plan', ?, ?)", now - 120_000, now - 90_000);
+    const bucket = (t: number) => Math.floor(t / H) * H;
+    for (const [ts, sessions, subagents] of [[now - 5 * H, 1, 3], [now - 5 * H + 5000, 2, 0], [now - 10_000, 1, 1]] as const) {
+      db.run("INSERT INTO samples_agents VALUES (?, '', ?, ?)", ts, sessions, subagents);
+      db.run("INSERT INTO samples_agents VALUES (?, 'business', ?, ?)", ts, sessions, subagents);
+    }
+    const data = buildDash(db, CONFIG, { range: '24h' }, now, 'm', null);
+    expect(validate('result.dash', data).ok, JSON.stringify(validate('result.dash', data).issues)).toBe(true);
+    expect(data.sessions[0]!.subagents).toEqual({ running: 1, total: 3, types: ['Explore', 'Plan'] });
+    expect(data.agents!.now).toEqual({ sessions: 1, subagents: 1 });
+    expect(data.agents!.peak).toEqual({ total: 4, at: bucket(now - 5 * H) });
+    expect(data.agents!.buckets.find((b) => b.ts === bucket(now - 5 * H))).toEqual({ ts: bucket(now - 5 * H), sessions: 2, subagents: 3, total: 4 });
+    expect(buildDash(db, CONFIG, { range: '24h', account: 'personal' }, now, 'm', null).agents).toEqual({ now: { sessions: 0, subagents: 0 }, peak: { total: 0, at: null }, buckets: [] });
   });
 
   it('top renders a readable table with alerts and waiting sessions', () => {

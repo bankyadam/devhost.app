@@ -167,6 +167,32 @@ export class Collector {
       );
     }
     await this.sampleSessions(procs, now);
+    this.sampleAgents(now);
+  }
+
+  /**
+   * How many agents work right now: sessions running a turn (between a prompt and its Stop) plus
+   * subagents that started and have not stopped, per account and in total (account '').
+   */
+  sampleAgents(now: number): void {
+    const rows = this.db.all<{ account: string; sessions: number; subagents: number }>(
+      `SELECT s.account AS account,
+              SUM(CASE WHEN s.state = 'running' THEN 1 ELSE 0 END) AS sessions,
+              (SELECT COUNT(*) FROM agents a JOIN sessions x ON x.session_id = a.session_id WHERE a.ended_at IS NULL AND x.state <> 'ended' AND x.account = s.account) AS subagents
+         FROM sessions s WHERE s.state <> 'ended' GROUP BY s.account`,
+    );
+    const counts = new Map(accountsOf(this.config).map((a) => [a.name, { sessions: 0, subagents: 0 }]));
+    for (const r of rows) counts.set(r.account, { sessions: Number(r.sessions), subagents: Number(r.subagents) });
+    let sessions = 0;
+    let subagents = 0;
+    this.db.transaction(() => {
+      for (const [account, c] of counts) {
+        this.db.run('INSERT INTO samples_agents (ts, account, sessions, subagents) VALUES (?, ?, ?, ?)', now, account, c.sessions, c.subagents);
+        sessions += c.sessions;
+        subagents += c.subagents;
+      }
+      this.db.run("INSERT INTO samples_agents (ts, account, sessions, subagents) VALUES (?, '', ?, ?)", now, sessions, subagents);
+    });
   }
 
   /**
@@ -191,7 +217,10 @@ export class Collector {
         return cwd !== undefined && (cwd === s.cwd || cwd.startsWith(`${s.cwd}/`));
       });
       if (mine.length === 0) {
-        if (now - s.last_activity_at > SESSION_GONE_MS) this.db.run("UPDATE sessions SET state = 'ended', ended_at = ? WHERE session_id = ?", now, s.session_id);
+        if (now - s.last_activity_at > SESSION_GONE_MS) {
+          this.db.run("UPDATE sessions SET state = 'ended', ended_at = ? WHERE session_id = ?", now, s.session_id);
+          this.db.run('UPDATE agents SET ended_at = ? WHERE session_id = ? AND ended_at IS NULL', now, s.session_id);
+        }
         continue;
       }
       if (s.last_activity_at <= now - 24 * 3_600_000) continue;

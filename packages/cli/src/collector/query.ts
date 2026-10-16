@@ -216,8 +216,10 @@ export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now:
         costToday: today.costUsd,
         cpuPercent: fresh ? live.cpu_pct : null,
         rssBytes: fresh ? live.rss_bytes : null,
+        subagents: subagentsOf(db, s.session_id),
       };
     }),
+    agents: agentConcurrency(db, opts.account ?? '', from, bucketMs, now),
     models: db.all<{ model: string }>(
       `SELECT DISTINCT model FROM (SELECT model, ts AS t FROM usage WHERE ts >= ? UNION ALL SELECT model, hour AS t FROM rollup_usage WHERE hour >= ?) WHERE model <> '' ORDER BY model`,
       from, from,
@@ -226,3 +228,35 @@ export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now:
     limits: KNOWN_LIMITS,
   };
 }
+
+function subagentsOf(db: Db, sessionId: string): NonNullable<DashData['sessions'][number]['subagents']> {
+  const rows = db.all<{ agent_type: string; running: number }>('SELECT agent_type, CASE WHEN ended_at IS NULL THEN 1 ELSE 0 END AS running FROM agents WHERE session_id = ?', sessionId);
+  return {
+    running: rows.filter((r) => Number(r.running) === 1).length,
+    total: rows.length,
+    types: [...new Set(rows.map((r) => r.agent_type).filter(Boolean))].sort(),
+  };
+}
+
+/**
+ * Agents at work at once, per bucket: the highest sample in it (raw samples, and hourly rollups
+ * for what retention already dropped). `account` '' is all accounts together.
+ */
+function agentConcurrency(db: Db, account: string, from: number, bucketMs: number, now: number): NonNullable<DashData['agents']> {
+  const buckets = db
+    .all<{ ts: number; sessions: number; subagents: number; total: number }>(
+      `SELECT (t / ${bucketMs}) * ${bucketMs} AS ts, MAX(s) AS sessions, MAX(a) AS subagents, MAX(n) AS total FROM (
+         SELECT ts AS t, sessions AS s, subagents AS a, sessions + subagents AS n FROM samples_agents WHERE account = ? AND ts >= ?
+         UNION ALL
+         SELECT hour AS t, sessions_max AS s, subagents_max AS a, total_max AS n FROM rollup_agents WHERE account = ? AND hour >= ?
+           AND hour < (SELECT COALESCE(MIN(ts), ?) FROM samples_agents WHERE account = ?)
+       ) GROUP BY 1 ORDER BY 1`,
+      account, from, account, from, now, account,
+    )
+    .map((r) => ({ ts: Number(r.ts), sessions: Number(r.sessions), subagents: Number(r.subagents), total: Number(r.total) }));
+  const latest = db.get<{ ts: number; sessions: number; subagents: number }>('SELECT ts, sessions, subagents FROM samples_agents WHERE account = ? ORDER BY ts DESC LIMIT 1', account);
+  const fresh = latest && now - latest.ts < 2 * MIN;
+  const peak = buckets.reduce<{ total: number; at: number | null }>((p, b) => (b.total > p.total ? { total: b.total, at: b.ts } : p), { total: 0, at: null });
+  return { now: { sessions: fresh ? Number(latest.sessions) : 0, subagents: fresh ? Number(latest.subagents) : 0 }, peak, buckets };
+}
+

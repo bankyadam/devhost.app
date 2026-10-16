@@ -54,7 +54,7 @@ describe('claude settings merge', () => {
     });
     expect(managed['allowedHttpHookUrls']).toEqual(['http://127.0.0.1:4318/hooks*']);
     const hooks = managed['hooks'] as Record<string, { hooks: { type: string; url?: string; command?: string }[] }[]>;
-    expect(Object.keys(hooks).sort()).toEqual(['Notification', 'SessionEnd', 'SessionStart', 'Stop', 'UserPromptSubmit']);
+    expect(Object.keys(hooks).sort()).toEqual(['Notification', 'SessionEnd', 'SessionStart', 'Stop', 'SubagentStart', 'SubagentStop', 'UserPromptSubmit']);
     expect(hooks['SessionStart']![0]!.hooks[0]!.type).toBe('command');
     expect(hooks['SessionStart']![0]!.hooks[0]!.command).toContain('http://127.0.0.1:4318/hooks?account=business');
     expect(hooks['Stop']![0]!.hooks[0]).toMatchObject({ type: 'http', url: 'http://127.0.0.1:4318/hooks?account=business' });

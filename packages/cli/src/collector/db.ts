@@ -59,6 +59,16 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (hour, account, env));
   CREATE TABLE alert_state (id TEXT PRIMARY KEY, active INTEGER NOT NULL, since INTEGER NOT NULL, last_notified INTEGER NOT NULL, message TEXT NOT NULL);
   `,
+  // Subagents (SubagentStart/SubagentStop hooks) and how many agents work at once: sessions
+  // running a turn plus subagents running, per account and in total (account '').
+  `
+  CREATE TABLE agents (agent_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, agent_type TEXT NOT NULL, started_at INTEGER NOT NULL, ended_at INTEGER);
+  CREATE INDEX agents_session ON agents (session_id);
+  CREATE TABLE samples_agents (ts INTEGER NOT NULL, account TEXT NOT NULL, sessions INTEGER NOT NULL, subagents INTEGER NOT NULL);
+  CREATE INDEX samples_agents_ts ON samples_agents (ts);
+  CREATE TABLE rollup_agents (hour INTEGER NOT NULL, account TEXT NOT NULL, sessions_max INTEGER NOT NULL, subagents_max INTEGER NOT NULL, total_max INTEGER NOT NULL, total_avg REAL NOT NULL, samples INTEGER NOT NULL,
+    PRIMARY KEY (hour, account));
+  `,
 ];
 
 export class Db {

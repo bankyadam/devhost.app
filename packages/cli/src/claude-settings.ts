@@ -47,6 +47,9 @@ export function managedSettings(config: DevhostConfig, account: Pick<Account, 'n
       Notification: [group(http)],
       Stop: [group(http)],
       SessionEnd: [group(http)],
+      // Subagents for the dashboard; posted like SessionStart (command hook), which every event takes.
+      SubagentStart: [group(command)],
+      SubagentStop: [group(command)],
     },
   });
 }

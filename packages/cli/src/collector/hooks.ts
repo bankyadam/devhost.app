@@ -8,7 +8,14 @@ export interface HookEvent {
   event: string;
   sessionId: string;
   cwd: string;
+  /** SubagentStart/SubagentStop: the subagent's id and type (e.g. "Explore"), never its prompt or answer. */
+  agentId?: string;
+  agentType?: string;
 }
+
+/** Hook events about subagents; they do not change the session's own state. */
+export const AGENT_EVENTS = ['SubagentStart', 'SubagentStop'] as const;
+const isAgentEvent = (e: string): boolean => (AGENT_EVENTS as readonly string[]).includes(e);
 
 const STATE_FOR: Record<string, SessionState> = {
   SessionStart: 'idle',
@@ -28,8 +35,16 @@ export function parseHook(body: unknown): HookEvent | null {
   const b = body as Record<string, unknown>;
   const event = typeof b['hook_event_name'] === 'string' ? b['hook_event_name'] : '';
   const sessionId = typeof b['session_id'] === 'string' ? b['session_id'] : '';
-  if (!(event in STATE_FOR) || sessionId === '') return null;
-  return { event, sessionId, cwd: typeof b['cwd'] === 'string' ? b['cwd'] : '' };
+  if (sessionId === '') return null;
+  const cwd = typeof b['cwd'] === 'string' ? b['cwd'] : '';
+  if (isAgentEvent(event)) {
+    const agentId = typeof b['agent_id'] === 'string' ? b['agent_id'] : '';
+    if (agentId === '') return null;
+    const agentType = typeof b['agent_type'] === 'string' ? b['agent_type'].slice(0, 80) : '';
+    return { event, sessionId, cwd, agentId, agentType };
+  }
+  if (!(event in STATE_FOR)) return null;
+  return { event, sessionId, cwd };
 }
 
 export const stateForEvent = (event: string): SessionState | undefined => STATE_FOR[event];
