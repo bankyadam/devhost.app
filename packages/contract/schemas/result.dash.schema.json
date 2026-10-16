@@ -419,6 +419,31 @@
           "titleFromPrompt": {
             "type": "boolean",
             "description": "True when the transcript has no title (Remote Control sessions keep theirs on claude.ai) and `title` is the last prompt, shortened."
+          },
+          "subagents": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "running",
+              "total",
+              "types"
+            ],
+            "description": "Subagents the session started (SubagentStart/SubagentStop hooks).",
+            "properties": {
+              "running": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "types": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Distinct agent types, e.g. Explore."
+              }
+            }
           }
         }
       }
@@ -476,6 +501,83 @@
         "type": "string"
       },
       "description": "Models seen in the selected range, for the model filter."
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "now",
+        "peak",
+        "buckets"
+      ],
+      "description": "How many agents worked at once (sampled every few seconds): sessions running a turn plus subagents. For the account filter, else all accounts; the environment filter does not apply.",
+      "properties": {
+        "now": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sessions",
+            "subagents"
+          ],
+          "properties": {
+            "sessions": {
+              "type": "integer"
+            },
+            "subagents": {
+              "type": "integer"
+            }
+          }
+        },
+        "peak": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "total",
+            "at"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "at": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        },
+        "buckets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "ts",
+              "sessions",
+              "subagents",
+              "total"
+            ],
+            "properties": {
+              "ts": {
+                "type": "integer"
+              },
+              "sessions": {
+                "type": "integer",
+                "description": "Most sessions running a turn at once in the bucket."
+              },
+              "subagents": {
+                "type": "integer",
+                "description": "Most subagents running at once in the bucket."
+              },
+              "total": {
+                "type": "integer",
+                "description": "Most agents (sessions + subagents) at once in the bucket."
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

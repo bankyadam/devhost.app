@@ -57,6 +57,21 @@ export class Ingestor {
     const evt = parseHook(body);
     if (!evt) return false;
     const now = this.now();
+    if (evt.agentId) {
+      const agentId = evt.agentId;
+      this.db.transaction(() => {
+        this.db.run('INSERT INTO hook_events (ts, session_id, account, event, cwd) VALUES (?, ?, ?, ?, ?)', now, evt.sessionId, this.db.kvGet(`session_owner:${evt.sessionId}`) ?? accountFromUrl, evt.event, evt.cwd);
+        if (evt.event === 'SubagentStart') {
+          this.db.run('INSERT INTO agents (agent_id, session_id, agent_type, started_at, ended_at) VALUES (?, ?, ?, ?, NULL) ON CONFLICT(agent_id) DO NOTHING', agentId, evt.sessionId, evt.agentType ?? '', now);
+        } else {
+          // A stop without its start (devhost installed meanwhile) still counts as one that ran.
+          this.db.run('INSERT INTO agents (agent_id, session_id, agent_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(agent_id) DO UPDATE SET ended_at = excluded.ended_at', agentId, evt.sessionId, evt.agentType ?? '', now, now);
+        }
+        this.db.run('UPDATE sessions SET last_activity_at = ? WHERE session_id = ?', now, evt.sessionId);
+      });
+      this.db.kvSet('last_hook_at', String(now), now);
+      return true;
+    }
     const where = locate(this.locations(), evt.cwd);
     // A login seen in the session's telemetry beats the directory and the hook URL (see ownerOf).
     const account = this.db.kvGet(`session_owner:${evt.sessionId}`) ?? where?.account ?? accountFromUrl;
@@ -76,6 +91,7 @@ export class Ingestor {
            ended_at = excluded.ended_at`,
         evt.sessionId, account, env, evt.cwd, state, now, now, state === 'ended' ? now : null,
       );
+      if (state === 'ended') this.db.run('UPDATE agents SET ended_at = ? WHERE session_id = ? AND ended_at IS NULL', now, evt.sessionId);
     });
     this.db.kvSet('last_hook_at', String(now), now);
     return true;

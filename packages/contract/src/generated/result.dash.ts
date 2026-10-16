@@ -84,6 +84,17 @@ export interface DashData {
      * True when the transcript has no title (Remote Control sessions keep theirs on claude.ai) and `title` is the last prompt, shortened.
      */
     titleFromPrompt?: boolean;
+    /**
+     * Subagents the session started (SubagentStart/SubagentStop hooks).
+     */
+    subagents?: {
+      running: number;
+      total: number;
+      /**
+       * Distinct agent types, e.g. Explore.
+       */
+      types: string[];
+    };
   }[];
   /**
    * Time buckets, one row per account and bucket start.
@@ -105,4 +116,32 @@ export interface DashData {
    * Models seen in the selected range, for the model filter.
    */
   models: string[];
+  /**
+   * How many agents worked at once (sampled every few seconds): sessions running a turn plus subagents. For the account filter, else all accounts; the environment filter does not apply.
+   */
+  agents?: {
+    now: {
+      sessions: number;
+      subagents: number;
+    };
+    peak: {
+      total: number;
+      at: number | null;
+    };
+    buckets: {
+      ts: number;
+      /**
+       * Most sessions running a turn at once in the bucket.
+       */
+      sessions: number;
+      /**
+       * Most subagents running at once in the bucket.
+       */
+      subagents: number;
+      /**
+       * Most agents (sessions + subagents) at once in the bucket.
+       */
+      total: number;
+    }[];
+  };
 }
