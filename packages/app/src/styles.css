@@ -181,6 +181,11 @@ tr.waiting:hover td { background: color-mix(in srgb, var(--warn) 24%, var(--surf
 .steps b { color: var(--ink); }
 .oplog { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; display: flex; flex-direction: column; gap: 3px; max-height: 280px; overflow: auto; background: var(--surface-2); }
 .oplog .line { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+/* An endless spinner for a running step; slower, not gone, under reduced motion (it is the sign that work goes on). */
+.spinner { display: inline-block; flex: none; width: 11px; height: 11px; box-sizing: border-box; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; align-self: center; }
+.working { display: flex; align-items: center; gap: 8px; margin: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.8s; } }
 .oplog .line .id { font-family: var(--mono); font-size: 12px; }
 .oplog .line .msg { color: var(--ink-3); }
 .notice { border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent); background: color-mix(in srgb, var(--warn) 14%, var(--surface)); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
