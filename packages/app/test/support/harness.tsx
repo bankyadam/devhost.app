@@ -65,12 +65,17 @@ export function seedUsage(h: Harness, config: string): void {
   ingest.hook({ hook_event_name: 'Notification', session_id: 'sess-waiting-1', cwd: dir }, 'business');
   ingest.hook({ hook_event_name: 'SessionStart', session_id: 'sess-running-2', cwd: dir }, 'business');
   ingest.hook({ hook_event_name: 'UserPromptSubmit', session_id: 'sess-running-2', cwd: dir }, 'business');
+  ingest.hook({ hook_event_name: 'SubagentStart', session_id: 'sess-running-2', cwd: dir, agent_id: 'agent-1', agent_type: 'Explore' }, 'business');
+  ingest.hook({ hook_event_name: 'SubagentStart', session_id: 'sess-running-2', cwd: dir, agent_id: 'agent-2', agent_type: 'Plan' }, 'business');
+  ingest.hook({ hook_event_name: 'SubagentStop', session_id: 'sess-running-2', cwd: dir, agent_id: 'agent-2', agent_type: 'Plan' }, 'business');
   const kv = (key: string, value: string) => ({ key, value: { stringValue: value } });
   const point = (type: string, value: number, session: string) => ({ name: 'claude_code.token.usage', sum: { aggregationTemporality: 1, dataPoints: [{ asDouble: value, attributes: [kv('type', type), kv('model', 'claude-sonnet-5-5'), kv('session.id', session)] }] } });
   ingest.metrics({
     resourceMetrics: [{ resource: { attributes: [kv('devhost.account', 'business'), kv('devhost.env', 'acme-api')] }, scopeMetrics: [{ metrics: [point('input', 1200, 'sess-waiting-1'), point('output', 300, 'sess-waiting-1'), point('input', 9000, 'sess-running-2'), { name: 'claude_code.cost.usage', sum: { aggregationTemporality: 1, dataPoints: [{ asDouble: 1.5, attributes: [kv('model', 'claude-sonnet-5-5'), kv('session.id', 'sess-running-2')] }] } }] }] }],
   });
   db.run('INSERT INTO samples_system VALUES (?, 12, 40, 1, 2, 60, 10, 1)', now);
+  db.run("INSERT INTO samples_agents VALUES (?, '', 1, 1)", now);
+  db.run("INSERT INTO samples_agents VALUES (?, '', 2, 3)", now - 3_600_000);
   db.run('INSERT INTO samples_env VALUES (?, ?, ?, 7, 52428800, NULL, NULL, 123)', now, 'business', 'acme-api');
   db.kvSet('docker', 'up', now);
   db.close();

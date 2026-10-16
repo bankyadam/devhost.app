@@ -177,7 +177,7 @@ describe('dashboard (spec B3.1, B6)', () => {
     const sessions = within(await screen.findByLabelText('Sessions'));
     await sessions.findByText('sess-wai');
     await h.user.click(sessions.getByRole('button', { name: /^Tokens today/ }));
-    const first = () => within(sessions.getAllByRole('row')[1]!).getAllByRole('cell')[2]!.textContent;
+    const first = () => within(within(sessions.getAllByRole('row')[1]!).getAllByRole('cell')[2]!).getByText(/^sess-/).textContent;
     await waitFor(() => expect(first()).toBe('sess-run')); // 9,000 > 1,500
     await h.user.click(sessions.getByRole('button', { name: /^Tokens today/ }));
     await waitFor(() => expect(first()).toBe('sess-wai'));
@@ -193,6 +193,16 @@ describe('dashboard (spec B3.1, B6)', () => {
     const prompt = sessions.getByText('run the tests again');
     expect(prompt).toHaveClass('last-prompt');
     expect(prompt.closest('td')).toHaveAttribute('title', expect.stringContaining('Last prompt: run the tests again'));
+  });
+
+  it('shows subagents per session and how many agents worked at once', async () => {
+    await dashboard();
+    const card = within(await screen.findByRole('region', { name: 'Agents at work' }));
+    expect(card.getByText(/now 1 session \+ 1 subagent/)).toBeInTheDocument();
+    expect(card.getByText('5')).toBeInTheDocument(); // the peak, an hour ago: 2 sessions + 3 subagents
+    const row = (await screen.findByText('sess-run')).closest('tr')!;
+    expect(within(row).getByText('+1 subagent running')).toBeInTheDocument();
+    expect(within(row).getByText(/2 subagents \(Explore, Plan\)/)).toBeInTheDocument();
   });
 
   it("plugin session actions are in the session's Open menu and ask before they stop anything", async () => {
