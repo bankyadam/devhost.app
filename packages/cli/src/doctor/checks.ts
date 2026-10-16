@@ -387,7 +387,7 @@ async function pluginChecks(c: DoctorContext): Promise<Check[]> {
       out.push(warn(`plugin.${p.name}`, `could not be loaded: ${p.error ?? 'unknown error'}`, `Fix or remove ${p.source}`));
       continue;
     }
-    const ctx = pluginContext({ config: c.config, name: p.name, home: c.deps.home, user: c.deps.user, exec: c.exec, reporter: silent, prompter: new NoPrompter() });
+    const ctx = pluginContext({ config: c.config, name: p.name, home: c.deps.home, user: c.deps.user, nodePath: c.deps.nodePath, exec: c.exec, reporter: silent, prompter: new NoPrompter() });
     for (const check of p.plugin.checks ?? []) {
       const id = `plugin.${p.name}.${check.id}`;
       try {

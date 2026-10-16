@@ -54,7 +54,7 @@ export function pluginRunCommand(deps: Deps, g: GlobalOptions, o: PluginRunOptio
 
     const exec = newExecutor(deps, g, reporter, o.dryRun);
     const prompter = makePrompter(deps, g.json, g.yes);
-    const ctx = pluginContext({ config, name: o.plugin, home: deps.home, user: deps.user, exec, reporter, prompter });
+    const ctx = pluginContext({ config, name: o.plugin, home: deps.home, user: deps.user, nodePath: deps.nodePath, exec, reporter, prompter });
     const target: ActionTarget = {};
     if (action.scope === 'environment') {
       if (!o.env) throw new UsageError(`${o.plugin} ${o.action} needs --env <name>`);
@@ -74,7 +74,8 @@ export function pluginRunCommand(deps: Deps, g: GlobalOptions, o: PluginRunOptio
     reporter.step(step, 'start', `${action.title}${what}`);
     try {
       const result = await action.run(ctx, target);
-      reporter.step(step, o.dryRun ? 'ok' : 'changed', result.summary);
+      // The summary follows in full; the step line only says it is done (changed only when it may have).
+      reporter.step(step, action.destructive && !o.dryRun ? 'changed' : 'ok');
       const data: PluginRunData = { plugin: o.plugin, action: o.action, dryRun: o.dryRun, summary: result.summary, ...(result.data ? { data: result.data } : {}), ...(o.dryRun ? { plan: exec.plan } : {}) };
       const plan = o.dryRun && exec.plan.length > 0 ? ['', 'Dry run plan (nothing was changed):', ...exec.plan.map((p) => `  ${p.sudo ? '[sudo] ' : ''}${p.action}${p.reason ? `  — ${p.reason}` : ''}`)] : [];
       return { ok: true, data, human: [result.summary, ...plan] };

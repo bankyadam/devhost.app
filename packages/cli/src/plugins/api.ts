@@ -66,6 +66,8 @@ export interface PluginContext {
   options: Record<string, unknown>;
   home: string;
   user: string;
+  /** The Node devhost runs on (npm is next to it). */
+  nodePath: string;
   exec: Executor;
   reporter: Reporter;
   prompter: Prompter;
