@@ -10,7 +10,7 @@ import { Legend, StackedColumns, type Series } from '../ui/chart';
 import { Badge, Empty, Menu, Segmented } from '../ui/primitives';
 import { useDash } from '../use-dash';
 import { PluginRunDialog } from '../ui/plugin-run';
-import { usePlugins, type PluginActionInfo } from '../use-plugins';
+import { usePlugins, usePluginWidgets, type PluginActionInfo, type PluginWidget } from '../use-plugins';
 import { openClaude, useWebApps } from '../use-web-apps';
 
 const RANGES: { value: Range; label: string }[] = [
@@ -35,7 +35,8 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
   const { dash, loading, error, stale } = useDash(range, { account, env, model });
   const webApps = useWebApps();
   const plugins = usePlugins();
-  const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; session: string } | null>(null);
+  const widgets = usePluginWidgets();
+  const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; session?: string } | null>(null);
 
   // Account colors follow the account, not its rank: remember every account ever seen, in order.
   useEffect(() => {
@@ -76,6 +77,12 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
       </div>
 
       <Health dash={dash} now={now} />
+
+      {widgets.widgets.length > 0 && (
+        <div className="grid cols-3">
+          {widgets.widgets.map((w) => <WidgetCard key={`${w.plugin}.${w.id}`} w={w} action={w.action ? plugins.action(w.plugin, w.action) : undefined} onAction={(action) => setPluginRun({ action })} />)}
+        </div>
+      )}
 
       {dash.alerts.length > 0 && (
         <div className="notice bad" role="alert">
@@ -217,8 +224,35 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
       <ul className="note" style={{ margin: 0, paddingLeft: 18 }} aria-label="Known limits">
         {dash.limits.map((l) => <li key={l}>{l}</li>)}
       </ul>
-      {pluginRun && <PluginRunDialog action={pluginRun.action} target={{ session: pluginRun.session }} onClose={() => setPluginRun(null)} />}
+      {pluginRun && <PluginRunDialog action={pluginRun.action} target={pluginRun.session ? { session: pluginRun.session } : {}} onClose={() => { setPluginRun(null); if (!pluginRun.session) void widgets.refresh(); }} />}
     </div>
+  );
+}
+
+const STATUS_BADGE = { ok: <Badge tone="good">ok</Badge>, warn: <Badge tone="warn">warning</Badge>, fail: <Badge tone="bad">problem</Badge> } as const;
+
+/** A plugin's card (`devhost plugin widgets`): status, a line, tiles, rows and one action. */
+function WidgetCard({ w, action, onAction }: { w: PluginWidget; action?: PluginActionInfo; onAction: (a: PluginActionInfo) => void }) {
+  return (
+    <section className="card" aria-label={`${w.title} (${w.plugin})`}>
+      <header>
+        <h2>{w.title}</h2>
+        {w.status && STATUS_BADGE[w.status]}
+        <span className="push note">{w.plugin}</span>
+      </header>
+      {w.error ? <div className="note" role="alert">Could not be computed: {w.error}</div> : w.summary && <div className="note">{w.summary}</div>}
+      {w.tiles && (
+        <div className="grid" style={{ gridTemplateColumns: `repeat(${Math.min(w.tiles.length, 3)}, 1fr)` }}>
+          {w.tiles.map((t) => <div className="tile" key={t.label}><span className="label">{t.label}</span><span className="value">{t.value}</span>{t.sub && <span className="sub">{t.sub}</span>}</div>)}
+        </div>
+      )}
+      {w.rows && (
+        <table>
+          <tbody>{w.rows.map((r, i) => <tr key={i}><td>{r.label}{r.note && <div className="note">{r.note}</div>}</td><td className="num">{r.value}</td></tr>)}</tbody>
+        </table>
+      )}
+      {action && <div><button className={`btn sm${action.destructive ? ' danger' : ''}`} onClick={() => onAction(action)}>{action.title}{action.destructive ? '…' : ''}</button></div>}
+    </section>
   );
 }
 

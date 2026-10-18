@@ -24,6 +24,10 @@ export function formatDoctor(checks: Check[]): string {
   for (const c of checks) {
     lines.push(`${SYMBOL[c.status]} ${c.id} — ${c.message}`);
     if (c.fix && c.status !== 'ok') lines.push(`     fix: ${c.fix}`);
+    for (const a of c.advice ?? []) {
+      lines.push(`     ${a.plugin}: ${a.message}`);
+      if (a.fix) lines.push(`       fix: ${a.fix}`);
+    }
   }
   const n = (s: Check['status']): number => checks.filter((c) => c.status === s).length;
   lines.push('', `${n('ok')} ok, ${n('warn')} warnings, ${n('fail')} failed`);

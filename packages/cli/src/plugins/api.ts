@@ -18,6 +18,10 @@ export interface DevhostPlugin {
   description: string;
   actions?: PluginAction[];
   checks?: PluginCheck[];
+  /** Notes on other checks, devhost's or another plugin's: `devhost doctor` shows them under that check. */
+  advice?: PluginAdvice[];
+  /** Cards on the desktop app's dashboard (`devhost plugin widgets`). */
+  widgets?: PluginWidget[];
 }
 
 /** Where an action applies: the whole host, one environment, or one session (the app puts it in that menu). */
@@ -45,9 +49,53 @@ export interface ActionResult {
   data?: Record<string, unknown>;
 }
 
+export type CheckStatus = 'ok' | 'warn' | 'fail';
+
 export interface PluginCheck {
   id: string;
-  run(ctx: PluginContext): Promise<{ status: 'ok' | 'warn' | 'fail'; message: string; fix?: string }>;
+  run(ctx: PluginContext): Promise<{ status: CheckStatus; message: string; fix?: string }>;
+}
+
+/** A check as doctor reported it, handed to advice. */
+export interface DoctorCheck {
+  id: string;
+  status: CheckStatus;
+  message: string;
+  fix?: string;
+}
+
+export interface PluginAdvice {
+  /** The check it speaks to, e.g. `system.disk`; `*` stands for one dot-separated part (`env.*.service`). */
+  check: string;
+  /** The statuses it is asked for (default warn and fail). */
+  on?: CheckStatus[];
+  /** Null: nothing to add this time. */
+  run(ctx: PluginContext, check: DoctorCheck): Promise<Advice | null>;
+}
+
+export interface Advice {
+  message: string;
+  /** A command to copy; defaults to `devhost plugin run <plugin> <action>` when `action` is given. */
+  fix?: string;
+  /** One of this plugin's host actions that helps; the app offers it as a button. */
+  action?: string;
+}
+
+export interface PluginWidget {
+  id: string;
+  title: string;
+  run(ctx: PluginContext): Promise<WidgetContent>;
+}
+
+/** What a dashboard card shows. Values are text: the plugin formats them. */
+export interface WidgetContent {
+  status?: CheckStatus;
+  /** One line under the title. */
+  summary?: string;
+  tiles?: { label: string; value: string; sub?: string }[];
+  rows?: { label: string; value: string; note?: string }[];
+  /** One of this plugin's host actions, offered as a button on the card. */
+  action?: string;
 }
 
 export interface EnvironmentInfo {

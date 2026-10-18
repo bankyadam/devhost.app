@@ -17,6 +17,7 @@ import { COLLECTOR_LABEL } from '../steps/collector.js';
 import { parseTailscale } from '../steps/tailscale.js';
 import { powerState, unsupportedPowerNote } from '../steps/system.js';
 import { parsePs, subtree } from '../collector/samplers.js';
+import type { DevhostPlugin, PluginContext } from '../plugins/api.js';
 import { pluginContext } from '../plugins/context.js';
 import { loadPlugins } from '../plugins/loader.js';
 import { NoPrompter } from '../prompter.js';
@@ -29,6 +30,15 @@ export interface Check {
   status: Status;
   message: string;
   fix?: string;
+  /** Plugins' notes on this check. */
+  advice?: CheckAdvice[];
+}
+
+export interface CheckAdvice {
+  plugin: string;
+  message: string;
+  fix?: string;
+  action?: string;
 }
 
 export interface DoctorContext {
@@ -365,33 +375,54 @@ async function collectorChecks(c: DoctorContext): Promise<Check[]> {
   return out;
 }
 
-/** Everything `devhost doctor` checks (spec A12). Read-only. */
+/** Everything `devhost doctor` checks (spec A12), then the plugins' advice on them. Read-only. */
 export async function runDoctor(c: DoctorContext): Promise<Check[]> {
-  return [
+  const plugins = await enabledPlugins(c);
+  const checks = [
     ...(await guarded('system', () => systemChecks(c))),
     ...(await guarded('tools', () => toolChecks(c))),
     ...(await guarded('accounts', () => accountChecks(c))),
     ...(await guarded('envs', () => envChecks(c))),
     ...(await guarded('collector', () => collectorChecks(c))),
-    ...(await guarded('plugins', () => pluginChecks(c))),
+    ...(await guarded('plugins', () => pluginChecks(plugins))),
   ];
+  await addAdvice(plugins, checks);
+  return checks;
+}
+
+type EnabledPlugin = { name: string; source: string; plugin?: DevhostPlugin; error?: string; ctx?: PluginContext };
+
+/** Enabled plugins, each with its context (built once: checks and advice share it). */
+async function enabledPlugins(c: DoctorContext): Promise<EnabledPlugin[]> {
+  const silent: Reporter = { step: () => undefined, log: () => undefined };
+  let loaded: Awaited<ReturnType<typeof loadPlugins>>;
+  try {
+    loaded = await loadPlugins(c.config, c.deps.home);
+  } catch {
+    return [];
+  }
+  return loaded
+    .filter((p) => p.enabled)
+    .map((p) => ({
+      name: p.name,
+      source: p.source,
+      ...(p.plugin ? { plugin: p.plugin, ctx: pluginContext({ config: c.config, name: p.name, home: c.deps.home, user: c.deps.user, nodePath: c.deps.nodePath, exec: c.exec, reporter: silent, prompter: new NoPrompter() }) } : {}),
+      ...(p.error ? { error: p.error } : {}),
+    }));
 }
 
 /** Each enabled plugin's checks, as `plugin.<name>.<check>`; a plugin that does not load is a warning. */
-async function pluginChecks(c: DoctorContext): Promise<Check[]> {
+async function pluginChecks(plugins: EnabledPlugin[]): Promise<Check[]> {
   const out: Check[] = [];
-  const silent: Reporter = { step: () => undefined, log: () => undefined };
-  for (const p of await loadPlugins(c.config, c.deps.home)) {
-    if (!p.enabled) continue;
-    if (!p.plugin) {
+  for (const p of plugins) {
+    if (!p.plugin || !p.ctx) {
       out.push(warn(`plugin.${p.name}`, `could not be loaded: ${p.error ?? 'unknown error'}`, `Fix or remove ${p.source}`));
       continue;
     }
-    const ctx = pluginContext({ config: c.config, name: p.name, home: c.deps.home, user: c.deps.user, nodePath: c.deps.nodePath, exec: c.exec, reporter: silent, prompter: new NoPrompter() });
     for (const check of p.plugin.checks ?? []) {
       const id = `plugin.${p.name}.${check.id}`;
       try {
-        const r = await check.run(ctx);
+        const r = await check.run(p.ctx);
         out.push({ id, status: r.status, message: r.message, ...(r.fix ? { fix: r.fix } : {}) });
       } catch (err) {
         out.push(warn(id, `check crashed: ${(err as Error).message}`));
@@ -399,4 +430,32 @@ async function pluginChecks(c: DoctorContext): Promise<Check[]> {
     }
   }
   return out;
+}
+
+/** `system.disk` matches itself; `env.*.service` matches `env.<any one part>.service`. */
+export function checkMatches(pattern: string, id: string): boolean {
+  const p = pattern.split('.');
+  const i = id.split('.');
+  return p.length === i.length && p.every((part, n) => part === '*' || part === i[n]);
+}
+
+/** Plugins' advice, attached to the checks it speaks to (in place). Advice that throws says so instead. */
+async function addAdvice(plugins: EnabledPlugin[], checks: Check[]): Promise<void> {
+  for (const p of plugins) {
+    if (!p.plugin || !p.ctx) continue;
+    for (const a of p.plugin.advice ?? []) {
+      for (const check of checks) {
+        if (!checkMatches(a.check, check.id) || !(a.on ?? ['warn', 'fail']).includes(check.status)) continue;
+        let note: CheckAdvice | null;
+        try {
+          const r = await a.run(p.ctx, { id: check.id, status: check.status, message: check.message, ...(check.fix ? { fix: check.fix } : {}) });
+          const fix = r?.fix ?? (r?.action ? `devhost plugin run ${p.name} ${r.action}` : undefined);
+          note = r ? { plugin: p.name, message: r.message, ...(fix ? { fix } : {}), ...(r.action ? { action: r.action } : {}) } : null;
+        } catch (err) {
+          note = { plugin: p.name, message: `advice crashed: ${(err as Error).message}` };
+        }
+        if (note) check.advice = [...(check.advice ?? []), note];
+      }
+    }
+  }
 }

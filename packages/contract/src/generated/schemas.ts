@@ -1651,6 +1651,34 @@ export const schemas = {
             "fix": {
               "type": "string",
               "description": "One-line fix; copy-paste ready where possible."
+            },
+            "advice": {
+              "type": "array",
+              "description": "Plugins' notes on this check.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "plugin",
+                  "message"
+                ],
+                "properties": {
+                  "plugin": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "fix": {
+                    "type": "string",
+                    "description": "One-line fix; copy-paste ready."
+                  },
+                  "action": {
+                    "type": "string",
+                    "description": "A host action of this plugin that helps (`devhost plugin run <plugin> <action>`)."
+                  }
+                }
+              }
             }
           }
         }
@@ -2184,6 +2212,106 @@ export const schemas = {
             },
             "reason": {
               "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "result.plugin-widgets": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.plugin-widgets.schema.json",
+    "title": "PluginWidgetsData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "widgets"
+    ],
+    "properties": {
+      "widgets": {
+        "type": "array",
+        "description": "Enabled plugins' dashboard cards, in plugin order.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "plugin",
+            "id",
+            "title"
+          ],
+          "properties": {
+            "plugin": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "warn",
+                "fail"
+              ]
+            },
+            "summary": {
+              "type": "string",
+              "description": "One line under the title."
+            },
+            "tiles": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "label",
+                  "value"
+                ],
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  },
+                  "sub": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "label",
+                  "value"
+                ],
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "action": {
+              "type": "string",
+              "description": "A host action of this plugin, offered as a button."
+            },
+            "error": {
+              "type": "string",
+              "description": "The widget could not be computed."
             }
           }
         }

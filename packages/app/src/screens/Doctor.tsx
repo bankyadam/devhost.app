@@ -3,6 +3,8 @@ import type { DoctorData, EnvListData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import { errorMessage } from '../client/errors';
 import { Badge, CopyButton } from '../ui/primitives';
+import { PluginRunDialog } from '../ui/plugin-run';
+import { usePlugins, type PluginActionInfo } from '../use-plugins';
 import { LogViewer } from './Environments';
 
 const SYMBOL = { ok: '✅', warn: '⚠️', fail: '❌' } as const;
@@ -15,6 +17,8 @@ export function Doctor() {
   const [error, setError] = useState<string | null>(null);
   const [envs, setEnvs] = useState<EnvListData['environments']>([]);
   const [log, setLog] = useState<null | { title: string; load: () => Promise<string[]> }>(null);
+  const plugins = usePlugins();
+  const [pluginRun, setPluginRun] = useState<PluginActionInfo | null>(null);
 
   const run = useCallback(async () => {
     setRunning(true);
@@ -58,6 +62,15 @@ export function Doctor() {
                 <div>
                   <div><span className="id">{c.id}</span> {c.message}</div>
                   {c.fix && c.status !== 'ok' && <div className="note">Fix: <code>{c.fix}</code></div>}
+                  {c.advice?.map((a, i) => {
+                    const action = a.action ? plugins.action(a.plugin, a.action) : undefined;
+                    return (
+                      <div className="note row" key={i} aria-label={`Advice from ${a.plugin}`}>
+                        <span><b>{a.plugin}</b>: {a.message}{a.fix && <> · <code>{a.fix}</code></>}</span>
+                        {action ? <button className={`btn sm${action.destructive ? ' danger' : ''}`} onClick={() => setPluginRun(action)}>{action.title}{action.destructive ? '…' : ''}</button> : a.fix && <CopyButton text={a.fix} label="Copy" />}
+                      </div>
+                    );
+                  })}
                 </div>
                 {c.fix && c.status !== 'ok' && <CopyButton text={c.fix} label="Copy fix" />}
               </div>
@@ -75,6 +88,7 @@ export function Doctor() {
         </div>
       </section>
       {log && <LogViewer title={log.title} load={log.load} onClose={() => setLog(null)} />}
+      {pluginRun && <PluginRunDialog action={pluginRun} target={{}} onClose={() => { setPluginRun(null); void run(); }} />}
     </div>
   );
 }

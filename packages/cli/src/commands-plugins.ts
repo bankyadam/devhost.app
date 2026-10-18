@@ -1,13 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { PluginChangeData, PluginListData, PluginRunData } from '@devhost/contract';
-import { long, newExecutor, short, type GlobalOptions } from './command-support.js';
+import type { PluginChangeData, PluginListData, PluginRunData, PluginWidgetsData } from '@devhost/contract';
+import { long, newExecutor, newReporter, short, type GlobalOptions } from './command-support.js';
 import { editConfigFile } from './config/edit.js';
 import { loadConfig } from './config/load.js';
 import type { Deps } from './deps.js';
 import { DevhostError, UsageError } from './errors.js';
-import { makePrompter } from './prompter.js';
+import { makePrompter, NoPrompter } from './prompter.js';
 import type { ActionTarget } from './plugins/api.js';
 import { findEnvironment, findSession, pluginContext } from './plugins/context.js';
 import { builtinPlugins } from './plugins/builtin/index.js';
@@ -37,6 +37,49 @@ export function pluginListCommand(deps: Deps, g: GlobalOptions): Promise<number>
           ].join('\n'))
           .join('\n');
     return { data: { plugins }, human };
+  });
+}
+
+type Widget = PluginWidgetsData['widgets'][number];
+
+/** `devhost plugin widgets`: every enabled plugin's dashboard cards. Read-only; a widget that throws says so on its card. */
+export function pluginWidgetsCommand(deps: Deps, g: GlobalOptions): Promise<number> {
+  return short<PluginWidgetsData>(deps, g, async () => {
+    const { config } = await loadConfig(g.configPath);
+    const exec = newExecutor(deps, g, newReporter(deps, g), false);
+    const silent = { step: () => undefined, log: () => undefined };
+    const widgets: Widget[] = [];
+    for (const p of await loadPlugins(config, deps.home)) {
+      if (!p.enabled || !p.plugin?.widgets?.length) continue;
+      const ctx = pluginContext({ config, name: p.name, home: deps.home, user: deps.user, nodePath: deps.nodePath, exec, reporter: silent, prompter: new NoPrompter() });
+      for (const w of p.plugin.widgets) {
+        const base = { plugin: p.name, id: w.id, title: w.title };
+        try {
+          const c = await w.run(ctx);
+          widgets.push({
+            ...base,
+            ...(c.status ? { status: c.status } : {}),
+            ...(c.summary ? { summary: c.summary } : {}),
+            ...(c.tiles?.length ? { tiles: c.tiles.map((t) => ({ label: String(t.label), value: String(t.value), ...(t.sub ? { sub: String(t.sub) } : {}) })) } : {}),
+            ...(c.rows?.length ? { rows: c.rows.map((r) => ({ label: String(r.label), value: String(r.value), ...(r.note ? { note: String(r.note) } : {}) })) } : {}),
+            ...(c.action ? { action: c.action } : {}),
+          });
+        } catch (err) {
+          widgets.push({ ...base, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+    }
+    const human = widgets.length === 0
+      ? 'No plugin widgets.'
+      : widgets
+          .map((w) => [
+            `${w.title} (${w.plugin})${w.status ? ` [${w.status}]` : ''}${w.summary ? ` — ${w.summary}` : ''}${w.error ? `\n    ❌ ${w.error}` : ''}`,
+            ...(w.tiles ?? []).map((t) => `    ${t.label}: ${t.value}${t.sub ? ` (${t.sub})` : ''}`),
+            ...(w.rows ?? []).map((r) => `    ${r.label}: ${r.value}${r.note ? ` — ${r.note}` : ''}`),
+            ...(w.action ? [`    → devhost plugin run ${w.plugin} ${w.action}`] : []),
+          ].join('\n'))
+          .join('\n');
+    return { data: { widgets }, human };
   });
 }
 
