@@ -34,7 +34,7 @@ const NAME = /^[a-z][a-z0-9-]{0,47}$/;
 
 function valid(p: unknown): p is DevhostPlugin {
   const x = p as DevhostPlugin | null;
-  return !!x && typeof x.name === 'string' && typeof x.version === 'string' && typeof x.description === 'string' && (x.actions === undefined || Array.isArray(x.actions)) && (x.checks === undefined || Array.isArray(x.checks));
+  return !!x && typeof x.name === 'string' && typeof x.version === 'string' && typeof x.description === 'string' && (x.actions === undefined || Array.isArray(x.actions)) && (x.checks === undefined || Array.isArray(x.checks)) && (x.advice === undefined || Array.isArray(x.advice)) && (x.widgets === undefined || Array.isArray(x.widgets));
 }
 
 /**

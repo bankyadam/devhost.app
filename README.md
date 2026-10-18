@@ -48,7 +48,7 @@ The environment now shows up in the Claude app under the `business` account, and
 | `init [--force] [--hostname h] [--docker colima\|orbstack\|none] [--no-tailscale]` | Wizard → `~/.config/devhost/config.yaml`; generates the ntfy topic. |
 | `apply [--dry-run] [--only <step>…]` | Idempotent setup. `--dry-run` prints the plan, including every `sudo` command. |
 | `doctor` | Read-only checks with one-line fixes (✅/⚠️/❌); exit 1 on any ❌. Plugins add theirs as `plugin.<name>.<check>`. |
-| `plugin list`, `plugin run <plugin> <action> [--env n] [--session id] [--dry-run] [--yes]`, `plugin install <source> [--name] [--enable]`, `plugin uninstall <name>`, `plugin enable\|disable <name>` | devhost plugins (see Plugins below). An action that removes or stops something asks first. |
+| `plugin list`, `plugin widgets`, `plugin run <plugin> <action> [--env n] [--session id] [--dry-run] [--yes]`, `plugin install <source> [--name] [--enable]`, `plugin uninstall <name>`, `plugin enable\|disable <name>` | devhost plugins (see Plugins below). An action that removes or stops something asks first. |
 | `status` | One-screen summary. |
 | `account list \| add \| remove` | Add: `--name --git-email [--git-name] [--default] [--daily-cost-alert <usd>] [--no-login]`. Remove: refused while the account has environments; `--logout` also signs out; never deletes the root, the config dir or credentials. |
 | `login <account>` | Sign in, accept workspace trust and the one-time Remote Control confirmation for each environment, restart its services. |
@@ -107,6 +107,9 @@ Schemas live in `packages/contract/schemas/*.schema.json`; the TypeScript types 
 ## Plugins
 
 A devhost plugin is an ES module whose default export lists actions and checks (`packages/cli/src/plugins/api.ts`; `definePlugin` gives the types). It runs in the CLI on the Mac mini, as you, and changes things only through `ctx.exec`, so `--dry-run`, the plan and the root helper work as for `apply`. An action is scoped to the host, an environment or a session; the desktop app shows host actions on its Plugins screen, environment actions in the environment's "…" menu and session actions in the session's Open menu. Checks appear in `devhost doctor`.
+
+- **Advice** (`advice: [{ check, on?, run(ctx, check) }]`): a note under another check, devhost's or another plugin's, in `devhost doctor` and the app's Doctor screen. `check` is a check id, `*` standing for one dot-separated part (`env.*.service`); `on` the statuses it is asked for (default warn and fail). `run` returns `{ message, fix?, action? }` or `null`; `action` (one of the plugin's host actions) becomes the fix `devhost plugin run <plugin> <action>` and a button in the app. Example: disk-cleanup under `system.disk`.
+- **Widgets** (`widgets: [{ id, title, run(ctx) }]`): cards on the app's dashboard, below the host's health. `run` returns `{ status?, summary?, tiles?: [{ label, value, sub? }], rows?: [{ label, value, note? }], action? }` with text values (the plugin formats them); `action` is a button. `devhost plugin widgets` prints them; the app loads them on connect, every 5 minutes and after the card's action ran.
 
 - **Plugins of bankyadam's** (private repositories; install with the SSH URL):
   - [`devhost-plugin-disk-cleanup`](https://github.com/bankyadam/devhost-plugin-disk-cleanup): frees disk space (Homebrew and npm caches, old Remote Control worktrees that are clean and pushed); `report`, `clean`, and a doctor check. `devhost plugin install git@github.com:bankyadam/devhost-plugin-disk-cleanup.git --enable`

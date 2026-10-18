@@ -18,5 +18,20 @@ export interface DoctorData {
      * One-line fix; copy-paste ready where possible.
      */
     fix?: string;
+    /**
+     * Plugins' notes on this check.
+     */
+    advice?: {
+      plugin: string;
+      message: string;
+      /**
+       * One-line fix; copy-paste ready.
+       */
+      fix?: string;
+      /**
+       * A host action of this plugin that helps (`devhost plugin run <plugin> <action>`).
+       */
+      action?: string;
+    }[];
   }[];
 }

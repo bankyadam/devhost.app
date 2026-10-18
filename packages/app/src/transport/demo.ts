@@ -22,6 +22,8 @@ export function createDemoTransport(host: string): Transport {
     if (a === 'env' && b === 'list') return envelope({ environments: ENVS });
     if ((a === 'env' || a === 'collector') && b === 'logs') return envelope({ name: args[2] ?? 'collector', path: '/Users/me/Library/Logs/devhost/x.log', lines: LOG });
     if (a === 'doctor') return envelope(DOCTOR);
+    if (a === 'plugin' && b === 'list') return envelope({ plugins: DEMO_PLUGINS });
+    if (a === 'plugin' && b === 'widgets') return envelope({ widgets: DEMO_WIDGETS });
     if (a === 'config' && b === 'raw') return envelope({ path: '~/.config/devhost/config.yaml', text: config });
     if (a === 'config' && b === 'get') return envelope({ pointer: '', value: YAML.parse(config) });
     if (a === 'config' && b === 'validate') {
@@ -127,15 +129,27 @@ const ENVS = [
 
 const LOG = ['2026-10-12T09:01:12Z Remote Control server started', '2026-10-12T09:01:13Z Session URL: https://claude.ai/code/…', '2026-10-12T11:40:02Z connection re-established'];
 
+const DEMO_PLUGINS = [
+  { name: 'disk-cleanup', version: '1.1.0', description: 'Free disk space: package caches and old Remote Control worktrees', builtin: false, enabled: true, source: '~/.config/devhost/plugins/disk-cleanup/index.js', actions: [{ id: 'clean', title: 'Free disk space', description: 'Empty the Homebrew and npm caches and remove old worktrees that are clean and pushed', scope: 'host', destructive: true }], checks: ['reclaimable'] },
+];
+
+const DEMO_WIDGETS = [
+  {
+    plugin: 'disk-cleanup', id: 'reclaimable', title: 'Disk cleanup', status: 'warn', summary: '6.2 GB reclaimable', action: 'clean',
+    tiles: [{ label: 'Homebrew cache', value: '3.1 GB' }, { label: 'npm cache', value: '1.4 GB' }, { label: 'Old worktrees', value: '1.7 GB', sub: '4 of 7' }],
+  },
+];
+
 const DOCTOR = {
   ok: true,
-  summary: { ok: 5, warn: 1, fail: 0 },
+  summary: { ok: 5, warn: 2, fail: 0 },
   checks: [
     { id: 'system.power', status: 'ok', message: 'never sleeps, restarts after power loss, wake on LAN' },
     { id: 'system.filevault', status: 'ok', message: 'FileVault is on: after a reboot the disk must be unlocked before anything starts' },
     { id: 'tools.docker', status: 'ok', message: 'Docker 27.3 (colima) is running' },
     { id: 'account.business.login', status: 'ok', message: 'logged in' },
     { id: 'env.acme-api.service', status: 'ok', message: 'Remote Control service running (pid 4242)' },
+    { id: 'system.disk', status: 'warn', message: 'only 12% of the disk is free (alert limit 15%)', fix: 'Free space: docker system prune, remove old worktrees and node_modules.', advice: [{ plugin: 'disk-cleanup', message: '6.2 GB reclaimable: Homebrew cache 3.1 GB, npm cache 1.4 GB, 4 old worktree(s) 1.7 GB', fix: 'devhost plugin run disk-cleanup clean', action: 'clean' }] },
     { id: 'collector.data', status: 'warn', message: 'no telemetry received in the last hour (fine if no session was used)', fix: 'Start a session; check ~/.claude*/settings.json has the OTEL_* env keys.' },
   ],
 };

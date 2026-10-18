@@ -62,6 +62,34 @@
           "fix": {
             "type": "string",
             "description": "One-line fix; copy-paste ready where possible."
+          },
+          "advice": {
+            "type": "array",
+            "description": "Plugins' notes on this check.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "plugin",
+                "message"
+              ],
+              "properties": {
+                "plugin": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "fix": {
+                  "type": "string",
+                  "description": "One-line fix; copy-paste ready."
+                },
+                "action": {
+                  "type": "string",
+                  "description": "A host action of this plugin that helps (`devhost plugin run <plugin> <action>`)."
+                }
+              }
+            }
           }
         }
       }

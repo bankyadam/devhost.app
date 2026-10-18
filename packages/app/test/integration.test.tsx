@@ -94,6 +94,8 @@ describe('dashboard (spec B3.1, B6)', () => {
       { id: 'stop', title: 'Stop the session process', description: 'ends it', scope: 'session', destructive: true,
         async run(ctx, t) { return { summary: 'stopped ' + t.session.id + ' in ' + t.session.cwd }; } },
     ],
+    widgets: [{ id: 'space', title: 'Caches', async run() { return { status: 'warn', summary: '1 GB reclaimable', tiles: [{ label: 'npm cache', value: '1 GB' }], action: 'clean' }; } }],
+    advice: [{ check: 'system.disk', on: ['ok', 'warn', 'fail'], async run() { return { message: '1 GB in caches', action: 'clean' }; } }],
   };`;
 
   async function dashboard(webApps: string[] = [], transcripts: Record<string, string> = {}, plugin = false) {
@@ -215,6 +217,26 @@ describe('dashboard (spec B3.1, B6)', () => {
     await h.user.click(within(ask.closest('.prompt') as HTMLElement).getByRole('button', { name: 'Yes' }));
     expect(await dlg.findByLabelText('Result', undefined, { timeout: 8000 })).toHaveTextContent(`stopped sess-waiting-1 in ${join(h.env.home, 'work', 'business', 'acme-api')}`);
     expect(h.transport.calls.some((c) => c.join(' ').startsWith('plugin run tidy stop --session sess-waiting-1'))).toBe(true);
+  });
+
+  it("a plugin's widget is a dashboard card whose button runs its action; its advice shows in Doctor", async () => {
+    const h = await dashboard([], {}, true);
+    const card = within(await screen.findByRole('region', { name: 'Caches (tidy)' }));
+    expect(card.getByText('1 GB reclaimable')).toBeInTheDocument();
+    expect(card.getByText('npm cache')).toBeInTheDocument();
+    await h.user.click(card.getByRole('button', { name: 'Free disk space…' }));
+    const dlg = within(await screen.findByRole('dialog', { name: 'Free disk space' }));
+    const ask = await dlg.findByText(/Free disk space\?/, undefined, { timeout: 8000 });
+    await h.user.click(within(ask.closest('.prompt') as HTMLElement).getByRole('button', { name: 'No' }));
+    expect(h.transport.calls.some((c) => c.join(' ').startsWith('plugin run tidy clean'))).toBe(true);
+    const before = h.transport.calls.filter((c) => c.join(' ') === 'plugin widgets --json').length;
+    await h.user.click(await dlg.findByRole('button', { name: 'Close' }, { timeout: 8000 }));
+    await waitFor(() => expect(h.transport.calls.filter((c) => c.join(' ') === 'plugin widgets --json').length).toBe(before + 1)); // the card is refreshed
+
+    await h.user.click(screen.getByRole('button', { name: 'Doctor and logs' }));
+    const advice = within(await screen.findByLabelText('Advice from tidy', undefined, { timeout: 8000 }));
+    expect(advice.getByText(/1 GB in caches/)).toBeInTheDocument();
+    expect(advice.getByRole('button', { name: 'Free disk space…' })).toBeInTheDocument();
   });
 
   it('the Plugins screen lists the plugins and runs host actions, with a preview for the ones that remove things', async () => {

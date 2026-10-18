@@ -16,6 +16,7 @@ import {
   type PluginChangeData,
   type PluginListData,
   type PluginRunData,
+  type PluginWidgetsData,
   type StatusData,
   type VersionData,
 } from '@devhost/contract/lite';
@@ -195,6 +196,8 @@ export class DevhostClient {
   envService = (name: string, action: 'start' | 'stop' | 'restart', h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', action, name], h);
 
   plugins = (): Promise<PluginListData> => this.short<PluginListData>(['plugin', 'list']);
+  /** Plugins measure things (disk usage…): give them time. */
+  pluginWidgets = (): Promise<PluginWidgetsData> => this.short<PluginWidgetsData>(['plugin', 'widgets'], { timeoutMs: 120_000 });
   pluginInstall = (source: string, enable: boolean, h?: LongHandlers): LongRun<PluginChangeData> => this.run<PluginChangeData>(['plugin', 'install', source, ...(enable ? ['--enable'] : [])], h);
   pluginUninstall = (name: string): Promise<PluginChangeData> => this.short<PluginChangeData>(['plugin', 'uninstall', name]);
   pluginToggle = (name: string, enabled: boolean): Promise<PluginChangeData> => this.short<PluginChangeData>(['plugin', enabled ? 'enable' : 'disable', name]);

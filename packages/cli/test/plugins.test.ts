@@ -104,6 +104,68 @@ describe('plugins', () => {
   });
 });
 
+const ADVISOR = `
+export default {
+  name: 'advisor',
+  version: '1.0.0',
+  description: 'advice and widgets',
+  actions: [{ id: 'fix', title: 'Fix it', description: 'fixes', scope: 'host', async run() { return { summary: 'fixed' }; } }],
+  advice: [
+    { check: 'plugin.hello.*', async run(ctx, c) { return { message: 'seen ' + c.id + ' (' + c.status + ')', action: 'fix' }; } },
+    { check: 'plugin.hello.mood', on: ['ok'], async run() { return { message: 'never: mood is a warning' }; } },
+    { check: 'system.macos', on: ['ok', 'warn', 'fail'], async run() { return null; } },
+    { check: 'plugin.hello.mood', async run() { throw new Error('boom'); } },
+  ],
+  widgets: [
+    { id: 'space', title: 'Space', async run(ctx) {
+      return { status: 'warn', summary: 'for ' + ctx.options.who, tiles: [{ label: 'Cache', value: '1 GB', sub: 'npm' }], rows: [{ label: 'old', value: '2 MB', note: 'pushed' }], action: 'fix' };
+    } },
+    { id: 'broken', title: 'Broken', async run() { throw new Error('no data'); } },
+  ],
+};
+`;
+
+describe('plugin advice and widgets', () => {
+  it("doctor puts a plugin's advice under the check it speaks to, by pattern and status; advice that throws says so", async () => {
+    const env = await withPlugin();
+    await enable(env);
+    const dir = join(env.home, '.config', 'devhost', 'plugins', 'advisor');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'index.js'), ADVISOR);
+    await enable(env, 'advisor');
+    env.out.length = 0;
+    await env.run('doctor', '--json');
+    const data = (JSON.parse(env.stdout()) as { data: DoctorData }).data;
+    expect(validate('result.doctor', data).ok).toBe(true);
+    expect(data.checks.find((c) => c.id === 'plugin.hello.mood')!.advice).toEqual([
+      { plugin: 'advisor', message: 'seen plugin.hello.mood (warn)', fix: 'devhost plugin run advisor fix', action: 'fix' },
+      { plugin: 'advisor', message: 'advice crashed: boom' },
+    ]);
+    expect(data.checks.find((c) => c.id === 'system.macos')!.advice).toBeUndefined();
+
+    env.out.length = 0;
+    await env.run('doctor');
+    expect(env.stdout()).toContain('     advisor: seen plugin.hello.mood (warn)\n       fix: devhost plugin run advisor fix');
+  });
+
+  it('plugin widgets lists the enabled plugins\' cards; one that throws carries its error', async () => {
+    const env = await withPlugin(ADVISOR, 'advisor');
+    expect(await env.run('plugin', 'widgets', '--json')).toBe(0);
+    expect((lastEnvelope(env).data as { widgets: unknown[] }).widgets).toEqual([]); // off until enabled
+    await enable(env, 'advisor');
+    env.out.length = 0;
+    expect(await env.run('plugin', 'widgets', '--json')).toBe(0);
+    const data = lastEnvelope(env).data;
+    expect(validate('result.plugin-widgets', data).ok).toBe(true);
+    expect(data).toEqual({
+      widgets: [
+        { plugin: 'advisor', id: 'space', title: 'Space', status: 'warn', summary: 'for adam', tiles: [{ label: 'Cache', value: '1 GB', sub: 'npm' }], rows: [{ label: 'old', value: '2 MB', note: 'pushed' }], action: 'fix' },
+        { plugin: 'advisor', id: 'broken', title: 'Broken', error: 'no data' },
+      ],
+    });
+  });
+});
+
 describe('plugin install / uninstall', () => {
   it('understands GitHub URLs, owner/repo and refs, and refuses anything that could be an option', () => {
     expect(parsePluginSource('bankyadam/devhost-plugin-disk-cleanup')).toEqual({ spec: 'bankyadam/devhost-plugin-disk-cleanup', url: 'https://github.com/bankyadam/devhost-plugin-disk-cleanup.git', name: 'disk-cleanup' });

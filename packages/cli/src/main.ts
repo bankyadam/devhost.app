@@ -17,7 +17,7 @@ import { accountAddCommand, accountListCommand, accountRemoveCommand, loginComma
 import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, envServiceCommand } from './commands-env.js';
 import { collectorLogsCommand, collectorRunCommand, dashCommand, notifyCommand, topCommand } from './commands-collector.js';
 import { doctorCommand, statusCommand, uninstallCommand } from './commands-doctor.js';
-import { pluginInstallCommand, pluginListCommand, pluginRunCommand, pluginToggleCommand, pluginUninstallCommand } from './commands-plugins.js';
+import { pluginInstallCommand, pluginListCommand, pluginRunCommand, pluginToggleCommand, pluginUninstallCommand, pluginWidgetsCommand } from './commands-plugins.js';
 import { closeInput } from './prompter.js';
 import { resolveConfigPath } from './config/paths.js';
 import type { Deps } from './deps.js';
@@ -239,6 +239,7 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
 
   const plugin = program.command('plugin').description('devhost plugins: built-in ones and ~/.config/devhost/plugins');
   plugin.command('list').description('Plugins, their actions and checks').action(run(() => pluginListCommand(deps, globals())));
+  plugin.command('widgets').description("Enabled plugins' dashboard cards (the desktop app shows them)").action(run(() => pluginWidgetsCommand(deps, globals())));
   plugin
     .command('run <plugin> <action>')
     .description("Run a plugin's action (one that removes or stops something asks first; --yes answers)")
