@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ApplyData } from '@devhost/contract';
 import { managedSettings, mergeSettings, parseSettings, removeManaged } from '../src/claude-settings.js';
-import { loggedArgs, renderPlist } from '../src/launchd.js';
+import { loggedArgs, networkWrapper, renderPlist } from '../src/launchd.js';
+import { rcLogCheck } from '../src/doctor/checks.js';
+import { withoutClaudeSession } from '../src/runner/real.js';
 import { templatesDir } from '../src/paths.js';
 import { gitconfigBlockBody } from '../src/steps/git.js';
 import { shellBlockBody } from '../src/steps/shell.js';
@@ -113,6 +115,16 @@ describe('plist', () => {
     const r = spawnSync(loggedArgs({ args: ['/bin/sh', '-c', 'echo out "$1"; echo err >&2', 'x', 'a b'], logPath: log })[0]!, loggedArgs({ args: ['/bin/sh', '-c', 'echo out "$1"; echo err >&2', 'x', 'a b'], logPath: log }).slice(1));
     expect(r.status).toBe(0);
     expect(await readFile(log, 'utf8')).toBe('before\nout a b\nerr\n');
+  });
+
+  it.runIf(process.platform === 'darwin')('a service that waits for the network marks its start and runs once the host resolves', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wrap-'));
+    const log = join(dir, 'svc.log');
+    const args = loggedArgs({ args: ['/bin/echo', 'up'], logPath: log, waitForHost: 'localhost' });
+    const r = spawnSync(args[0]!, args.slice(1));
+    expect(r.status).toBe(0);
+    expect(await readFile(log, 'utf8')).toMatch(/^\[devhost\] started \d{4}-\d\d-\d\d \d\d:\d\d:\d\d\nup\n$/);
+    expect(() => networkWrapper('x; rm -rf ~')).toThrow();
   });
 
   describe.runIf(process.platform === 'darwin')('root helper (templates/devhost-root.js)', () => {
@@ -240,5 +252,25 @@ describe('apply with accounts', () => {
     expect(await env.run('apply', '--dry-run', '--only', 'docker')).toBe(0);
     expect(env.stdout()).toContain('[sudo] docker.runtime: sudo install -m 644 -o root -g wheel');
     expect(env.stdout()).toContain('[sudo] docker.runtime: sudo launchctl bootstrap system');
+  });
+});
+
+describe('Remote Control log check', () => {
+  const run = (...lines: string[]) => lines.join('\n');
+  it("looks at the current run only: an old 401 is history, one since the last start fails with devhost login", () => {
+    const old = run('[devhost] started 2026-10-18 20:04:01', 'Error: Registration: Authentication failed (401): OAuth access token has expired.', '[devhost] started 2026-10-18 20:05:23', '·✔︎· Ready · wrapper');
+    expect(rcLogCheck('env.w', old, 'stylers', 'w')).toMatchObject({ status: 'ok' });
+    const now = run('[devhost] started 2026-10-18 20:05:23', '\u001b[31mError: Registration: Authentication failed (401): OAuth access token has expired. Re-authenticate to continue.\u001b[0m');
+    expect(rcLogCheck('env.w', now, 'stylers', 'w')).toMatchObject({ status: 'fail', fix: 'devhost login stylers', message: expect.stringContaining('cannot sign in') });
+    expect(rcLogCheck('env.w', run('[devhost] started x', 'Error: getaddrinfo ENOTFOUND api.anthropic.com'), 'stylers', 'w')).toMatchObject({ status: 'warn', fix: 'devhost env logs w' });
+    expect(rcLogCheck('env.w', null, 'stylers', 'w')).toMatchObject({ status: 'ok', message: 'no log yet' });
+  });
+});
+
+describe('environment', () => {
+  it("drops a Claude Code session's own variables (run from inside one), keeps the rest", () => {
+    const inside = { CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 's', CLAUDE_CODE_BRIDGE_OWNER_ORG_UUID: 'o', CLAUDE_CODE_ENTRYPOINT: 'remote', CLAUDE_PID: '1', CLAUDE_CODE_ENABLE_TELEMETRY: '1', CLAUDE_CONFIG_DIR: '/c', PATH: '/bin' };
+    expect(withoutClaudeSession(inside)).toEqual({ CLAUDE_CODE_ENABLE_TELEMETRY: '1', CLAUDE_CONFIG_DIR: '/c', PATH: '/bin' });
+    expect(withoutClaudeSession({ CLAUDE_CODE_SESSION_ID: 'mine', PATH: '/bin' })).toEqual({ CLAUDE_CODE_SESSION_ID: 'mine', PATH: '/bin' });
   });
 });

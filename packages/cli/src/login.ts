@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import type { DevhostConfig, LoginData } from '@devhost/contract';
 import { runSteps } from './apply.js';
-import { accountEnv, environmentsOf, rcLabel, type Account } from './config/accounts.js';
+import { accountEnv, accountsOf, environmentsOf, rcLabel, type Account } from './config/accounts.js';
 import type { Deps } from './deps.js';
 import { HumanActionRequired } from './errors.js';
 import { daemonState } from './launchd.js';
@@ -224,6 +224,24 @@ export async function acceptWorkspace(ctx: LoginContext, info: EnvInfo): Promise
   return workspaceTrusted(ctx.stepContext(), ctx.account, info.dir);
 }
 
+/**
+ * The other account already signed in with this login (the same claude.ai email and organization),
+ * if any. Two accounts on one login defeat the point: the second's environments register under the
+ * first's claude.ai account and do not show up under their own.
+ */
+export async function sharedLogin(ctx: { exec: Executor; deps: Pick<Deps, 'home' | 'brewPrefix'> }, config: DevhostConfig, a: Account, raw: string): Promise<{ account: string; email: string } | null> {
+  const me = loginIdentity(raw);
+  if (!me.email) return null;
+  for (const other of accountsOf(config)) {
+    if (other.name === a.name) continue;
+    const st = await authStatus(ctx, other);
+    if (st.loggedIn !== true) continue;
+    const them = loginIdentity(st.raw);
+    if (them.email === me.email && (them.orgId ?? '') === (me.orgId ?? '')) return { account: other.name, email: me.email };
+  }
+  return null;
+}
+
 /** What `devhost login <account>` does (spec A7.10). */
 export async function loginAccount(ctx: LoginContext): Promise<LoginData> {
   const { account: a, config, deps, reporter } = ctx;
@@ -234,6 +252,14 @@ export async function loginAccount(ctx: LoginContext): Promise<LoginData> {
   if (status.loggedIn !== true) {
     reporter.step('login.auth', 'failed', 'claude auth status still reports a logged-out account');
     throw new HumanActionRequired(`${a.name} is still not logged in`, `Run \`devhost login ${a.name}\` again and paste the code the browser shows.`);
+  }
+  const clash = await sharedLogin(ctx, config, a, status.raw);
+  if (clash) {
+    reporter.step('login.auth', 'failed', `signed in as ${clash.email}, the login of ${clash.account}`);
+    throw new HumanActionRequired(
+      `${a.name} is signed in as ${clash.email}, which is ${clash.account}'s login: its environments would show up under ${clash.account}`,
+      `Sign out of claude.ai in the browser (or open the link in a private window), then run \`devhost login ${a.name}\` again and sign in with ${a.name}'s login.`,
+    );
   }
   reporter.step('login.auth', 'changed', 'logged in');
   recordLogin(deps.home, a.name, deps.now().getTime(), loginIdentity(status.raw).orgId);

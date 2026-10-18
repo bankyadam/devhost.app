@@ -3,11 +3,13 @@ import { homedir, userInfo } from 'node:os';
 import { homebrewPrefix } from './homebrew.js';
 import { main } from './main.js';
 import type { Deps } from './deps.js';
-import { RealRunner } from './runner/real.js';
+import { RealRunner, withoutClaudeSession } from './runner/real.js';
 
 const HOMEBREW_PATH = `/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:${homedir()}/.local/bin`;
 
-const env = { ...process.env };
+// Run from inside a Claude Code session, devhost must not pass that session on: a `claude` it
+// starts (auth status, login, trust) would report telemetry as the session, under another login.
+const env = withoutClaudeSession(process.env);
 // launchd and ssh give a minimal PATH; make Homebrew tools findable (spec A5).
 env['PATH'] = [HOMEBREW_PATH, env['PATH'] ?? '/usr/bin:/bin:/usr/sbin:/sbin'].join(':');
 

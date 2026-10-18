@@ -6,8 +6,8 @@ import { Db, dbPath } from '../collector/db.js';
 import { managedSettings, parseSettings } from '../claude-settings.js';
 import { accountEnv, accountRoot, accountsOf, composeProject, effectiveClaudeDir, envDir, environmentsOf, rcLabel, rcLogPath, type Account, type Environment } from '../config/accounts.js';
 import type { Deps } from '../deps.js';
-import { daemonState, plistPath } from '../launchd.js';
-import { authStatus, claudeBinary, claudeRunOptions } from '../login.js';
+import { daemonState, plistPath, START_MARKER } from '../launchd.js';
+import { authStatus, claudeBinary, claudeRunOptions, loginIdentity, stripAnsi } from '../login.js';
 import type { Executor } from '../runner/executor.js';
 import { miseBinary } from '../mise.js';
 import { brewfilePath, renderBrewfile, BUNDLE_CHECK_ENV, bundleCheckArgs } from '../steps/packages.js';
@@ -204,6 +204,26 @@ async function accountChecks(c: DoctorContext): Promise<Check[]> {
   for (const a of accounts) {
     out.push(...(await guarded(`account.${a.name}`, () => oneAccount(c, a))));
   }
+  out.push(...(await guarded('accounts.identity', () => identityChecks(c, accounts))));
+  return out;
+}
+
+/** Who each account is signed in as; two accounts on one claude.ai login fail (the default account keeps it, else the first). */
+async function identityChecks(c: DoctorContext, accounts: Account[]): Promise<Check[]> {
+  const out: Check[] = [];
+  const seen: { account: string; key: string }[] = [];
+  for (const a of [...accounts].sort((x, y) => Number(y.default === true) - Number(x.default === true))) {
+    const st = await authStatus({ exec: c.exec, deps: c.deps }, a);
+    if (st.loggedIn !== true) continue;
+    const who = loginIdentity(st.raw);
+    if (!who.email) continue;
+    const key = `${who.email}|${who.orgId ?? ''}`;
+    const first = seen.find((x) => x.key === key);
+    out.push(first
+      ? fail(`account.${a.name}.identity`, `signed in as ${who.email}, the same login as ${first.account}: its environments show up under ${first.account}`, `devhost login ${a.name}  # sign in with ${a.name}'s login (sign out of claude.ai in the browser first)`)
+      : ok(`account.${a.name}.identity`, `signed in as ${who.email}`));
+    seen.push({ account: a.name, key });
+  }
   return out;
 }
 
@@ -292,8 +312,7 @@ async function oneEnv(c: DoctorContext, a: Account, e: Environment): Promise<Che
     out.push(state.running ? ok(`${id}.service`, `Remote Control service running (pid ${state.pid ?? '?'})`) : fail(`${id}.service`, 'the Remote Control service is not running', (await exec.readText(plistPath(rcLabel(a.name, e.name)))) === null ? `devhost apply --only ${id}` : `devhost env start ${e.name}`));
 
     const log = await exec.readText(rcLogPath(deps.home, a.name, e.name));
-    const bad = (log ?? '').split('\n').slice(-40).filter((l) => /error|not trusted|exited|failed/i.test(l));
-    out.push(bad.length === 0 ? ok(`${id}.log`, log === null ? 'no log yet' : 'recent log has no errors') : warn(`${id}.log`, `recent log: ${bad.at(-1)!.trim().slice(0, 160)}`, `devhost env logs ${e.name}`));
+    out.push(rcLogCheck(id, log, a.name, e.name));
   }
 
   // Ports: the block must not contain the collector port, and listeners from outside this environment are suspicious.
@@ -373,6 +392,22 @@ async function collectorChecks(c: DoctorContext): Promise<Check[]> {
     db.close();
   }
   return out;
+}
+
+/**
+ * The Remote Control log: what the current run (since its start marker; else the last 40 lines)
+ * said. A login problem (an expired token, a 401) fails: the service cannot register until the
+ * account signs in again. Anything else that looks like an error warns.
+ */
+export function rcLogCheck(id: string, log: string | null, account: string, env: string): Check {
+  if (log === null) return ok(`${id}.log`, 'no log yet');
+  const lines = stripAnsi(log).split('\n');
+  const start = lines.map((l) => l.startsWith(START_MARKER)).lastIndexOf(true);
+  const run = start >= 0 ? lines.slice(start) : lines.slice(-40);
+  const auth = run.filter((l) => /\b401\b|token has expired|re-?authenticate|please use `?\/login/i.test(l));
+  if (auth.length > 0) return fail(`${id}.log`, `Remote Control cannot sign in: ${auth.at(-1)!.trim().slice(0, 160)}`, `devhost login ${account}`);
+  const bad = run.filter((l) => /error|not trusted|exited|failed/i.test(l));
+  return bad.length === 0 ? ok(`${id}.log`, 'recent log has no errors') : warn(`${id}.log`, `recent log: ${bad.at(-1)!.trim().slice(0, 160)}`, `devhost env logs ${env}`);
 }
 
 /** Everything `devhost doctor` checks (spec A12), then the plugins' advice on them. Read-only. */

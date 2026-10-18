@@ -40,6 +40,9 @@ export function envInfoOf(a: Account, e: Environment, home: string): EnvInfo {
   };
 }
 
+/** What Remote Control talks to; services wait for it to resolve before starting (boot). */
+export const CLAUDE_API_HOST = 'api.anthropic.com';
+
 export async function rcSpec(ctx: StepContext, a: Account, e: Environment): Promise<DaemonSpec> {
   const info = envInfoOf(a, e, ctx.home);
   const claude = await toolPath(ctx.exec, ctx.home, 'claudePath', 'claude', `${ctx.brewPrefix}/bin/claude`);
@@ -54,6 +57,7 @@ export async function rcSpec(ctx: StepContext, a: Account, e: Environment): Prom
     }),
     logPath: rcLogPath(ctx.home, a.name, e.name),
     throttle: 30,
+    waitForHost: CLAUDE_API_HOST,
   };
 }
 
