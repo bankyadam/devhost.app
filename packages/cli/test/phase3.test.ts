@@ -371,6 +371,27 @@ describe('environments', () => {
     expect(Object.fromEntries(sessions.map((x) => [x.id, x.remoteSession]))).toEqual({ '6a7802e0-1111': 'session_01Abc', '7b000000-2222': 'session_01Abc', '8c000000-3333': null });
   });
 
+  it('session reattach that cannot connect (the session is gone on claude.ai) fails and leaves no job behind', async () => {
+    const { env, mac, dir } = await created();
+    const wt = join(dir, '.claude', 'worktrees', 'bridge-cse_02Gone');
+    await mkdir(wt, { recursive: true });
+    const now = env.deps.now().getTime();
+    const db = new Db(dbPath(env.home));
+    db.run("INSERT INTO sessions VALUES ('9d000000-4444', 'business', 'acme-api', ?, 'ended', ?, ?, ?)", wt, now - 60_000, now - 30_000, now - 1000);
+    db.close();
+    const log = join(env.home, 'Library', 'Logs', 'devhost', 'rc-business-acme-api-cse_02Gone.log');
+    await mkdir(dirname(log), { recursive: true });
+    mac.state.onBootstrap = (label) => {
+      if (label !== 'com.devhost.reattach.cse_02Gone') return;
+      void appendFile(log, 'Error: Session session_02Gone not found. It may have been archived or expired.\n');
+      mac.state.loaded.delete(label); // it exits
+    };
+    env.out.length = 0;
+    expect(await env.run('session', 'reattach', '9d000000', '--json')).toBe(1);
+    expect(lastResult(env).errors![0]!.message).toContain('Session session_02Gone not found');
+    await expect(stat(join(env.home, 'LaunchDaemons', 'com.devhost.reattach.cse_02Gone.plist'))).rejects.toThrow();
+  });
+
   it('a second apply after creation changes nothing', async () => {
     const { env } = await created();
     expect(await env.run('apply')).toBe(0); // converge the machine-level steps first
