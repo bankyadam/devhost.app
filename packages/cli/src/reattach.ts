@@ -98,11 +98,13 @@ export function sessionReattachCommand(deps: Deps, g: GlobalOptions, id: string,
 
     if (!dryRun) {
       // Connected, or it gave up (nothing to reattach to): its log says which.
-      const up = await exec.waitFor(async () => (await daemonState(exec, spec.label)).running, 10, 1000);
-      const connected = up && (await exec.waitFor(async () => /Connected/.test(await newLog()) || !(await daemonState(exec, spec.label)).running, 20, 1000));
-      if (!connected || !(await daemonState(exec, spec.label)).running) {
+      const running = async (): Promise<boolean> => (await daemonState(exec, spec.label)).running;
+      await exec.waitFor(async () => /Connected/.test(await newLog()) || ((await newLog()).trim() !== '' && !(await running())), 30, 1000);
+      if (!/Connected/.test(await newLog()) || !(await running())) {
         const tail = (await newLog()).split('\n').filter((l) => l.trim()).slice(-3).join(' / ');
         reporter.step(step, 'failed', tail || 'it did not connect');
+        // Nothing to keep: left installed, it would only fail again at the next boot.
+        await removeDaemon(ctx, spec.label);
         throw new DevhostError(`${remote.id} could not be reattached${tail ? `: ${tail}` : ''}`, 'reattach-failed', 1, `Log: ${spec.logPath}`);
       }
     }
