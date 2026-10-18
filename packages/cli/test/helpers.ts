@@ -80,6 +80,9 @@ export interface FakeState {
   dirs: Set<string>;
   /** Logged-in config dirs; the default account is 'default'. */
   loggedIn: Set<string>;
+  /** Who each config dir is signed in as (`claude auth status` email), and who the next `auth login` signs in. */
+  identities?: Map<string, string>;
+  loginAs?: string;
   composeUp: Set<string>;
   /** Output of `git log --branches --not --remotes --oneline` per directory. */
   unpushed: Map<string, string>;
@@ -250,7 +253,10 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       return {};
     }
     const key = call.opts?.env?.['CLAUDE_CONFIG_DIR'] ?? 'default';
-    if (line === `${brewBin()}/claude auth status`) return { code: state.loggedIn.has(key) ? 0 : 1, stdout: '{}' };
+    if (line === `${brewBin()}/claude auth status`) {
+      const email = state.identities?.get(key);
+      return { code: state.loggedIn.has(key) ? 0 : 1, stdout: email ? JSON.stringify({ loggedIn: true, email, orgId: `org-of-${email}` }) : '{}' };
+    }
     if (line === `${brewBin()}/claude auth logout`) {
       state.loggedIn.delete(key);
       return {};
@@ -317,7 +323,9 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
   runner.onSpawn(/^\/opt\/homebrew\/bin\/claude auth login$/, (p, call) => {
     p.emit('Opening browser to sign in…\nIf it does not open, visit:\nhttps://claude.ai/oauth/authorize?code=true&x=1\nPaste code here if prompted > ');
     p.onWrite((data) => {
-      state.loggedIn.add(call.opts?.env?.['CLAUDE_CONFIG_DIR'] ?? 'default');
+      const dir = call.opts?.env?.['CLAUDE_CONFIG_DIR'] ?? 'default';
+      state.loggedIn.add(dir);
+      if (state.loginAs) (state.identities ??= new Map()).set(dir, state.loginAs);
       p.emit('Login successful\n');
       p.exit(0);
       void data;

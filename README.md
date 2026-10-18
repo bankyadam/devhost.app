@@ -51,7 +51,7 @@ The environment now shows up in the Claude app under the `business` account, and
 | `plugin list`, `plugin widgets`, `plugin run <plugin> <action> [--env n] [--session id] [--dry-run] [--yes]`, `plugin install <source> [--name] [--enable]`, `plugin uninstall <name>`, `plugin enable\|disable <name>` | devhost plugins (see Plugins below). An action that removes or stops something asks first. |
 | `status` | One-screen summary. |
 | `account list \| add \| remove` | Add: `--name --git-email [--git-name] [--default] [--daily-cost-alert <usd>] [--no-login]`. Remove: refused while the account has environments; `--logout` also signs out; never deletes the root, the config dir or credentials. |
-| `login <account>` | Sign in, accept workspace trust and the one-time Remote Control confirmation for each environment, restart its services. |
+| `login <account>` | Sign in, accept workspace trust and the one-time Remote Control confirmation for each environment, restart its services. Refused when the sign-in is another account's claude.ai login (same email and organization: the environments would show up under that account); `doctor` shows who each account is signed in as. |
 | `env list \| create \| delete \| start \| stop \| restart \| logs` | Create: `--account --name [--repo] [--no-rc] [--compose auto\|off]`. Delete keeps files unless `--delete-files` (shows unpushed commits, asks for the typed name).  Running `env create` again for an environment that is in the config continues (or repeats) its setup with the config's settings, e.g. after a failed `docker compose up`; the app has *Try again* and Environments → … → *Run setup again*. A compose network left from before is reported with how to remove it (devhost never removes it). |
 | `config get \| set \| validate \| edit` | Always schema-validated, comments preserved; changing config does not apply it. |
 | `dash [--range 1h\|24h\|7d\|30d] [--account] [--env] [--model] [--follow]`, `top [--once]` | Dashboard data (`--json`) and a refreshing terminal table. |
@@ -80,7 +80,7 @@ Also available for the desktop app (same contract): `config raw` (the file with 
 | `accounts.claude` | Per account: merges settings into the user-level `settings.json` (keeps your keys), adds OTel + hooks, and a managed block in `CLAUDE.md`. |
 | `accounts.routing`, `accounts.git` | Account roots, `<root>/.envrc` + `direnv allow`, `includeIf` per account root. |
 | `collector` | LaunchDaemon `com.devhost.collector`. |
-| `env.<name>` | Repo (clone or `git init`), `.envrc` (git-excluded), compose, LaunchDaemon `com.devhost.rc.<account>.<name>` (`UserName` = you, `KeepAlive`, `ThrottleInterval 30`). Missing port blocks are allocated and written back to the config. |
+| `env.<name>` | Repo (clone or `git init`), `.envrc` (git-excluded), compose, LaunchDaemon `com.devhost.rc.<account>.<name>` (`UserName` = you, `KeepAlive`, `ThrottleInterval 30`). Each start writes `[devhost] started <time>` to its log and waits (up to 3 minutes) until `api.anthropic.com` resolves: at boot launchd starts it before the network is up. `doctor` reads the log from the last start: a sign-in error there (expired token, 401) fails with `devhost login <account>`. Missing port blocks are allocated and written back to the config. |
 
 `--only system` selects every `system.*` step; `--only env.acme-api` one environment.
 

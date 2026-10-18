@@ -537,6 +537,29 @@ describe('environments', () => {
     expect(mac.state.loaded.has('com.devhost.rc.business.acme-api')).toBe(true);
   });
 
+  it("login refuses another account's claude.ai login, and doctor shows who each account is", async () => {
+    const { env, mac } = await created();
+    await env.run('account', 'add', '--name', 'personal', '--default', '--git-email', 'me@example.com', '--no-login');
+    mac.state.loggedIn.add('default');
+    mac.state.identities = new Map([['default', 'me@example.com']]);
+    mac.state.loginAs = 'me@example.com'; // the browser was signed in to the personal login
+    feed(env, { id: 'auth-code', value: 'C' });
+    env.out.length = 0;
+    expect(await env.run('login', 'business', '--json')).toBe(3);
+    expect(lastResult(env).errors![0]!.message).toBe("business is signed in as me@example.com, which is personal's login: its environments would show up under personal");
+
+    env.out.length = 0;
+    await env.run('doctor', '--json');
+    const checks = (lastEnvelope(env).data as { checks: { id: string; status: string; message: string; fix?: string }[] }).checks;
+    expect(checks.find((c) => c.id === 'account.personal.identity')).toMatchObject({ status: 'ok', message: 'signed in as me@example.com' });
+    expect(checks.find((c) => c.id === 'account.business.identity')).toMatchObject({ status: 'fail', message: expect.stringContaining('the same login as personal') });
+
+    mac.state.loginAs = 'a@work.example';
+    feed(env, { id: 'auth-code', value: 'C' }, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    env.out.length = 0;
+    expect(await env.run('login', 'business', '--json')).toBe(0);
+  });
+
   it('login restarts a service that was already running: it still had the old login', async () => {
     const { env, mac } = await created();
     expect(mac.state.loaded.has('com.devhost.rc.business.acme-api')).toBe(true);

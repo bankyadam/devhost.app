@@ -16,6 +16,11 @@ export interface DaemonSpec {
   throttle?: number;
   /** false: runs once when loaded, not restarted when it exits (default true). */
   keepAlive?: boolean;
+  /**
+   * Mark each start in the log and wait (up to 3 minutes) until this host resolves: at boot the
+   * network comes up after launchd starts the daemons, and Claude Code exits on a failed lookup.
+   */
+  waitForHost?: string;
 }
 
 /** Overridable so tests never touch the real /Library/LaunchDaemons. */
@@ -32,7 +37,14 @@ const xml = (s: string): string =>
  * point it at any file; the root helper refuses such plists (templates/devhost-root.js).
  */
 export const LOG_WRAPPER = 'exec >>"$0" 2>&1 && exec "$@"';
-export const loggedArgs = (spec: Pick<DaemonSpec, 'args' | 'logPath'>): string[] => ['/bin/sh', '-c', LOG_WRAPPER, spec.logPath, ...spec.args];
+/** The line that starts each run in a service log (`waitForHost` services). */
+export const START_MARKER = '[devhost] started';
+const HOST = /^[A-Za-z0-9.-]+$/;
+export const networkWrapper = (host: string): string => {
+  if (!HOST.test(host)) throw new Error(`not a host name: ${host}`);
+  return `exec >>"$0" 2>&1 && echo "${START_MARKER} $(date '+%Y-%m-%d %H:%M:%S')" && i=0 && until /usr/bin/dscacheutil -q host -a name ${host} | /usr/bin/grep -q address || [ $i -ge 90 ]; do i=$((i+1)); sleep 2; done; exec "$@"`;
+};
+export const loggedArgs = (spec: Pick<DaemonSpec, 'args' | 'logPath' | 'waitForHost'>): string[] => ['/bin/sh', '-c', spec.waitForHost ? networkWrapper(spec.waitForHost) : LOG_WRAPPER, spec.logPath, ...spec.args];
 
 export async function renderPlist(spec: DaemonSpec, user: string): Promise<string> {
   return renderTemplate('launchd.plist', {

@@ -119,3 +119,15 @@ export class RealRunner implements Runner {
     };
   }
 }
+
+/**
+ * What Claude Code sets for the commands its tools run (the session they belong to, its socket,
+ * its bridge). Only when they come from a Claude Code session (CLAUDECODE is set); your own
+ * CLAUDE_CODE_* settings stay.
+ */
+const SESSION_VARS = /^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|CLAUDE_CODE_(SESSION_ID|CHILD_SESSION|ENTRYPOINT|SESSION_ATTENDED|MESSAGING_SOCKET|MESSAGING_TOKEN|EXECPATH|WORKER_EPOCH|ENVIRONMENT_KIND|BRIDGE_.*|SSE_PORT))$/;
+
+export function withoutClaudeSession(env: Record<string, string | undefined>): Record<string, string | undefined> {
+  if (env['CLAUDECODE'] === undefined) return { ...env };
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !SESSION_VARS.test(k)));
+}
