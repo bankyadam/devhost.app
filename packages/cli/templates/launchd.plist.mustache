@@ -27,7 +27,7 @@
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <true/>
+  {{#keepAlive}}<true/>{{/keepAlive}}{{^keepAlive}}<false/>{{/keepAlive}}
   <key>ThrottleInterval</key>
   <integer>{{throttle}}</integer>
 </dict>

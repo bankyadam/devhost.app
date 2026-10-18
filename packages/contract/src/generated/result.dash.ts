@@ -95,6 +95,10 @@ export interface DashData {
        */
       types: string[];
     };
+    /**
+     * The Remote Control session (session_…) of a session a Remote Control service started in its own worktree; `devhost session reattach` can bring it back after it ended.
+     */
+    remoteSession?: string | null;
   }[];
   /**
    * Time buckets, one row per account and bucket start.

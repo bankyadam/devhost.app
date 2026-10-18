@@ -17,6 +17,7 @@ import { accountAddCommand, accountListCommand, accountRemoveCommand, loginComma
 import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, envServiceCommand } from './commands-env.js';
 import { collectorLogsCommand, collectorRunCommand, dashCommand, notifyCommand, topCommand } from './commands-collector.js';
 import { doctorCommand, statusCommand, uninstallCommand } from './commands-doctor.js';
+import { sessionReattachCommand } from './reattach.js';
 import { pluginInstallCommand, pluginListCommand, pluginRunCommand, pluginToggleCommand, pluginUninstallCommand, pluginWidgetsCommand } from './commands-plugins.js';
 import { closeInput } from './prompter.js';
 import { resolveConfigPath } from './config/paths.js';
@@ -236,6 +237,13 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .description('Notifications')
     .option('--test', 'send a test notification')
     .action(run(() => notifyCommand(deps, globals(), { test: program.commands.find((c) => c.name() === 'notify')!.opts<{ test?: boolean }>().test === true })));
+
+  const session = program.command('session').description('Claude Code sessions on this host');
+  session
+    .command('reattach <id>')
+    .description('Bring an ended Remote Control session back (e.g. after a reboot): runs it again in its worktree, once')
+    .option('--dry-run', 'only print the plan')
+    .action((id: string, o: { dryRun?: boolean }) => run(() => sessionReattachCommand(deps, globals(), id, o.dryRun === true))());
 
   const plugin = program.command('plugin').description('devhost plugins: built-in ones and ~/.config/devhost/plugins');
   plugin.command('list').description('Plugins, their actions and checks').action(run(() => pluginListCommand(deps, globals())));

@@ -1450,6 +1450,13 @@ export const schemas = {
                   "description": "Distinct agent types, e.g. Explore."
                 }
               }
+            },
+            "remoteSession": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The Remote Control session (session_…) of a session a Remote Control service started in its own worktree; `devhost session reattach` can bring it back after it ended."
             }
           }
         }
@@ -2315,6 +2322,59 @@ export const schemas = {
             }
           }
         }
+      }
+    }
+  },
+  "result.session-reattach": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.session-reattach.schema.json",
+    "title": "SessionReattachData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "session",
+      "remoteSession",
+      "account",
+      "env",
+      "url",
+      "label",
+      "logPath"
+    ],
+    "properties": {
+      "session": {
+        "type": "string",
+        "description": "The local session id."
+      },
+      "remoteSession": {
+        "type": "string",
+        "description": "session_… on claude.ai."
+      },
+      "account": {
+        "type": "string"
+      },
+      "env": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string",
+        "description": "https://claude.ai/code/<remoteSession>"
+      },
+      "label": {
+        "type": "string",
+        "description": "The one-shot LaunchDaemon that runs it (com.devhost.reattach.…)."
+      },
+      "logPath": {
+        "type": "string"
+      },
+      "dryRun": {
+        "type": "boolean"
+      },
+      "removed": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Earlier reattach jobs that had ended and were removed."
       }
     }
   },

@@ -22,5 +22,6 @@ export type { PluginChangeData } from './result.plugin-change.js';
 export type { PluginListData } from './result.plugin-list.js';
 export type { PluginRunData } from './result.plugin-run.js';
 export type { PluginWidgetsData } from './result.plugin-widgets.js';
+export type { SessionReattachData } from './result.session-reattach.js';
 export type { StatusData } from './result.status.js';
 export type { VersionData } from './result.version.js';

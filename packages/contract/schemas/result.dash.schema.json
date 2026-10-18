@@ -444,6 +444,13 @@
                 "description": "Distinct agent types, e.g. Explore."
               }
             }
+          },
+          "remoteSession": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Remote Control session (session_…) of a session a Remote Control service started in its own worktree; `devhost session reattach` can bring it back after it ended."
           }
         }
       }

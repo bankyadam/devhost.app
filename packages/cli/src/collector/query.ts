@@ -1,6 +1,7 @@
 import type { DashData, DevhostConfig } from '@devhost/contract';
 import { accountsOf, environmentsOf } from '../config/accounts.js';
 import type { Db } from './db.js';
+import { remoteSessionOf } from '../reattach.js';
 
 export type Range = DashData['range'];
 export const RANGES: Range[] = ['1h', '24h', '7d', '30d'];
@@ -112,8 +113,8 @@ export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now:
   const todayRows = usage(db, midnight, DAY * 365, filter);
   const weekRows = usage(db, localMonday(now), DAY * 365, filter);
 
-  const sessionsRaw = db.all<{ session_id: string; account: string; env: string; state: string; started_at: number; last_activity_at: number }>(
-    `SELECT session_id, account, env, state, started_at, last_activity_at FROM sessions
+  const sessionsRaw = db.all<{ session_id: string; account: string; env: string; cwd: string; state: string; started_at: number; last_activity_at: number }>(
+    `SELECT session_id, account, env, cwd, state, started_at, last_activity_at FROM sessions
      WHERE (state <> 'ended' OR ended_at >= ?) AND (? = '' OR account = ?) AND (? = '' OR env = ?)
      ORDER BY last_activity_at DESC LIMIT 200`,
     midnight, opts.account ?? '', opts.account ?? '', opts.env ?? '', opts.env ?? '',
@@ -217,6 +218,7 @@ export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now:
         cpuPercent: fresh ? live.cpu_pct : null,
         rssBytes: fresh ? live.rss_bytes : null,
         subagents: subagentsOf(db, s.session_id),
+        remoteSession: remoteSessionOf(s.cwd)?.id ?? null,
       };
     }),
     agents: agentConcurrency(db, opts.account ?? '', from, bucketMs, now),
