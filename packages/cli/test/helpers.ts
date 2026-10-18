@@ -60,6 +60,8 @@ export function ndjson(text: string): unknown[] {
 const strip = (line: string): string => line.replace(/^sudo (-n )?-- /, '');
 
 export interface FakeState {
+  /** Called when a LaunchDaemon is loaded (a test can play the service starting). */
+  onBootstrap?: (label: string) => void;
   names: { ComputerName: string; HostName: string; LocalHostName: string };
   power: Record<string, number>;
   sshOn: boolean;
@@ -214,6 +216,7 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     if ((m = /^launchctl bootstrap system (\S+)$/.exec(line))) {
       const label = basename(m[1]!, '.plist');
       state.loaded.add(label);
+      state.onBootstrap?.(label);
       if (label === 'com.devhost.colima') state.colimaRunning = true;
       return {};
     }

@@ -296,6 +296,28 @@ describe('dashboard (spec B3.1, B6)', () => {
     expect(h.transport.opened.at(-1)).toEqual({ url: 'http://macmini:3000' });
   });
 
+  it('an ended Remote Control worktree session can be reattached from its Open menu; others cannot', async () => {
+    const h = await dashboard();
+    const { Db, dbPath } = await import('../../cli/src/collector/db.js');
+    const wt = join(h.env.home, 'work', 'business', 'acme-api', '.claude', 'worktrees', 'bridge-cse_01Abc');
+    const now = h.env.deps.now().getTime();
+    const db = new Db(dbPath(h.env.home));
+    db.run("INSERT INTO sessions VALUES ('sess-ended-3', 'business', 'acme-api', ?, 'ended', ?, ?, ?)", wt, now - 60_000, now - 30_000, now - 1000);
+    db.close();
+    const row = (await screen.findByText('sess-end', undefined, { timeout: 8000 })).closest('tr')!;
+    await h.user.click(within(row).getByRole('button', { name: /Open/ }));
+    await h.user.click(screen.getByRole('menuitem', { name: 'claude.ai/code' }));
+    expect(h.transport.opened.at(-1)).toEqual({ url: 'https://claude.ai/code/session_01Abc' });
+    await h.user.click(within(row).getByRole('button', { name: /Open/ }));
+    await h.user.click(screen.getByRole('menuitem', { name: 'Reattach to Remote Control…' }));
+    expect(await screen.findByRole('dialog', { name: 'Reattach session sess-end' })).toBeInTheDocument();
+    await waitFor(() => expect(h.transport.calls.some((c) => c.join(' ') === 'session reattach sess-ended-3 --json')).toBe(true));
+
+    const other = (await screen.findByText('sess-wai')).closest('tr')!;
+    await h.user.click(within(other).getByRole('button', { name: /Open/ }));
+    expect(screen.queryByRole('menuitem', { name: 'Reattach to Remote Control…' })).toBeNull();
+  });
+
   it('hides VS Code when it is not installed on the MacBook', async () => {
     const h = await dashboard();
     h.transport.tools = { code: false, iterm: false };

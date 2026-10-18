@@ -14,6 +14,8 @@ export interface DaemonSpec {
   logPath: string;
   /** Seconds launchd waits between restarts. */
   throttle?: number;
+  /** false: runs once when loaded, not restarted when it exits (default true). */
+  keepAlive?: boolean;
 }
 
 /** Overridable so tests never touch the real /Library/LaunchDaemons. */
@@ -42,6 +44,7 @@ export async function renderPlist(spec: DaemonSpec, user: string): Promise<strin
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => ({ key: xml(key), value: xml(value) })),
     throttle: spec.throttle ?? 30,
+    keepAlive: spec.keepAlive !== false,
   });
 }
 

@@ -1,5 +1,5 @@
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { appendFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { validate } from '@devhost/contract';
@@ -323,6 +323,52 @@ describe('environments', () => {
     expect(mac.state.loaded.has(label)).toBe(true);
     expect(await env.run('env', 'restart', 'acme-api')).toBe(0);
     expect(mac.runner.lines()).toContain(`sudo -n -- launchctl kickstart -k system/${label}`);
+  });
+
+  it('session reattach brings an ended worktree session back as a one-shot service, and clears ended ones', async () => {
+    const { env, mac, dir } = await created();
+    const wt = join(dir, '.claude', 'worktrees', 'bridge-cse_01Abc');
+    await mkdir(wt, { recursive: true });
+    const now = env.deps.now().getTime();
+    const db = new Db(dbPath(env.home));
+    db.run("INSERT INTO sessions VALUES ('6a7802e0-1111', 'business', 'acme-api', ?, 'ended', ?, ?, ?)", join(wt, 'sub'), now - 60_000, now - 30_000, now - 1000);
+    db.run("INSERT INTO sessions VALUES ('7b000000-2222', 'business', 'acme-api', ?, 'idle', ?, ?, NULL)", wt, now - 60_000, now - 30_000);
+    db.run("INSERT INTO sessions VALUES ('8c000000-3333', 'business', 'acme-api', ?, 'ended', ?, ?, ?)", dir, now - 60_000, now - 30_000, now - 1000);
+    db.close();
+    const log = join(env.home, 'Library', 'Logs', 'devhost', 'rc-business-acme-api-cse_01Abc.log');
+    await mkdir(dirname(log), { recursive: true });
+    await writeFile(log, 'Connected · an earlier run\n'); // only this run's output counts
+    // An earlier reattach that has ended (installed, not loaded).
+    const old = join(env.home, 'LaunchDaemons', 'com.devhost.reattach.cse_0ld.plist');
+    await writeFile(old, '<plist/>');
+    let started = 0;
+    mac.state.onBootstrap = (label) => {
+      if (label !== 'com.devhost.reattach.cse_01Abc') return;
+      started++;
+      void appendFile(log, '·✔︎· Connected · bridge-cse_01Abc\n');
+    };
+
+    expect(await env.run('session', 'reattach', '7b000000')).toBe(2); // still idle
+    expect(await env.run('session', 'reattach', '8c000000')).toBe(2); // not a Remote Control worktree
+    env.out.length = 0;
+    expect(await env.run('session', 'reattach', '6a7802e0', '--json')).toBe(0);
+    const data = lastResult(env).data;
+    expect(validate('result.session-reattach', data).ok).toBe(true);
+    expect(data).toMatchObject({ session: '6a7802e0-1111', remoteSession: 'session_01Abc', url: 'https://claude.ai/code/session_01Abc', label: 'com.devhost.reattach.cse_01Abc', logPath: log, removed: ['com.devhost.reattach.cse_0ld'] });
+    expect(started).toBe(1);
+    const plist = await readFile(join(env.home, 'LaunchDaemons', 'com.devhost.reattach.cse_01Abc.plist'), 'utf8');
+    expect(plist).toContain(`<string>${wt}</string>`);
+    expect(plist).toContain('<string>--session-id</string>\n    <string>session_01Abc</string>');
+    expect(plist).toMatch(/<key>KeepAlive<\/key>\n\s*<false\/>/);
+    expect(plist).toContain('<string>/Users/test/.claude-business</string>'.replace('/Users/test', env.home));
+    await expect(stat(old)).rejects.toThrow();
+
+    // Running already: refused. The dashboard knows which sessions can be reattached.
+    expect(await env.run('session', 'reattach', '6a7802e0')).toBe(2);
+    env.out.length = 0;
+    await env.run('dash', '--json');
+    const sessions = (lastEnvelope(env).data as { sessions: { id: string; remoteSession: string | null }[] }).sessions;
+    expect(Object.fromEntries(sessions.map((x) => [x.id, x.remoteSession]))).toEqual({ '6a7802e0-1111': 'session_01Abc', '7b000000-2222': 'session_01Abc', '8c000000-3333': null });
   });
 
   it('a second apply after creation changes nothing', async () => {

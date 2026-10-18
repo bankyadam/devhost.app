@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { DashData, EnvListData } from '@devhost/contract/lite';
+import type { DashData, EnvListData, SessionReattachData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import type { Range } from '../client/client';
 import { seriesSlot, seriesVar } from '../lib/colors';
@@ -7,6 +7,7 @@ import { ago, bytes, compact, duration, pct, usd } from '../lib/format';
 import { filterSessions, sortSessions, STATE_LABEL, type Session, type SortDir, type SortKey } from '../lib/sessions';
 import { agentBuckets, bucketLabel, buildBuckets, meterTone, TOKEN_TYPES, type Metric, type Stack } from '../lib/usage';
 import { Legend, StackedColumns, type Series } from '../ui/chart';
+import { RunDialog } from '../ui/run-dialog';
 import { Badge, Empty, Menu, Segmented } from '../ui/primitives';
 import { useDash } from '../use-dash';
 import { PluginRunDialog } from '../ui/plugin-run';
@@ -37,6 +38,7 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
   const plugins = usePlugins();
   const widgets = usePluginWidgets();
   const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; session?: string } | null>(null);
+  const [reattach, setReattach] = useState<string | null>(null);
 
   // Account colors follow the account, not its rank: remember every account ever seen, in order.
   useEffect(() => {
@@ -213,7 +215,7 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
                 </tr>
               </thead>
               <tbody>
-                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envDir(s.env)} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} />)}
+                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envDir(s.env)} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} onReattach={() => setReattach(s.id)} />)}
               </tbody>
             </table>
           </div>
@@ -224,6 +226,17 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
       <ul className="note" style={{ margin: 0, paddingLeft: 18 }} aria-label="Known limits">
         {dash.limits.map((l) => <li key={l}>{l}</li>)}
       </ul>
+      {reattach && (
+        <RunDialog<SessionReattachData>
+          title={`Reattach session ${reattach.slice(0, 8)}`}
+          begin={(h) => client.sessionReattach(reattach, h)}
+          terminal={{ kind: 'devhost', args: ['session', 'reattach', reattach] }}
+          onClose={() => setReattach(null)}
+          after={(r) => r.data && <p>Back on Remote Control: <button className="btn sm" onClick={() => void openClaude(transport, webApps.appFor(r.data!.account), r.data!.url)}>Open in Claude</button></p>}
+        >
+          <p className="sec">Runs the session's Remote Control again in its worktree, once (after a reboot the environment's service starts a new one, and the old session is left without a machine).</p>
+        </RunDialog>
+      )}
       {pluginRun && <PluginRunDialog action={pluginRun.action} target={pluginRun.session ? { session: pluginRun.session } : {}} onClose={() => { setPluginRun(null); if (!pluginRun.session) void widgets.refresh(); }} />}
     </div>
   );
@@ -256,7 +269,7 @@ function WidgetCard({ w, action, onAction }: { w: PluginWidget; action?: PluginA
   );
 }
 
-function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onAction }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void }) {
+function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onAction, onReattach }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void; onReattach: () => void }) {
   const { transport, tools } = useApp();
   return (
     <tr className={s.state === 'waiting' ? 'waiting' : ''}>
@@ -282,7 +295,8 @@ function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onA
         <Menu
           label="Open"
           items={[
-            { label: app ? `claude.ai/code (${app})` : 'claude.ai/code', onSelect: () => void openClaude(transport, app, envUrl) },
+            { label: app ? `claude.ai/code (${app})` : 'claude.ai/code', onSelect: () => void openClaude(transport, app, s.remoteSession ? `https://claude.ai/code/${s.remoteSession}` : envUrl) },
+            { label: 'Reattach to Remote Control…', hidden: s.state !== 'ended' || !s.remoteSession, onSelect: onReattach },
             { label: 'Terminal: resume this session', hidden: !dir || s.state === 'ended', onSelect: () => void transport.openTerminal({ kind: 'resume', dir: dir!, sessionId: s.id }) },
             { label: 'Terminal: shell in the environment', hidden: !dir, onSelect: () => void transport.openTerminal({ kind: 'shell', dir: dir! }) },
             { label: 'VS Code (Remote SSH)', hidden: !dir || !tools.code, onSelect: () => void transport.openVscode(dir!) },

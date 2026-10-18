@@ -17,6 +17,7 @@ import {
   type PluginListData,
   type PluginRunData,
   type PluginWidgetsData,
+  type SessionReattachData,
   type StatusData,
   type VersionData,
 } from '@devhost/contract/lite';
@@ -194,6 +195,9 @@ export class DevhostClient {
   }
   envDelete = (name: string, deleteFiles: boolean, h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', 'delete', name, ...(deleteFiles ? ['--delete-files'] : [])], h);
   envService = (name: string, action: 'start' | 'stop' | 'restart', h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', action, name], h);
+
+  /** Bring an ended Remote Control session back (a one-shot service in its worktree). */
+  sessionReattach = (id: string, h?: LongHandlers): LongRun<SessionReattachData> => this.run<SessionReattachData>(['session', 'reattach', id], h);
 
   plugins = (): Promise<PluginListData> => this.short<PluginListData>(['plugin', 'list']);
   /** Plugins measure things (disk usage…): give them time. */

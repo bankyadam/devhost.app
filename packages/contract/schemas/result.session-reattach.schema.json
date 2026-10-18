@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.session-reattach.schema.json",
+  "title": "SessionReattachData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "session",
+    "remoteSession",
+    "account",
+    "env",
+    "url",
+    "label",
+    "logPath"
+  ],
+  "properties": {
+    "session": {
+      "type": "string",
+      "description": "The local session id."
+    },
+    "remoteSession": {
+      "type": "string",
+      "description": "session_… on claude.ai."
+    },
+    "account": {
+      "type": "string"
+    },
+    "env": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string",
+      "description": "https://claude.ai/code/<remoteSession>"
+    },
+    "label": {
+      "type": "string",
+      "description": "The one-shot LaunchDaemon that runs it (com.devhost.reattach.…)."
+    },
+    "logPath": {
+      "type": "string"
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "removed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Earlier reattach jobs that had ended and were removed."
+    }
+  }
+}

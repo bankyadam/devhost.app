@@ -3,6 +3,7 @@ import type { DevhostConfig } from '@devhost/contract';
 import { accountRoot, accountsOf, envDir, environmentsOf, rcLabel } from '../config/accounts.js';
 import { devhostConfigDir } from '../config/paths.js';
 import { daemonInstalled, removeDaemon } from '../launchd.js';
+import { reattachLabels } from '../reattach.js';
 import { statePath } from '../state.js';
 import { dbPath } from '../collector/db.js';
 import { accountArtifactsPresent, removeAccountArtifacts } from './accounts-remove.js';
@@ -33,14 +34,14 @@ export function uninstallSteps(config: DevhostConfig, opts: UninstallOptions): S
   const steps: Step[] = [
     {
       id: 'uninstall.services',
-      description: 'Remove devhost\'s launchd jobs (collector, Colima, Remote Control services)',
+      description: 'Remove devhost\'s launchd jobs (collector, Colima, Remote Control services, session reattaches)',
       async check(ctx) {
         const present: string[] = [];
-        for (const l of labels(config)) if (await daemonInstalled(ctx.exec, l)) present.push(l);
+        for (const l of [...labels(config), ...(await reattachLabels())]) if (await daemonInstalled(ctx.exec, l)) present.push(l);
         return present.length === 0 ? ok() : todo(present.join(', '));
       },
       async apply(ctx) {
-        for (const l of labels(config)) if (await daemonInstalled(ctx.exec, l)) await removeDaemon(ctx, l);
+        for (const l of [...labels(config), ...(await reattachLabels())]) if (await daemonInstalled(ctx.exec, l)) await removeDaemon(ctx, l);
       },
     },
     {
