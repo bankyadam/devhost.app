@@ -83,6 +83,8 @@ export interface FakeState {
   /** Who each config dir is signed in as (`claude auth status` email), and who the next `auth login` signs in. */
   identities?: Map<string, string>;
   loginAs?: string;
+  /** Keychain items by service (`security find-generic-password -s <service> -w`). */
+  keychain?: Map<string, string>;
   composeUp: Set<string>;
   /** Output of `git log --branches --not --remotes --oneline` per directory. */
   unpushed: Map<string, string>;
@@ -313,6 +315,10 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     if ((m = /^brew uninstall --(formula|cask) (\S+)$/.exec(line))) {
       state.uninstalled.push(m[2]!);
       return {};
+    }
+    if ((m = /^security find-generic-password -s (.+) -w$/.exec(line))) {
+      const secret = state.keychain?.get(m[1]!);
+      return secret === undefined ? { code: 44, stderr: 'The specified item could not be found in the keychain.' } : { stdout: `${secret}\n` };
     }
     if (line === 'brew list --formula -1') return { stdout: 'git\ncolima\njq\ntailscale\n' };
     if (line === 'brew list --cask -1') return { stdout: 'claude-code\n' };

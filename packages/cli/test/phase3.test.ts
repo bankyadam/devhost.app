@@ -1,7 +1,8 @@
 import { appendFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { keychainService } from '../src/credentials.js';
 import { validate } from '@devhost/contract';
 import type { ApplyData, Envelope } from '@devhost/contract';
 import { Db, dbPath } from '../src/collector/db.js';
@@ -599,6 +600,45 @@ describe('environments', () => {
     const state = JSON.parse(await readFile(join(cfgDir, '.claude.json'), 'utf8')) as Record<string, unknown>;
     expect(state['remoteControlMachineId']).toBeUndefined();
     expect(state['keep']).toBe(1);
+  });
+
+  it("login checks the login the services read (.credentials.json), copies a Keychain sign-in there, and starts Remote Control afresh", async () => {
+    const { env, mac, dir } = await created();
+    const cfgDir = join(env.home, '.claude-business');
+    const who: Record<string, string> = { 'tok-old': 'me@example.com', 'tok-new': 'a@work.example' };
+    vi.stubGlobal('fetch', async (_url: string, init: { headers: Record<string, string> }) => {
+      const email = who[init.headers['Authorization']!.replace('Bearer ', '')];
+      return email ? new Response(JSON.stringify({ account: { email }, organization: { uuid: `org-of-${email}` } })) : new Response('', { status: 401 });
+    });
+    try {
+      // The services still have the old login; the Keychain sign-in did not touch their file.
+      await writeFile(join(cfgDir, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'tok-old' } }));
+      const pointer = join(cfgDir, 'projects', dir.replace(/[^A-Za-z0-9]/g, '-'), 'bridge-pointer.json');
+      await mkdir(dirname(pointer), { recursive: true });
+      await writeFile(pointer, '{}');
+      mac.state.identities = new Map();
+      mac.state.loginAs = 'a@work.example';
+
+      feed(env, { id: 'auth-code', value: 'C' });
+      env.out.length = 0;
+      expect(await env.run('login', 'business', '--json')).toBe(3); // nothing in the Keychain to copy
+      expect(lastResult(env).errors![0]!.message).toContain('its services read');
+
+      mac.state.keychain = new Map([[keychainService({ name: 'business', configDir: '~/.claude-business' } as never, env.home), JSON.stringify({ claudeAiOauth: { accessToken: 'tok-new' } })]]);
+      feed(env, { id: 'auth-code', value: 'C' }, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+      env.out.length = 0;
+      expect(await env.run('login', 'business', '--json')).toBe(0);
+      expect(JSON.parse(await readFile(join(cfgDir, '.credentials.json'), 'utf8'))).toEqual({ claudeAiOauth: { accessToken: 'tok-new' } });
+      expect(((await stat(join(cfgDir, '.credentials.json'))).mode & 0o777).toString(8)).toBe('600');
+      await expect(stat(pointer)).rejects.toThrow(); // registered under the old login: forgotten
+
+      await writeFile(join(cfgDir, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'tok-old' } }));
+      env.out.length = 0;
+      await env.run('doctor', '--json');
+      expect((lastEnvelope(env).data as { checks: { id: string; status: string; message: string }[] }).checks.find((c) => c.id === 'account.business.identity')).toMatchObject({ status: 'fail', message: expect.stringContaining('its services run as me@example.com') });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('login restarts a service that was already running: it still had the old login', async () => {

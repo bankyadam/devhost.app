@@ -5,6 +5,7 @@ import type { DevhostConfig, LoginData } from '@devhost/contract';
 import { runSteps } from './apply.js';
 import { accountEnv, accountsOf, claudeConfigDir, effectiveClaudeDir, environmentsOf, rcLabel, type Account } from './config/accounts.js';
 import { editConfigFile } from './config/edit.js';
+import { credentialsFile, serviceLogin, syncCredentialsFromKeychain } from './credentials.js';
 import type { Deps } from './deps.js';
 import { HumanActionRequired } from './errors.js';
 import { daemonState } from './launchd.js';
@@ -326,7 +327,22 @@ export async function loginAccount(ctx: LoginContext): Promise<LoginData> {
       `Run \`devhost login ${a.name}\` again and sign in with ${pinned} (a private window avoids the browser's current login). To make ${who.email} its login: devhost login ${a.name} --switch-login`,
     );
   }
-  const previous = pinned ?? before ?? null;
+  // The services read .credentials.json, which a sign-in with an unlocked Keychain leaves alone.
+  const svc = await serviceLogin(ctx.exec, a, deps.home);
+  if (svc?.email && who.email && svc.email !== who.email) {
+    const synced = await syncCredentialsFromKeychain(ctx.exec, a, deps.home);
+    const again = synced ? await serviceLogin(ctx.exec, a, deps.home) : svc;
+    if (again?.email && again.email !== who.email) {
+      reporter.step('login.auth', 'failed', `the services' login is still ${again.email}`);
+      throw new HumanActionRequired(
+        `${a.name} is signed in as ${who.email} in the Keychain, but its services read ${credentialsFile(a, deps.home)}, which is still signed in as ${again.email}`,
+        `Run \`devhost login ${a.name}\` from the devhost app or over ssh (there the login is written to that file), or remove the file and sign in again.`,
+      );
+    }
+    reporter.step('login.auth', 'changed', `copied the new login to ${credentialsFile(a, deps.home)} for the services`);
+  }
+  // The services ran as someone else: what they registered belongs to that login.
+  const previous = svc?.email && svc.email !== who.email ? svc.email : (pinned ?? before ?? null);
   if (who.email && previous && previous !== who.email) {
     // Another login: what Remote Control remembers (environment and session pointers, the device
     // id it registered under) belongs to the old one, and reusing it keeps the environments there.
