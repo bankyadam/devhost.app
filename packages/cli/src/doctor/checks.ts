@@ -18,6 +18,7 @@ import { parseTailscale } from '../steps/tailscale.js';
 import { powerState, unsupportedPowerNote } from '../steps/system.js';
 import { parsePs, subtree } from '../collector/samplers.js';
 import type { DevhostPlugin, PluginContext } from '../plugins/api.js';
+import { credentialsFile, serviceLogin } from '../credentials.js';
 import { pluginContext } from '../plugins/context.js';
 import { loadPlugins } from '../plugins/loader.js';
 import { NoPrompter } from '../prompter.js';
@@ -215,7 +216,14 @@ async function identityChecks(c: DoctorContext, accounts: Account[]): Promise<Ch
   for (const a of [...accounts].sort((x, y) => Number(y.default === true) - Number(x.default === true))) {
     const st = await authStatus({ exec: c.exec, deps: c.deps }, a);
     if (st.loggedIn !== true) continue;
-    const who = loginIdentity(st.raw);
+    const shown = loginIdentity(st.raw);
+    // What the services really use (`.credentials.json`) beats what `auth status` shows.
+    const svc = await serviceLogin(c.exec, a, c.deps.home);
+    if (svc?.email && shown.email && svc.email !== shown.email) {
+      out.push(fail(`account.${a.name}.identity`, `its services run as ${svc.email} (${credentialsFile(a, c.deps.home)}), though it shows as signed in as ${shown.email}: its environments show up under ${svc.email}`, `devhost login ${a.name}  # from the devhost app or over ssh, so the login lands in that file`));
+      continue;
+    }
+    const who = svc?.email ? svc : shown;
     if (!who.email) continue;
     const key = `${who.email}|${who.orgId ?? ''}`;
     const first = seen.find((x) => x.key === key);
@@ -263,7 +271,8 @@ async function oneAccount(c: DoctorContext, a: Account): Promise<Check[]> {
   );
   if (st.loggedIn === true) {
     const file = (await exec.readText(join(dir, '.credentials.json'))) !== null;
-    out.push(file ? warn(`${id}.credentials`, `credentials are stored in ${join(dir, '.credentials.json')} (the Keychain was not writable, e.g. locked over SSH)`, `devhost login ${a.name}  # from a session where the Keychain is unlocked`) : ok(`${id}.credentials`, 'credentials are in the macOS Keychain'));
+    // When the file exists it is what the services (LaunchDaemons, outside the GUI session) sign in with.
+    out.push(file ? ok(`${id}.credentials`, `the services sign in with ${join(dir, '.credentials.json')}`) : ok(`${id}.credentials`, 'credentials are in the macOS Keychain'));
     const doctor = await exec.query(await claudeBinary({ exec, deps }), ['doctor'], { ...claudeRunOptions(a, deps.home), timeoutMs: 30_000 });
     const remote = doctor.stdout.split('\n').find((l) => /remote control/i.test(l));
     out.push(
