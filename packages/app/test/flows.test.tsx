@@ -167,6 +167,25 @@ describe('environments (spec B3.2)', () => {
     expect(screen.getByRole('menuitem', { name: 'Logs' })).toBeInTheDocument();
   });
 
+  it('groups the environments by account, in the order of the config', async () => {
+    const h = await makeHarness();
+    await withBusiness(h);
+    await h.cli('account', 'add', '--name', 'personal', '--git-email', 'me@example.com', '--no-login');
+    await h.cli('env', 'create', '--account', 'personal', '--name', 'blog', '--no-rc');
+    await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
+    await h.cli('env', 'create', '--account', 'business', '--name', 'acme-web', '--no-rc');
+    mount(h);
+    await goto(h, 'Environments');
+    const business = within(await screen.findByRole('region', { name: 'Environments of business' }));
+    expect(business.getByText('2 environments')).toBeInTheDocument();
+    expect(business.getByText('acme-api')).toBeInTheDocument();
+    expect(business.getByText('acme-web')).toBeInTheDocument();
+    const personal = within(screen.getByRole('region', { name: 'Environments of personal' }));
+    expect(personal.getByText('blog')).toBeInTheDocument();
+    expect(personal.queryByText('acme-api')).toBeNull();
+    await waitFor(() => expect(screen.getAllByRole('region', { name: /^Environments of / }).map((r) => r.getAttribute('aria-label'))).toEqual(['Environments of business', 'Environments of personal']));
+  });
+
   it('delete keeps the files by default; deleting files needs the typed name', async () => {
     const h = await makeHarness();
     await withBusiness(h);
