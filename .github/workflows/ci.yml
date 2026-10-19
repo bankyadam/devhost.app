@@ -1,9 +1,23 @@
 name: CI
 
+# Off for pushes and pull requests for now (2026-10-19): with a commit every few minutes the macOS
+# runners (10x minutes) ate the free monthly minutes. Every change runs `npm run check` locally
+# first. Run CI by hand: Actions → CI → Run workflow. To turn it back on, restore:
+#   push:
+#     branches: [main]
+#   pull_request:
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: Also build the desktop app (universal macOS, the most expensive job)
+        type: boolean
+        default: false
+
+# A newer run on the same branch replaces one still running.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
@@ -54,6 +68,7 @@ jobs:
 
   app:
     name: "desktop app (universal macOS: arm64 + x86_64)"
+    if: ${{ inputs.app }}
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
