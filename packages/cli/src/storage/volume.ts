@@ -102,21 +102,27 @@ export interface ExternalDisk {
 }
 
 /**
- * External physical disks and the APFS volumes on them (`diskutil list -plist external`, whose
- * synthesized APFS containers name their physical store).
+ * External physical disks and the APFS volumes on them: the whole disks from
+ * `diskutil list -plist external physical` (no disk images), their volumes from the APFS containers
+ * (`diskutil list -plist`) whose physical store is on one of them.
  */
 export async function listExternal(exec: Executor): Promise<ExternalDisk[]> {
-  const r = await exec.query('diskutil', ['list', '-plist', 'external']);
-  if (r.code !== 0) return [];
-  const all = (obj(parsePlist(r.stdout))['AllDisksAndPartitions'] as Plist[] | undefined) ?? [];
+  const phys = await exec.query('diskutil', ['list', '-plist', 'external', 'physical']);
+  if (phys.code !== 0) return [];
+  const whole = ((obj(parsePlist(phys.stdout))['WholeDisks'] as Plist[] | undefined) ?? []).map(str).filter(Boolean);
+  const physEntries = ((obj(parsePlist(phys.stdout))['AllDisksAndPartitions'] as Plist[] | undefined) ?? []).map(obj);
   const disks = new Map<string, ExternalDisk>();
+  for (const d of whole.length ? whole : physEntries.map((e) => str(e['DeviceIdentifier']))) disks.set(d, { device: d, model: '', sizeBytes: 0, volumes: [] });
+  for (const e of physEntries) {
+    const d = disks.get(str(e['DeviceIdentifier']));
+    if (d) d.sizeBytes = num(e['Size']);
+  }
+  const all = await exec.query('diskutil', ['list', '-plist']);
   const wholeOf = (dev: string): string => dev.replace(/s\d+$/, '');
-  for (const e of all.map(obj)) {
-    const stores = ((e['APFSPhysicalStores'] as Plist[] | undefined) ?? []).map((s) => str(obj(s)['DeviceIdentifier']));
-    const owner = stores[0] ? wholeOf(stores[0]) : str(e['DeviceIdentifier']);
-    if (!disks.has(owner)) disks.set(owner, { device: owner, model: '', sizeBytes: 0, volumes: [] });
-    const disk = disks.get(owner)!;
-    if (!stores.length) disk.sizeBytes = num(e['Size']);
+  for (const e of (all.code === 0 ? ((obj(parsePlist(all.stdout))['AllDisksAndPartitions'] as Plist[] | undefined) ?? []) : []).map(obj)) {
+    const stores = ((e['APFSPhysicalStores'] as Plist[] | undefined) ?? []).map((x) => wholeOf(str(obj(x)['DeviceIdentifier'])));
+    const disk = stores.map((x) => disks.get(x)).find(Boolean);
+    if (!disk) continue;
     for (const v of ((e['APFSVolumes'] as Plist[] | undefined) ?? []).map(obj)) {
       disk.volumes.push({ device: str(v['DeviceIdentifier']), name: str(v['VolumeName']), uuid: str(v['VolumeUUID']).toUpperCase(), mountPoint: str(v['MountPoint']) || null, sizeBytes: num(v['Size']) });
     }

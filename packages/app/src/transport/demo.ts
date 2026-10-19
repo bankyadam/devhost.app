@@ -24,6 +24,8 @@ export function createDemoTransport(host: string): Transport {
     if ((a === 'env' || a === 'collector') && b === 'logs') return envelope({ name: args[2] ?? 'collector', path: '/Users/me/Library/Logs/devhost/x.log', lines: LOG });
     if (a === 'doctor') return envelope(DOCTOR);
     if (a === 'plugin' && b === 'list') return envelope({ plugins: DEMO_PLUGINS });
+    if (a === 'storage' && b === 'status') return envelope({ configured: true, volume: { label: 'devwork', uuid: '6F1C2A44-9B3E-4C5D-8E7F-0123456789AB', mountPoint: '/Volumes/devwork', root: '/Volumes/devwork/work', mounted: true, uuidMatch: true, markerMatch: true, ready: true, doubleMount: false, strayDirectory: false, apfs: true, encrypted: true, locked: false, ownership: true, totalBytes: 2e12, freeBytes: 1.42e12, encryptedInConfig: true, spotlightOff: true, automountWithoutLogin: true, unlockDaemon: true, passphraseStored: true } });
+    if (a === 'storage' && b === 'list') return envelope({ disks: [{ device: 'disk4', model: 'Samsung T9', sizeBytes: 2e12, volumes: [{ device: 'disk5s1', name: 'devwork', uuid: '6F1C2A44-9B3E-4C5D-8E7F-0123456789AB', mountPoint: '/Volumes/devwork', sizeBytes: 2e12, adopted: true }] }] });
     if (a === 'plugin' && b === 'widgets') {
       const param = (k: string): string | undefined => args.find((x) => x.startsWith(`stats.${k}=`))?.slice(k.length + 7);
       return envelope(demoStats(demoDash(Date.now(), (param('range') || '24h') as DashData['range']), param('metric') === 'cost' ? 'cost' : 'tokens', param('stack') === 'type' ? 'type' : 'account', DEMO_WIDGETS));

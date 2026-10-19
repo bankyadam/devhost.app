@@ -317,6 +317,9 @@ function Health({ dash, now }: { dash: DashData; now: number }) {
         <div className="tile"><span className="label">Memory</span><span className="value">{pct(h.memPercent)}</span><span className="sub">of {bytes(h.memTotalBytes)}</span></div>
         <div className="tile"><span className="label">Disk free</span><span className="value">{pct(h.diskFreePercent)}</span><span className="sub">{bytes(h.diskFreeBytes)}</span></div>
         <div className="tile"><span className="label">Docker</span><span className="value">{h.docker === 'up' ? <Badge tone="good">up</Badge> : h.docker === 'down' ? <Badge tone="bad">down</Badge> : <Badge>unknown</Badge>}</span></div>
+        {dash.volume && (
+          <div className="tile" aria-label="Work volume"><span className="label">Work volume</span><span className="value">{dash.volume.ready ? <Badge tone="good">{dash.volume.label}</Badge> : <Badge tone="bad">{dash.volume.mounted ? 'not the configured volume' : 'not mounted'}</Badge>}</span><span className="sub">{dash.volume.freePct == null ? '' : `${dash.volume.freePct.toFixed(0)}% free · ${bytes(dash.volume.freeBytes)}`}{dash.volume.encrypted ? ' · encrypted' : ''}</span></div>
+        )}
         <div className="tile"><span className="label">Tailscale</span><span className="value">{ts ? (ts.state === 'Running' ? <Badge tone="good">running</Badge> : <Badge tone="warn">{ts.state}</Badge>) : <Badge>unknown</Badge>}</span><span className="sub">{ts?.dnsName ?? ''}</span></div>
       </div>
     </section>

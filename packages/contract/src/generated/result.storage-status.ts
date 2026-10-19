@@ -28,4 +28,11 @@ export interface StorageStatusData {
     unlockDaemon?: boolean;
     passphraseStored?: boolean;
   };
+  /**
+   * Account roots `storage migrate` moved: the old copies, kept until --cleanup.
+   */
+  oldCopies?: {
+    account: string;
+    path: string;
+  }[];
 }

@@ -465,6 +465,7 @@ Check official sources; do not rely on memory:
   - `diskutil enableOwnership` behavior on APFS external volumes.
   - Colima mount configuration format and mount type on the current version.
   - Whether Claude Code workspace trust is stored by real path (affects `migrate`).
+  - *Checked on macOS 26.4 while implementing:* `diskutil apfs unlockVolume` takes `-stdinpassphrase` and a volume UUID as identifier; `diskutil enableOwnership` needs root; `diskutil apfs encryptVolume <vol> -user disk -stdinpassphrase`; APFS free space is `APFSContainerFree` (`FreeSpace` is 0); `diskutil list -plist external` includes disk images, so disks come from `external physical`; Colima 0.10.3 takes `--mount <dir>[:w]` with virtiofs by default, and an explicit `--mount` replaces the default home mount (so `$HOME:w` is passed too). Not checked (no external SSD on the build host): `AutomountDisksWithoutUserLogin` and the pre-login unlock at boot.
 
 ## A15. Repository layout and quality
 
@@ -519,7 +520,7 @@ packages/
 4. Collector: OTLP receiver, hooks, process and Docker samplers, storage, auth check, alerts, `dash`, `top`. *(done)*
 5. `doctor`, `status`, `uninstall`, README, CI. *(done)*
 6. Operations: root helper, Intel support, plugins (A18), session reattach, login identity guard and services' credentials, boot network wait, log retention. *(done)*
-7. **External work volume (A7.12):** config and schema, `storage` commands, `apply` storage steps (ownership, Spotlight, automount, unlock daemon, readiness gate, Colima mounts, Docker disk), collector sampling and alerts, doctor checks, `migrate`, uninstall rules, app status and Storage panel.
+7. **External work volume (A7.12):** config and schema, `storage` commands, `apply` storage steps (ownership, Spotlight, automount, unlock daemon, readiness gate, Colima mounts, Docker disk), collector sampling and alerts, doctor checks, `migrate`, uninstall rules, app status and Storage panel. *(implemented; acceptance criteria 15 and 16, boot and hot-plug, still to be run on hardware with an external SSD)*
 
 Stop after each phase for review.
 
@@ -642,6 +643,6 @@ One view across all accounts and environments, from `devhost dash --follow --jso
 2. Dashboard: live stream, sessions table, environments panel, usage charts, per-account totals, session actions. *(done; statistics now from the `stats` plugin)*
 3. Account add/remove wizard, environment create/delete wizard, account re-login flow, configuration editor with dry-run diff and apply. *(done)*
 4. Plugins screen, plugin widgets and advice, session reattach, environments grouped by account. *(done)*
-5. Work volume: header and Environments status, Storage panel (adopt, migrate). *(with Part A phase 7)*
+5. Work volume: header and Environments status, Storage panel (adopt, migrate). *(done, with Part A phase 7)*
 
 Stop after each phase for review.

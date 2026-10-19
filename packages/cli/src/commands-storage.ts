@@ -22,9 +22,11 @@ import { listExternal, MARKER, onVolume, volumeInfo, volumeStatus, workVolumeOf 
 type Volume = NonNullable<StorageStatusData['volume']>;
 
 /** Everything `storage status`, doctor and the app show about the configured volume. */
-export async function storageStatus(exec: Executor, config: DevhostConfig): Promise<StorageStatusData> {
+export async function storageStatus(exec: Executor, config: DevhostConfig, home?: string): Promise<StorageStatusData> {
   const v = workVolumeOf(config);
   if (!v) return { configured: false };
+  const migrated = home ? (await readState(exec, home)).migrated ?? {} : {};
+  const oldCopies = Object.entries(migrated).map(([account, path]) => ({ account, path }));
   const s = await volumeStatus(exec, v);
   const spotlight = s.ready ? await exec.query('mdutil', ['-s', s.mountPoint]) : null;
   const automount = await exec.query('defaults', ['read', AUTODISKMOUNT, 'AutomountDisksWithoutUserLogin']);
@@ -37,7 +39,7 @@ export async function storageStatus(exec: Executor, config: DevhostConfig): Prom
     unlockDaemon: (await unlockPlistInstalled(exec)) && (await daemonState(exec, UNLOCK_LABEL)).loaded,
     passphraseStored: v.encrypted === true ? await passphraseStored(exec) : false,
   };
-  return { configured: true, volume };
+  return { configured: true, volume, ...(oldCopies.length ? { oldCopies } : {}) };
 }
 
 const gb = (n: number | null): string => (n === null ? '?' : `${(n / 1e9).toFixed(n >= 1e11 ? 0 : 1)} GB`);
@@ -47,7 +49,7 @@ export function storageStatusCommand(deps: Deps, g: GlobalOptions): Promise<numb
   return short<StorageStatusData>(deps, g, async () => {
     const { config } = await loadConfig(g.configPath);
     const exec = newExecutor(deps, g, newReporter(deps, g), false);
-    const data = await storageStatus(exec, config);
+    const data = await storageStatus(exec, config, deps.home);
     const v = data.volume;
     const human = !v
       ? 'No work volume configured (storage.workVolume). Everything is on the internal disk. `devhost storage list` shows external disks.'

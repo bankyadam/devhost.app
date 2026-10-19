@@ -56,6 +56,7 @@ The environment now shows up in the Claude app under the `business` account, and
 | `config get \| set \| validate \| edit` | Always schema-validated, comments preserved; changing config does not apply it. |
 | `dash [--range 1h\|24h\|7d\|30d] [--account] [--env] [--model] [--follow]`, `top [--once]` | Dashboard data (`--json`) and a refreshing terminal table. |
 | `session reattach <id> [--dry-run]` | Bring an ended Remote Control session back, e.g. after a reboot (the environment's service then registers anew and the old session is left without a machine). Only for sessions a service started in its own worktree (`.claude/worktrees/bridge-cse_<id>` ↔ `session_<id>` on claude.ai): runs `claude remote-control --session-id session_<id>` there as a one-shot LaunchDaemon (`com.devhost.reattach.cse_<id>`, not restarted when the session ends; earlier ended ones are removed on the next reattach and by `uninstall`). The app: the session's Open menu → *Reattach to Remote Control…*. |
+| `storage list \| status \| wait \| adopt <volume> \| set-passphrase \| migrate --account <a> [--cleanup] \| prepare <disk> --label <name> --yes-erase` | The external work volume (see Work volume below). `prepare` erases a disk: CLI only, never from the app. |
 | `collector run` | The collector in the foreground (launchd runs it for you). |
 | `notify --test` | Send a test notification. |
 | `uninstall [--keep-packages] [--purge-data] [--dry-run]` | Removes launchd jobs, managed blocks and generated files. |
@@ -124,6 +125,25 @@ plugins:
   disk-cleanup: { enabled: true, options: { warnGiB: 10 } }
   my-tool: { enabled: true, options: { who: me } }
 ```
+
+## Work volume (external SSD)
+
+Optional: project data (account roots, environments, worktrees, `node_modules`) on one external APFS volume, the system, Claude config, credentials, the collector database and logs on the internal disk.
+
+```sh
+devhost storage list                      # external disks and their APFS volumes
+devhost storage adopt disk5s1             # or its UUID / mount point: config + /Volumes/<name>/.devhost-volume
+printf %s "$PASS" | devhost storage set-passphrase   # encrypted volume: into the System keychain (stdin only)
+devhost apply                             # mount at boot, unlock service, ownership, Spotlight off
+devhost storage migrate --account personal          # move an existing account (old copy kept until --cleanup)
+```
+
+- The volume is the configured one only when it is mounted at `/Volumes/<label>`, diskutil reports its APFS UUID and the marker file names it. devhost never creates anything under a `/Volumes/<label>` that is not mounted.
+- New accounts get `<root>/<name>` on the volume (`account add --root` overrides). Paths are real paths everywhere (no symlinks).
+- Services of environments on the volume, and Colima, start through `devhost storage wait`; Colima mounts the volume's root (virtiofs). Environments on the internal disk keep their services untouched: adopting a volume or applying again restarts none of them.
+- An encrypted volume unlocks at boot without a login: a root service (`com.devhost.storage.unlock`) pipes the passphrase from the System keychain into `diskutil apfs unlockVolume -stdinpassphrase`.
+- `prepare <disk>` erases an external disk as APFS (`--encrypted`: passphrase from stdin) and is the only destructive path, with `migrate --cleanup`. `uninstall --purge-storage` removes the unlock service and the keychain item, never the volume.
+- **Not yet verified on real hardware** (this host has no external SSD): mounting at boot without a login on macOS 26, the pre-login unlock from the System keychain, and the keychain write itself (the Keychain was locked in the session that built it).
 
 ## devhost Desktop (Part B)
 

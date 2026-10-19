@@ -576,3 +576,39 @@ describe('menu bar', () => {
     await waitFor(() => expect(h.transport.tray.length).toBeGreaterThan(0));
   });
 });
+
+describe('storage (spec B3.8)', () => {
+  it('adopts an external volume, shows its state, moves an account onto it, and never offers to erase a disk', async () => {
+    const { mountVolume } = await import('../../cli/test/helpers.js');
+    const h = await makeHarness();
+    await withBusiness(h);
+    await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
+    const volumes = join(h.env.home, 'Volumes');
+    const v = { uuid: '6F1C2A44-9B3E-4C5D-8E7F-0123456789AB', name: 'devwork', device: 'disk5s1', mountPoint: null as string | null, ownership: true };
+    h.mac.state.volumes = [v];
+    mountVolume(volumes, v, true);
+    mount(h);
+    await goto(h, 'Storage');
+    expect(await screen.findByText('No work volume')).toBeInTheDocument();
+    const disks = within(await screen.findByRole('region', { name: 'External disks' }));
+    expect(await disks.findByText('devwork')).toBeInTheDocument();
+    expect(screen.queryByText(/erase|prepare/i, { selector: 'button' })).toBeNull();
+
+    await h.user.click(disks.getByRole('button', { name: 'Use as work volume…' }));
+    const adopt = within(await screen.findByRole('dialog', { name: 'Use devwork as the work volume' }));
+    await adopt.findByRole('button', { name: 'Close' }, { timeout: 8000 });
+    await h.user.click(adopt.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Work volume' })).toHaveTextContent(/devwork.*ready/), { timeout: 8000 });
+
+    const accounts = within(await screen.findByRole('region', { name: 'Accounts and the volume' }));
+    await h.user.click(await accounts.findByRole('button', { name: 'Move to the volume…' }));
+    const dlg = within(await screen.findByRole('dialog', { name: 'Move business to the volume' }));
+    expect(dlg.getAllByText(/session history by project path/).length).toBeGreaterThan(0);
+    const ask = await dlg.findByText(/Move business from/, undefined, { timeout: 8000 });
+    await h.user.click(within(ask.closest('.prompt') as HTMLElement).getByRole('button', { name: 'Yes' }));
+    await dlg.findByRole('button', { name: 'Close' }, { timeout: 15000 });
+    expect(await readFile(join(h.env.home, '.config', 'devhost', 'config.yaml'), 'utf8')).toContain(`root: ${join(volumes, 'devwork', 'work', 'business')}`);
+    await h.user.click(dlg.getByRole('button', { name: 'Close' }));
+    expect(await screen.findByRole('button', { name: 'Delete the old copy…' })).toBeInTheDocument();
+  }, 40_000);
+});

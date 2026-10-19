@@ -18,6 +18,9 @@ import {
   type PluginRunData,
   type PluginWidgetsData,
   type SessionReattachData,
+  type StorageChangeData,
+  type StorageListData,
+  type StorageStatusData,
   type StatusData,
   type VersionData,
 } from '@devhost/contract/lite';
@@ -198,6 +201,16 @@ export class DevhostClient {
 
   /** Bring an ended Remote Control session back (a one-shot service in its worktree). */
   sessionReattach = (id: string, h?: LongHandlers): LongRun<SessionReattachData> => this.run<SessionReattachData>(['session', 'reattach', id], h);
+
+  /** The work volume (spec A7.12). No `storage prepare` here: erasing a disk is CLI only (B3.8). */
+  storageStatus = async (): Promise<StorageStatusData> => {
+    const a = await this.call<StorageStatusData>(['storage', 'status']);
+    if (!a.data || !('configured' in (a.data as object))) throw commandError(a);
+    return a.data; // a volume that is not ready exits 1 but still reports
+  };
+  storageList = (): Promise<StorageListData> => this.short<StorageListData>(['storage', 'list']);
+  storageAdopt = (volume: string, h?: LongHandlers): LongRun<StorageChangeData> => this.run<StorageChangeData>(['storage', 'adopt', volume], h);
+  storageMigrate = (account: string, cleanup: boolean, h?: LongHandlers): LongRun<StorageChangeData> => this.run<StorageChangeData>(['storage', 'migrate', '--account', account, ...(cleanup ? ['--cleanup'] : [])], h);
 
   plugins = (): Promise<PluginListData> => this.short<PluginListData>(['plugin', 'list']);
   /** Plugins measure things (disk usage…): give them time. */

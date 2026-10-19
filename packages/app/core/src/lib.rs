@@ -12,7 +12,7 @@ pub const DEVHOST_PATH_ENV: &str = "PATH=/opt/homebrew/bin:/usr/local/bin:/usr/b
 /// `devhost` subcommands the app may run (everything else is refused).
 pub const ALLOWED_SUBCOMMANDS: &[&str] = &[
     "version", "status", "doctor", "apply", "account", "env", "login", "config", "dash", "collector",
-    "notify", "uninstall", "plugin", "session",
+    "notify", "uninstall", "plugin", "session", "storage",
 ];
 
 /// POSIX single-quote a string so a remote shell sees it as one literal word.
@@ -42,6 +42,10 @@ pub fn validate_devhost_args(args: &[String]) -> Result<(), String> {
     }
     if args.iter().any(|a| a.contains('\0')) {
         return Err("arguments must not contain NUL".into());
+    }
+    // Erasing a disk is CLI only (spec B3.8): the app may never start it, whatever its UI does.
+    if first == "storage" && args.get(1).map(String::as_str) == Some("prepare") {
+        return Err("`storage prepare` erases a disk: run it in a terminal on the host".into());
     }
     Ok(())
 }
@@ -385,6 +389,9 @@ mod tests {
         assert!(validate_devhost_args(&v(&["env", "list", "--json"])).is_ok());
         assert!(validate_devhost_args(&v(&["config", "put"])).is_ok());
         assert!(validate_devhost_args(&v(&["plugin", "run", "disk-cleanup", "clean", "--json"])).is_ok());
+        assert!(validate_devhost_args(&v(&["storage", "status", "--json"])).is_ok());
+        assert!(validate_devhost_args(&v(&["storage", "migrate", "--account", "a", "--json"])).is_ok());
+        assert!(validate_devhost_args(&v(&["storage", "prepare", "disk4", "--label", "x", "--yes-erase"])).is_err());
         assert!(validate_devhost_args(&[]).is_err());
         assert!(validate_devhost_args(&v(&["rm", "-rf", "/"])).is_err());
         assert!(validate_devhost_args(&v(&["--json", "version"])).is_err());

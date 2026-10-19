@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { AccountListData, EnvListData } from '@devhost/contract/lite';
+import type { AccountListData, EnvListData, StorageStatusData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import { envCreateArgs, type EnvCreateInput } from '../client/client';
 import { errorMessage } from '../client/errors';
 import { seriesSlot, seriesVar } from '../lib/colors';
+import { bytes } from '../lib/format';
 import { ENV_SLUG, predictEnvBlock } from '../lib/ports';
 import { Badge, Dialog, Empty, Field, Menu, WizardStep } from '../ui/primitives';
 import { RunDialog } from '../ui/run-dialog';
@@ -28,6 +29,7 @@ export function Environments() {
   const plugins = usePlugins();
   const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; env: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [volume, setVolume] = useState<StorageStatusData['volume'] | null>(null);
   const [accountOrder, setAccountOrder] = useState<string[]>([]);
   // The dashboard colors accounts by their place in the config: the same here.
   const accountNames = accountOrder.length > 0 ? accountOrder : envs ? byAccount(envs).map(([a]) => a) : [];
@@ -47,6 +49,7 @@ export function Environments() {
     if (connection.kind !== 'connected') return;
     void refresh();
     void client.accounts().then((a) => setAccountOrder(a.accounts.map((x) => x.name))).catch(() => undefined);
+    void client.storageStatus().then((st) => setVolume(st.volume ?? null)).catch(() => undefined);
     const t = setInterval(() => void refresh(), 10_000);
     return () => clearInterval(t);
   }, [client, connection.kind, refresh]);
@@ -58,6 +61,14 @@ export function Environments() {
         <span className="push" style={{ marginLeft: 'auto' }}><button className="btn primary" onClick={() => setDialog({ kind: 'create' })}>New environment</button></span>
       </div>
       {error && <div className="notice bad" role="alert">{error}</div>}
+      {volume && (
+        <div className={`notice${volume.ready ? '' : ' bad'}`} role={volume.ready ? undefined : 'alert'} aria-label="Work volume">
+          Work volume <b>{volume.label}</b>: {volume.ready ? 'ready' : volume.mounted ? 'mounted, but not the configured volume' : 'not mounted'}
+          {volume.freeBytes != null && volume.totalBytes ? ` · ${((volume.freeBytes / volume.totalBytes) * 100).toFixed(0)}% free (${bytes(volume.freeBytes)})` : ''}
+          {volume.encrypted ? ` · encrypted${volume.locked ? ', locked' : ''}` : ''}
+          {!volume.ready && '. Environments on it wait until it is back.'}
+        </div>
+      )}
       {envs === null ? <section className="card"><Empty>Loading…</Empty></section> : envs.length === 0 ? <section className="card"><Empty>No environments yet. Create one to get a project with its own Remote Control session.</Empty></section> : (
         byAccount(envs, accountOrder).map(([account, list]) => (
           <section className="card" key={account} aria-label={`Environments of ${account}`}>
@@ -72,7 +83,7 @@ export function Environments() {
                 <tbody>
                   {list.map((e) => (
                     <tr key={e.name}>
-                      <td><b>{e.name}</b></td>
+                      <td><b>{e.name}</b>{volume && !volume.ready && (e.dir === volume.mountPoint || e.dir.startsWith(`${volume.mountPoint}/`)) && <> <Badge tone="bad">volume missing</Badge></>}</td>
                       <td>{e.service.state === 'running' ? <Badge tone="good">running{e.service.pid ? ` · pid ${e.service.pid}` : ''}</Badge> : e.service.state === 'stopped' ? <Badge tone="bad">stopped</Badge> : e.service.state === 'not-installed' ? <Badge tone="warn">not installed</Badge> : <Badge>off</Badge>}</td>
                       <td className="mono">{e.portBase === null ? '–' : `${e.portBase}–${e.portBase + 99}`}</td>
                       <td>{e.compose}</td>
