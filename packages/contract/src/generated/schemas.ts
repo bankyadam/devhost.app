@@ -2756,6 +2756,20 @@ export const schemas = {
       },
       "arch": {
         "type": "string"
+      },
+      "host": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "description": "The machine devhost runs on, as the app names it.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "machine.hostname from the config, else the system host name."
+          }
+        }
       }
     }
   },

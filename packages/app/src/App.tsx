@@ -68,8 +68,8 @@ function HostSetup({ initial, onConnect }: { initial: string; onConnect: (host: 
   const [host, setHost] = useState(initial);
   return (
     <div className="content" style={{ margin: '10vh auto', maxWidth: 520 }}>
-      <h1>Connect to your Mac mini</h1>
-      <p className="sec">devhost Desktop talks to the Mac mini with your system <code>ssh</code>, over Tailscale. It uses your <code>~/.ssh/config</code>, agent and keys as they are; it stores only this host name.</p>
+      <h1>Connect to your devhost</h1>
+      <p className="sec">devhost Desktop talks to the host running devhost with your system <code>ssh</code>, over Tailscale. It uses your <code>~/.ssh/config</code>, agent and keys as they are; it stores only this host name.</p>
       <form className="card" onSubmit={(e) => { e.preventDefault(); if (host.trim()) onConnect(host.trim()); }}>
         <Field label="Host" hint="A name from ~/.ssh/config, a MagicDNS name such as macmini.tail1234.ts.net, or user@host.">
           {(id) => <input id={id} className="input" value={host} onChange={(e) => setHost(e.target.value)} placeholder="macmini" autoFocus autoComplete="off" spellCheck={false} />}
@@ -81,7 +81,7 @@ function HostSetup({ initial, onConnect }: { initial: string; onConnect: (host: 
 }
 
 function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; update: (p: Partial<Prefs>) => void; screen: Screen; setScreen: (s: Screen) => void; onHost: (h: string) => void }) {
-  const { connection, transport } = useApp();
+  const { connection, transport, hostName } = useApp();
   const tray = useTraySync();
   // Not window.confirm: the macOS webview (WKWebView under Tauri v2) has no native dialog for it and returns false.
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
@@ -109,7 +109,7 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
       </nav>
       {confirmDisconnect && (
         <ConfirmDialog title="Change host" confirmLabel="Disconnect" onConfirm={() => onHost('')} onCancel={() => setConfirmDisconnect(false)}>
-          <p>Disconnect from <span className="mono">{transport.host}</span>? Nothing changes on the Mac mini; you can connect to it or another host next.</p>
+          <p>Disconnect from <span className="mono">{transport.host}</span>? Nothing changes on that host; you can connect to it or another host next.</p>
         </ConfirmDialog>
       )}
       <div className="main">
@@ -129,7 +129,7 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
         </header>
         {connection.kind === 'unreachable' && (
           <div className="banner bad" role="alert">
-            <b>The Mac mini is unreachable.</b> {connection.message} Trying again every few seconds; the last data stays visible and everything resumes when it is back.
+            <b>{hostName} is unreachable.</b> {connection.message} Trying again every few seconds; the last data stays visible and everything resumes when it is back.
           </div>
         )}
         {connection.kind === 'incompatible' && <div className="banner bad" role="alert">{connection.message}</div>}

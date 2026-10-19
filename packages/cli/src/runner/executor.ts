@@ -94,7 +94,7 @@ export class Executor {
     if (sudo && !this.opts.interactiveSudo && /password is required|terminal is required/i.test(result.stderr)) {
       throw new HumanActionRequired(
         `sudo needs a password for: ${line}`,
-        'Run `devhost apply` in a Terminal window on the Mac mini (or over ssh -t) and enter the sudo password there.',
+        'Run `devhost apply` in a Terminal window on this host (or over ssh -t) and enter the sudo password there.',
       );
     }
     if (result.code !== 0 && !opts.allowFailure) throw new CommandError(line, result.code, result.stderr);

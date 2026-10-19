@@ -116,7 +116,7 @@ export class HumanPrompter implements Prompter {
 /** No terminal and no --json: anything that needs a human is a "human action required" (exit 3). */
 export class NoPrompter implements Prompter {
   private fail(message: string): never {
-    throw new HumanActionRequired(message, 'Run this command in a terminal on the Mac mini (or over `ssh -t`).');
+    throw new HumanActionRequired(message, 'Run this command in a terminal on this host (or over `ssh -t`).');
   }
   confirm(_id: string, message: string): Promise<boolean> {
     return this.fail(message);

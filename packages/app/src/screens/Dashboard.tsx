@@ -15,7 +15,7 @@ import { openClaude, useWebApps } from '../use-web-apps';
 
 
 export function Dashboard({ params = {}, onParams = () => undefined }: { params?: Record<string, string>; onParams?: (p: Record<string, string>) => void }) {
-  const { client, transport, connection } = useApp();
+  const { client, transport, connection, hostName: hostLabel } = useApp();
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'lastActivityAt', dir: 'desc' });
   const [known, setKnown] = useState<string[]>([]);
   const [envs, setEnvs] = useState<EnvListData['environments']>([]);
@@ -105,7 +105,7 @@ export function Dashboard({ params = {}, onParams = () => undefined }: { params?
       </section>
 
       <section className="card" aria-label="Sessions">
-        <header><h2>Sessions</h2><span className="note">Claude Code sessions on this Mac mini, all accounts together.</span></header>
+        <header><h2>Sessions</h2><span className="note">Claude Code sessions on {hostLabel}, all accounts together.</span></header>
         {sessions.length === 0 ? <Empty>No sessions in this view.</Empty> : (
           <div className="table-wrap">
             <table>
@@ -305,7 +305,7 @@ function Health({ dash, now }: { dash: DashData; now: number }) {
   const h = dash.host;
   const ts = h.tailscale;
   return (
-    <section className="card" aria-label="Mac mini health">
+    <section className="card" aria-label="Host health">
       <header>
         <h2>{h.name}</h2>
         {h.online ? <Badge tone="good">online</Badge> : <Badge tone="bad">no recent samples</Badge>}

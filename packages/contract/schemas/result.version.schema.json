@@ -4,12 +4,39 @@
   "title": "VersionData",
   "type": "object",
   "additionalProperties": false,
-  "required": ["cliVersion", "contractVersion"],
+  "required": [
+    "cliVersion",
+    "contractVersion"
+  ],
   "properties": {
-    "cliVersion": { "type": "string" },
-    "contractVersion": { "type": "integer" },
-    "node": { "type": "string" },
-    "platform": { "type": "string" },
-    "arch": { "type": "string" }
+    "cliVersion": {
+      "type": "string"
+    },
+    "contractVersion": {
+      "type": "integer"
+    },
+    "node": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string"
+    },
+    "arch": {
+      "type": "string"
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "description": "The machine devhost runs on, as the app names it.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "machine.hostname from the config, else the system host name."
+        }
+      }
+    }
   }
 }

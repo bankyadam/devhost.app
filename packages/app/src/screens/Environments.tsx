@@ -22,7 +22,7 @@ export function byAccount(envs: Env[], order: readonly string[] = []): [string, 
 }
 
 export function Environments() {
-  const { client, transport, connection, reportUnreachable } = useApp();
+  const { client, transport, connection, reportUnreachable, hostName } = useApp();
   const [envs, setEnvs] = useState<Env[] | null>(null);
   const webApps = useWebApps();
   const plugins = usePlugins();
@@ -115,7 +115,7 @@ export function Environments() {
           </section>
         ))
       )}
-      <p className="note">Start, stop and restart change a system service, so they need the sudo password; if it cannot be asked here you get a Terminal window for it. A stopped service stays stopped until you start it or the Mac mini reboots.</p>
+      <p className="note">Start, stop and restart change a system service, so they need the sudo password; if it cannot be asked here you get a Terminal window for it. A stopped service stays stopped until you start it or {hostName} reboots.</p>
 
       {pluginRun && <PluginRunDialog action={pluginRun.action} target={{ env: pluginRun.env }} onClose={() => setPluginRun(null)} />}
       {dialog?.kind === 'setup' && (

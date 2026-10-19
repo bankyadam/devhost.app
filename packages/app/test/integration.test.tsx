@@ -29,15 +29,15 @@ describe('connection (spec B2, B6)', () => {
     expect(screen.queryByText('Dashboard', { selector: 'h1' })).not.toBeInTheDocument();
   });
 
-  it('shows an unreachable Mac mini and recovers by itself when it returns', async () => {
+  it('shows an unreachable host, by name, and recovers by itself when it returns', async () => {
     const h = await makeHarness();
     h.transport.offline = true;
     mount(h);
-    expect(await screen.findByText(/The Mac mini is unreachable/)).toBeInTheDocument();
+    expect(await screen.findByText(/ is unreachable\./)).toBeInTheDocument();
     expect(screen.getByText('unreachable')).toBeInTheDocument();
     h.transport.offline = false;
     expect(await screen.findByText(/connected · devhost/, undefined, { timeout: 4000 })).toBeInTheDocument();
-    expect(screen.queryByText(/The Mac mini is unreachable/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ is unreachable\./)).not.toBeInTheDocument();
   });
 
   it('asks for the host on first run and keeps only the host name', async () => {
@@ -118,7 +118,7 @@ describe('dashboard (spec B3.1, B6)', () => {
     await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
     seedUsage(h, await configText(h));
     mount(h);
-    await screen.findByLabelText('Mac mini health');
+    await screen.findByLabelText('Host health');
     return h;
   }
 
@@ -140,7 +140,7 @@ describe('dashboard (spec B3.1, B6)', () => {
 
   it('health header, per-account totals with the alert limit, and the known limits', async () => {
     await dashboard();
-    const health = within(screen.getByLabelText('Mac mini health'));
+    const health = within(screen.getByLabelText('Host health'));
     expect(health.getByText('online')).toBeInTheDocument();
     expect(health.getByText('40%')).toBeInTheDocument(); // memory from the sampler
     const business = within(screen.getByLabelText('Account business'));
@@ -333,20 +333,33 @@ describe('dashboard (spec B3.1, B6)', () => {
     expect(screen.queryByRole('menuitem', { name: 'VS Code (Remote SSH)' })).not.toBeInTheDocument();
   });
 
-  it('keeps the last data on screen while the Mac mini is unreachable', async () => {
+  it("names the host as devhost reports it, and no screen says Mac mini", async () => {
+    const h = await makeHarness();
+    await h.cli('config', 'set', '/machine/hostname', '"studio"');
+    mount(h);
+    expect(await screen.findByText(/connected · devhost/)).toBeInTheDocument();
+    h.transport.offline = true;
+    expect(await screen.findByText('studio is unreachable.', undefined, { timeout: 25_000 })).toBeInTheDocument();
+    const { readdir, readFile: read } = await import('node:fs/promises');
+    const src = join(__dirname, '..', 'src');
+    const files = (await readdir(src, { recursive: true })).filter((f) => /\.(tsx?|css)$/.test(String(f)));
+    for (const f of files) expect(await read(join(src, String(f)), 'utf8'), String(f)).not.toContain('Mac mini');
+  }, 30_000);
+
+  it('keeps the last data on screen while the host is unreachable', async () => {
     const h = await makeHarness();
     await withBusiness(h);
     await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
     seedUsage(h, await configText(h));
     mount(h, { heartbeatMs: 50 });
-    await screen.findByLabelText('Mac mini health');
+    await screen.findByLabelText('Host health');
     h.transport.offline = true;
-    expect(await screen.findByText(/The Mac mini is unreachable/)).toBeInTheDocument();
+    expect(await screen.findByText(/ is unreachable\./)).toBeInTheDocument();
     // the frame stays: last numbers visible, flagged as stale
-    expect(screen.getByLabelText('Mac mini health')).toBeInTheDocument();
+    expect(screen.getByLabelText('Host health')).toBeInTheDocument();
     expect(screen.getByText('showing the last data')).toBeInTheDocument();
     h.transport.offline = false;
-    await waitFor(() => expect(screen.queryByText(/The Mac mini is unreachable/)).not.toBeInTheDocument(), { timeout: 4000 });
+    await waitFor(() => expect(screen.queryByText(/ is unreachable\./)).not.toBeInTheDocument(), { timeout: 4000 });
     expect(screen.queryByText('showing the last data')).not.toBeInTheDocument();
   });
 });

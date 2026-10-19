@@ -9,7 +9,7 @@ import { SchemaForm, type JsonSchema } from '../ui/schema-form';
 const schema = schemas.config as unknown as JsonSchema;
 
 export function Configuration() {
-  const { client, connection, reportUnreachable } = useApp();
+  const { client, connection, reportUnreachable, hostName } = useApp();
   const [saved, setSaved] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [tab, setTab] = useState<'form' | 'yaml'>('form');
@@ -35,7 +35,7 @@ export function Configuration() {
     if (connection.kind === 'connected') void load();
   }, [connection.kind, load]);
 
-  // Live validation by the CLI on the Mac mini: schema and cross-field rules, the same ones `apply` enforces.
+  // Live validation by the CLI on the host: schema and cross-field rules, the same ones `apply` enforces.
   useEffect(() => {
     if (saved === null) return;
     const mine = ++seq.current;
@@ -77,7 +77,7 @@ export function Configuration() {
     }
   };
 
-  if (saved === null) return <div className="content"><h1>Configuration</h1><Empty>{error ?? 'Loading the config from the Mac mini…'}</Empty></div>;
+  if (saved === null) return <div className="content"><h1>Configuration</h1><Empty>{error ?? `Loading the config from ${hostName}…`}</Empty></div>;
 
   return (
     <div className="content">
@@ -114,7 +114,7 @@ export function Configuration() {
       ) : (
         <textarea className="textarea" rows={32} spellCheck={false} aria-label="Config YAML" aria-invalid={!validity.valid && !validity.checking} value={text} onChange={(e) => setText(e.target.value)} />
       )}
-      <p className="note">Saving only writes the file (a backup is kept on the Mac mini). Nothing changes on the machine until you apply.</p>
+      <p className="note">Saving only writes the file (a backup is kept on {hostName}). Nothing changes on the machine until you apply.</p>
       {applyFlow && <ApplyFlow onClose={() => setApplyFlow(false)} />}
     </div>
   );
@@ -122,7 +122,7 @@ export function Configuration() {
 
 /** save → `apply --dry-run` → the plan as a diff (what changes, which steps need sudo) → confirm → `apply` with live progress (spec B3.4). */
 function ApplyFlow({ onClose }: { onClose: () => void }) {
-  const { client, transport } = useApp();
+  const { client, transport, hostName } = useApp();
   const review = useOperation<ApplyData>();
   const real = useOperation<ApplyData>();
   const [stage, setStage] = useState<'review' | 'run'>('review');
@@ -163,7 +163,7 @@ function ApplyFlow({ onClose }: { onClose: () => void }) {
         </>
       }
     >
-      {reviewing && <p className="sec">Asking the Mac mini what would change…</p>}
+      {reviewing && <p className="sec">Asking {hostName} what would change…</p>}
       <OperationView op={review} terminal={terminal} />
       {plan && (
         <>

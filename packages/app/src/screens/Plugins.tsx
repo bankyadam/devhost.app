@@ -10,7 +10,7 @@ const SCOPE = { host: 'Host', environment: 'In each environment\'s "…" menu', 
 
 /** Plugins on the host: what they are, and their host actions (environment and session ones live in those menus). */
 export function Plugins() {
-  const { client } = useApp();
+  const { client, hostName } = useApp();
   const { plugins, loaded, refresh } = usePlugins();
   const [run, setRun] = useState<{ action: PluginActionInfo; dryRun: boolean } | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -32,7 +32,7 @@ export function Plugins() {
         <span style={{ marginLeft: 'auto' }}><button className="btn primary" onClick={() => setInstalling(true)}>Install from GitHub…</button></span>
       </div>
       {error && <div className="notice bad" role="alert">{error}</div>}
-      <p className="sec">devhost plugins run on the Mac mini: the built-in ones and those in <span className="mono">~/.config/devhost/plugins</span> (enable them under <span className="mono">plugins</span> in the configuration).</p>
+      <p className="sec">devhost plugins run on {hostName}: the built-in ones and those in <span className="mono">~/.config/devhost/plugins</span> (enable them under <span className="mono">plugins</span> in the configuration).</p>
       {plugins.length === 0 ? <section className="card"><Empty>{loaded ? 'No plugins on this host (or it runs a devhost without plugin support).' : 'Loading…'}</Empty></section> : plugins.map((p) => (
         <section className="card" key={p.name} aria-label={`Plugin ${p.name}`}>
           <header className="row">
@@ -77,14 +77,14 @@ export function Plugins() {
 
 /** A GitHub URL or owner/repo; installed switched off unless "Enable now", since it is someone's code. */
 function InstallDialog({ onClose }: { onClose: () => void }) {
-  const { client } = useApp();
+  const { client, hostName } = useApp();
   const [source, setSource] = useState('');
   const [enable, setEnable] = useState(false);
   const [go, setGo] = useState(false);
   if (go) {
     return (
       <RunDialog title={`Install ${source}`} begin={(h) => client.pluginInstall(source, enable, h)} terminal={{ kind: 'devhost', args: ['plugin', 'install', source, ...(enable ? ['--enable'] : [])] }} onClose={onClose}>
-        <p className="sec">Cloning the repository into ~/.config/devhost/plugins on the Mac mini.</p>
+        <p className="sec">Cloning the repository into ~/.config/devhost/plugins on {hostName}.</p>
       </RunDialog>
     );
   }
@@ -95,7 +95,7 @@ function InstallDialog({ onClose }: { onClose: () => void }) {
         {(id) => <input id={id} className="input" value={source} onChange={(e) => setSource(e.target.value)} autoFocus autoComplete="off" spellCheck={false} placeholder="owner/devhost-plugin-name" />}
       </Field>
       <label className="check"><input type="checkbox" checked={enable} onChange={(e) => setEnable(e.target.checked)} /> Enable now</label>
-      <div className="notice">A plugin runs code from that repository on the Mac mini as you. Installed, it stays off until you enable it.</div>
+      <div className="notice">A plugin runs code from that repository on {hostName} as you. Installed, it stays off until you enable it.</div>
     </Dialog>
   );
 }

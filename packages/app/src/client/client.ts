@@ -82,7 +82,7 @@ export class DevhostClient {
   async call<T>(args: string[], opts: { stdin?: string; timeoutMs?: number } = {}): Promise<Answered & { data: T }> {
     const r = await this.transport.run([...args, '--json'], opts);
     if (isTransportFailure(r)) {
-      throw new UnreachableError(r.code === 124 ? 'The Mac mini did not answer in time.' : `Could not reach ${this.transport.host}${firstLine(r.stderr) ? `: ${firstLine(r.stderr)}` : '.'}`, r.stderr);
+      throw new UnreachableError(r.code === 124 ? `${this.transport.host.replace(/^.*@/, '')} did not answer in time.` : `Could not reach ${this.transport.host}${firstLine(r.stderr) ? `: ${firstLine(r.stderr)}` : '.'}`, r.stderr);
     }
     const env = lastJsonLine(r.stdout) as Envelope | null;
     if (!env || typeof env !== 'object' || !('contractVersion' in env)) {
@@ -122,7 +122,7 @@ export class DevhostClient {
     return a.data;
   }
 
-  /** Live validation of a candidate config; the CLI on the Mac mini is the authority (schema + semantic rules). */
+  /** Live validation of a candidate config; the CLI on the host is the authority (schema + semantic rules). */
   async validateConfig(text: string): Promise<{ valid: boolean; issues: ErrorEntry[] }> {
     const a = await this.call<unknown>(['config', 'validate', '--stdin'], { stdin: text });
     return { valid: a.ok, issues: a.ok ? [] : a.errors };

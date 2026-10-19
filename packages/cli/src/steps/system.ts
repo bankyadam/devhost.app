@@ -128,7 +128,7 @@ export const sshStep: Step = {
         throw new HumanActionRequired(
           'macOS blocked enabling Remote Login from the command line (Full Disk Access).',
           [
-            'Do one of the following on the Mac mini, then re-run `devhost apply`:',
+            'Do one of the following on this host, then re-run `devhost apply`:',
             '  1. System Settings → General → Sharing → turn on "Remote Login".',
             '  2. System Settings → Privacy & Security → Full Disk Access → add your terminal app, restart it.',
           ].join('\n'),

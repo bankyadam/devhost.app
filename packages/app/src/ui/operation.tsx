@@ -110,7 +110,7 @@ const clock = (s: number): string => `${Math.floor(s / 60)}:${String(s % 60).pad
 
 /** The live step log plus whatever the command is asking for right now. */
 export function OperationView<T>({ op, terminal, children }: { op: ReturnType<typeof useOperation<T>>; terminal?: TerminalRequest; children?: ReactNode }) {
-  const { transport } = useApp();
+  const { transport, hostName } = useApp();
   const { state } = op;
   const needsHuman = state.result?.exit === 3 || state.result?.errors.some((e) => e.code === 'human-action-required');
   const working = state.phase === 'running' && !state.prompt;
@@ -137,7 +137,7 @@ export function OperationView<T>({ op, terminal, children }: { op: ReturnType<ty
       {state.prompt && <PromptView prompt={state.prompt} onAnswer={op.answer} openUrl={(u) => void transport.openUrl(u)} />}
       {working && (
         <p className="note working" role="status">
-          <Spinner /> Working on the Mac mini… {clock(elapsed)}
+          <Spinner /> Working on {hostName}… {clock(elapsed)}
           {elapsed >= 30 && <span> · it is not stuck: some steps (installs, builds, starting a service) take minutes</span>}
         </p>
       )}
