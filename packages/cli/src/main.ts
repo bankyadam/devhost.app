@@ -165,7 +165,8 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
   program
     .command('login <account>')
     .description('Sign in an account, accept workspace trust for its environments, restart their services')
-    .action((name: string) => run(() => loginCommand(deps, globals(), name))());
+    .option('--switch-login', "accept a claude.ai login other than the account's recorded one (its environments register afresh)")
+    .action((name: string, o: { switchLogin?: boolean }) => run(() => loginCommand(deps, globals(), name, o.switchLogin === true))());
 
   const env = program.command('env').description('Manage environments (one project each)');
   env.command('list').description('List environments and their Remote Control service state').action(run(() => envListCommand(deps, globals())));

@@ -546,7 +546,10 @@ describe('environments', () => {
     feed(env, { id: 'auth-code', value: 'C' });
     env.out.length = 0;
     expect(await env.run('login', 'business', '--json')).toBe(3);
-    expect(lastResult(env).errors![0]!.message).toBe("business is signed in as me@example.com, which is personal's login: its environments would show up under personal");
+    expect(lastResult(env).errors![0]!.message).toBe("business signed in as me@example.com, which is personal's login (its environments would show up under personal); signed out again");
+    expect(mac.state.loggedIn.has(join(env.home, '.claude-business'))).toBe(false);
+    mac.state.loggedIn.add(join(env.home, '.claude-business')); // as if the wrong login had stayed
+    mac.state.identities.set(join(env.home, '.claude-business'), 'me@example.com');
 
     env.out.length = 0;
     await env.run('doctor', '--json');
@@ -558,6 +561,44 @@ describe('environments', () => {
     feed(env, { id: 'auth-code', value: 'C' }, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
     env.out.length = 0;
     expect(await env.run('login', 'business', '--json')).toBe(0);
+  });
+
+  it("login records the account's claude.ai login, refuses another one, and --switch-login starts Remote Control afresh", async () => {
+    const { env, mac, dir } = await created();
+    const cfgDir = join(env.home, '.claude-business');
+    mac.state.identities = new Map();
+    mac.state.loginAs = 'a@work.example';
+    feed(env, { id: 'auth-code', value: 'C' }, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    expect(await env.run('login', 'business', '--json')).toBe(0);
+    expect(await cfg(env)).toContain('claudeLogin: a@work.example');
+
+    // Remote Control state of the first login.
+    const pointer = join(cfgDir, 'projects', dir.replace(/[^A-Za-z0-9]/g, '-'), 'bridge-pointer.json');
+    const wtPointer = join(cfgDir, 'projects', `${dir}/.claude/worktrees/bridge-cse_1`.replace(/[^A-Za-z0-9]/g, '-'), 'bridge-pointer.json');
+    const other = join(cfgDir, 'projects', '-somewhere-else', 'bridge-pointer.json');
+    for (const p of [pointer, wtPointer, other]) {
+      await mkdir(dirname(p), { recursive: true });
+      await writeFile(p, '{}');
+    }
+    await writeFile(join(cfgDir, '.claude.json'), JSON.stringify({ remoteControlMachineId: 'm1', keep: 1 }));
+
+    mac.state.loginAs = 'someone@else.example';
+    feed(env, { id: 'auth-code', value: 'C' });
+    env.out.length = 0;
+    expect(await env.run('login', 'business', '--json')).toBe(3);
+    expect(lastResult(env).errors![0]!.message).toBe('business signs in as a@work.example, this was someone@else.example; signed out again');
+    expect(mac.state.loggedIn.has(cfgDir)).toBe(false);
+    await stat(pointer); // untouched
+
+    feed(env, { id: 'auth-code', value: 'C' }, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    expect(await env.run('login', 'business', '--switch-login', '--json')).toBe(0);
+    expect(await cfg(env)).toContain('claudeLogin: someone@else.example');
+    await expect(stat(pointer)).rejects.toThrow();
+    await expect(stat(wtPointer)).rejects.toThrow();
+    await stat(other);
+    const state = JSON.parse(await readFile(join(cfgDir, '.claude.json'), 'utf8')) as Record<string, unknown>;
+    expect(state['remoteControlMachineId']).toBeUndefined();
+    expect(state['keep']).toBe(1);
   });
 
   it('login restarts a service that was already running: it still had the old login', async () => {

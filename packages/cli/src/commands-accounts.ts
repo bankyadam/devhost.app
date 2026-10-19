@@ -174,7 +174,7 @@ export function accountRemoveCommand(deps: Deps, g: GlobalOptions, name: string,
   });
 }
 
-export async function runLogin(deps: Deps, g: GlobalOptions, config: DevhostConfig, account: Account, reporter: Reporter): Promise<LoginData> {
+export async function runLogin(deps: Deps, g: GlobalOptions, config: DevhostConfig, account: Account, reporter: Reporter, switchLogin = false): Promise<LoginData> {
   const exec = newExecutor(deps, g, reporter, false);
   const ctx: LoginContext = {
     deps,
@@ -187,16 +187,17 @@ export async function runLogin(deps: Deps, g: GlobalOptions, config: DevhostConf
     idleMs: Number(deps.env['DEVHOST_TRUST_IDLE_MS']) || undefined,
       answerAfterMs: deps.env['DEVHOST_TRUST_ANSWER_MS'] === undefined ? undefined : Number(deps.env['DEVHOST_TRUST_ANSWER_MS']),
     stepContext: () => newStepContext(deps, g, config, exec),
+    switchLogin,
   };
   return loginAccount(ctx);
 }
 
-export function loginCommand(deps: Deps, g: GlobalOptions, name: string): Promise<number> {
+export function loginCommand(deps: Deps, g: GlobalOptions, name: string, switchLogin = false): Promise<number> {
   return long(deps, g, async (reporter) => {
     const { config } = await loadConfig(g.configPath);
     const account = findAccount(config, name);
     if (!account) throw new UsageError(`no account named "${name}"`, 'See `devhost account list`.');
-    const data = await runLogin(deps, g, config, account, reporter);
+    const data = await runLogin(deps, g, config, account, reporter, switchLogin);
     return { ok: true, data, human: ['', `✅ ${name} is logged in${(data.restarted?.length ?? 0) > 0 ? `; restarted: ${(data.restarted ?? []).join(', ')}` : ''}.`] };
   });
 }

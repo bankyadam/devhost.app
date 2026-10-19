@@ -2,7 +2,7 @@ import { cpus, loadavg, totalmem, freemem, platform as osPlatform, uptime } from
 import { statfs } from 'node:fs/promises';
 import type { Server } from 'node:http';
 import type { DevhostConfig } from '@devhost/contract';
-import { accountsOf, environmentsOf, rcLabel, composeProject, type Account } from '../config/accounts.js';
+import { accountsOf, environmentsOf, logsDir, rcLabel, composeProject, type Account } from '../config/accounts.js';
 import type { Deps } from '../deps.js';
 import { daemonState } from '../launchd.js';
 import { Executor } from '../runner/executor.js';
@@ -13,6 +13,7 @@ import { envLocations, type EnvLocation } from './hooks.js';
 import { Ingestor } from './ingest.js';
 import type { Notifier } from './notify.js';
 import { retain, rollup } from './rollup.js';
+import { rotateLogs } from './logs.js';
 import {
   cpuPercent, cpuTimes, memoryFromVmStat, parseDockerPs, parseDockerStats, parseDu, parseLsofCwd, parsePs, parseVmStat,
   subtree, sumProcs, type Proc,
@@ -292,6 +293,13 @@ export class Collector {
       rollup(this.db, now);
       const r = this.config.collector?.retention;
       retain(this.db, now, { rawDays: r?.rawDays ?? 7, rollupDays: r?.rollupDays ?? 365 });
+    });
+    await this.safe('log rotation', async () => {
+      const at = (name: string): number | null => {
+        const v = this.db.kvGet(`log_rotated:${name}`);
+        return v === null ? null : Number(v);
+      };
+      await rotateLogs(logsDir(this.opts.deps.home), this.now(), this.config.collector?.retention?.logDays ?? 7, at, (name, t) => this.db.kvSet(`log_rotated:${name}`, String(t), t));
     });
   }
 

@@ -1,7 +1,10 @@
+import { existsSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DevhostConfig, LoginData } from '@devhost/contract';
 import { runSteps } from './apply.js';
-import { accountEnv, accountsOf, environmentsOf, rcLabel, type Account } from './config/accounts.js';
+import { accountEnv, accountsOf, claudeConfigDir, effectiveClaudeDir, environmentsOf, rcLabel, type Account } from './config/accounts.js';
+import { editConfigFile } from './config/edit.js';
 import type { Deps } from './deps.js';
 import { HumanActionRequired } from './errors.js';
 import { daemonState } from './launchd.js';
@@ -23,6 +26,8 @@ export const stripAnsi = (s: string): string => s.replace(ANSI, '');
 
 export interface LoginContext {
   deps: Deps;
+  /** `--switch-login`: this sign-in may be a different claude.ai login than the account's recorded one. */
+  switchLogin?: boolean;
   config: DevhostConfig;
   account: Account;
   exec: Executor;
@@ -242,25 +247,93 @@ export async function sharedLogin(ctx: { exec: Executor; deps: Pick<Deps, 'home'
   return null;
 }
 
+async function authLogout(ctx: LoginContext): Promise<void> {
+  await ctx.exec.query(await claudeBinary(ctx), ['auth', 'logout'], claudeRunOptions(ctx.account, ctx.deps.home));
+}
+
+/** `accounts[].claudeLogin` in config.yaml. */
+async function pinLogin(ctx: LoginContext, email: string): Promise<void> {
+  const i = (ctx.config.accounts ?? []).findIndex((x) => x.name === ctx.account.name);
+  if (i < 0) return;
+  await editConfigFile(ctx.stepContext().configPath, ctx.deps.now(), (doc) => doc.setIn(['accounts', i, 'claudeLogin'], email));
+}
+
+/** Claude Code's project directory name for a path. */
+const projectKey = (dir: string): string => dir.replace(/[^A-Za-z0-9]/g, '-');
+
+/**
+ * Forget the account's Remote Control registrations: the bridge pointers of its environments (and
+ * their worktrees), which make a restarted service reattach to the same environment, and the device
+ * id (`remoteControlMachineId`), under which the server refuses a second environment for a folder.
+ */
+export async function resetRemoteControlState(ctx: LoginContext): Promise<void> {
+  const { account: a, deps, exec } = ctx;
+  const projects = join(effectiveClaudeDir(a, deps.home), 'projects');
+  const keys = environmentsOf(ctx.config).filter((e) => e.account === a.name).map((e) => projectKey(envInfoOf(a, e, deps.home).dir));
+  let names: string[] = [];
+  try {
+    names = await readdir(projects);
+  } catch {
+    /* no projects yet */
+  }
+  for (const n of names) {
+    if (keys.some((k) => n === k || n.startsWith(`${k}-`)) && existsSync(join(projects, n, 'bridge-pointer.json'))) await exec.remove(join(projects, n, 'bridge-pointer.json'));
+  }
+  const dir = claudeConfigDir(a, deps.home);
+  const stateFile = dir ? join(dir, '.claude.json') : join(deps.home, '.claude.json');
+  const text = await exec.readText(stateFile);
+  if (text === null) return;
+  try {
+    const state = JSON.parse(text) as Record<string, unknown>;
+    if (!('remoteControlMachineId' in state)) return;
+    delete state['remoteControlMachineId'];
+    await exec.writeText(stateFile, `${JSON.stringify(state, null, 2)}\n`, { description: `forget the Remote Control device id in ${stateFile}` });
+  } catch {
+    /* not JSON: leave it */
+  }
+}
+
 /** What `devhost login <account>` does (spec A7.10). */
 export async function loginAccount(ctx: LoginContext): Promise<LoginData> {
   const { account: a, config, deps, reporter } = ctx;
 
   reporter.step('login.auth', 'start', `sign in ${a.name}`);
+  const before = loginIdentity((await authStatus(ctx, a)).raw).email;
   await authLogin(ctx);
   const status = await authStatus(ctx, a);
   if (status.loggedIn !== true) {
     reporter.step('login.auth', 'failed', 'claude auth status still reports a logged-out account');
     throw new HumanActionRequired(`${a.name} is still not logged in`, `Run \`devhost login ${a.name}\` again and paste the code the browser shows.`);
   }
+  // A wrong login is signed out again: running on it, the account's services would register its
+  // environments under someone else's claude.ai account (and keep them there).
+  const who = loginIdentity(status.raw);
   const clash = await sharedLogin(ctx, config, a, status.raw);
   if (clash) {
     reporter.step('login.auth', 'failed', `signed in as ${clash.email}, the login of ${clash.account}`);
+    await authLogout(ctx);
     throw new HumanActionRequired(
-      `${a.name} is signed in as ${clash.email}, which is ${clash.account}'s login: its environments would show up under ${clash.account}`,
-      `Sign out of claude.ai in the browser (or open the link in a private window), then run \`devhost login ${a.name}\` again and sign in with ${a.name}'s login.`,
+      `${a.name} signed in as ${clash.email}, which is ${clash.account}'s login (its environments would show up under ${clash.account}); signed out again`,
+      `Sign out of claude.ai in the browser (or open the link in a private window), then run \`devhost login ${a.name}\` again and sign in with ${a.claudeLogin ?? `${a.name}'s login`}.`,
     );
   }
+  const pinned = a.claudeLogin ?? null;
+  if (pinned && who.email && who.email !== pinned && !ctx.switchLogin) {
+    reporter.step('login.auth', 'failed', `signed in as ${who.email}, not ${pinned}`);
+    await authLogout(ctx);
+    throw new HumanActionRequired(
+      `${a.name} signs in as ${pinned}, this was ${who.email}; signed out again`,
+      `Run \`devhost login ${a.name}\` again and sign in with ${pinned} (a private window avoids the browser's current login). To make ${who.email} its login: devhost login ${a.name} --switch-login`,
+    );
+  }
+  const previous = pinned ?? before ?? null;
+  if (who.email && previous && previous !== who.email) {
+    // Another login: what Remote Control remembers (environment and session pointers, the device
+    // id it registered under) belongs to the old one, and reusing it keeps the environments there.
+    await resetRemoteControlState(ctx);
+    reporter.step('login.auth', 'changed', `switched from ${previous} to ${who.email}; Remote Control registers its environments afresh`);
+  }
+  if (who.email && pinned !== who.email) await pinLogin(ctx, who.email);
   reporter.step('login.auth', 'changed', 'logged in');
   recordLogin(deps.home, a.name, deps.now().getTime(), loginIdentity(status.raw).orgId);
 
