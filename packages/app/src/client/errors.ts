@@ -20,7 +20,7 @@ export class CommandError extends Error {
   }
 }
 
-/** ssh could not reach the Mac mini (or it did not answer in time). */
+/** ssh could not reach the host (or it did not answer in time). */
 export class UnreachableError extends Error {
   constructor(message: string, readonly stderr = '') {
     super(message);
@@ -32,8 +32,8 @@ export class UnreachableError extends Error {
 export class IncompatibleError extends Error {
   constructor(readonly cliVersion: string, readonly cliContract: number, readonly appContract: number) {
     super(
-      `The devhost CLI on the Mac mini (${cliVersion}) speaks contract ${cliContract}, this app speaks ${appContract}. ` +
-        (cliContract > appContract ? 'Update devhost Desktop.' : 'Update devhost on the Mac mini (git pull && ./bootstrap.sh).'),
+      `The devhost CLI on the host (${cliVersion}) speaks contract ${cliContract}, this app speaks ${appContract}. ` +
+        (cliContract > appContract ? 'Update devhost Desktop.' : 'Update devhost on the host (git pull && ./bootstrap.sh).'),
     );
     this.name = 'IncompatibleError';
   }

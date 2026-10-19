@@ -1,3 +1,4 @@
+import { hostname } from 'node:os';
 import YAML, { stringify } from 'yaml';
 import { CONTRACT_VERSION, type ApplyData, type ConfigRawData } from '@devhost/contract';
 import { readFileSync } from 'node:fs';
@@ -24,8 +25,15 @@ export function cliVersion(): string {
 
 export function versionCommand(deps: Deps, g: GlobalOptions): Promise<number> {
   return short(deps, g, async () => {
+    let name = hostname().replace(/\.local$/, '');
+    try {
+      name = (await loadConfig(g.configPath)).config.machine?.hostname || name;
+    } catch {
+      /* not configured yet: the system's name */
+    }
     const data = {
       cliVersion: cliVersion(),
+      host: { name },
       contractVersion: CONTRACT_VERSION,
       node: process.version,
       platform: process.platform,

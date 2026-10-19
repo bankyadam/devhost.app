@@ -4,7 +4,7 @@ import { agentBuckets, buildBuckets, TOKEN_TYPES, type Metric, type Stack } from
 import type { RunResult, StreamHandle, TerminalRequest, Transport, TrayStatus } from './types';
 
 /**
- * A made-up Mac mini for running the UI in a plain browser (vite dev, screenshots). It answers the
+ * A made-up host for running the UI in a plain browser (vite dev, screenshots). It answers the
  * read commands with sample data and plays scripted event streams for the long ones.
  * Never used inside the app: there the Rust shell talks to the real host.
  */
@@ -196,7 +196,7 @@ function demoDash(at: number, range: DashData['range']): DashData {
       'Cost is an estimate reported by Claude Code. On a subscription it is API-equivalent value, not billed money.',
       'Subscription plan limits (session and weekly usage) are not part of the telemetry and are not shown.',
       'CPU and memory per session is best effort; per-environment numbers are reliable.',
-      'Only this Mac mini is covered: cloud sessions and sessions on other machines are not included.',
+      'Only this host is covered: cloud sessions and sessions on other machines are not included.',
     ],
   };
 }

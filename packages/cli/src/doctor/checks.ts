@@ -170,7 +170,7 @@ async function toolChecks(c: DoctorContext): Promise<Check[]> {
   const runtime = config.docker?.runtime ?? 'none';
   if (runtime !== 'none') {
     const info = await exec.query('docker', ['info', '--format', '{{.ServerVersion}}']);
-    out.push(info.code === 0 ? ok('tools.docker', `Docker ${info.stdout.trim()} (${runtime}) is running`) : fail('tools.docker', `Docker (${runtime}) is not running`, runtime === 'colima' ? 'devhost apply --only docker' : 'Open OrbStack on the Mac mini'));
+    out.push(info.code === 0 ? ok('tools.docker', `Docker ${info.stdout.trim()} (${runtime}) is running`) : fail('tools.docker', `Docker (${runtime}) is not running`, runtime === 'colima' ? 'devhost apply --only docker' : 'Open OrbStack on this host'));
     if (runtime === 'orbstack') out.push(warn('tools.docker-boot', 'OrbStack needs a GUI login after every reboot', 'Use docker.runtime: colima for a headless server'));
     if (runtime === 'colima') {
       const d = await daemonState(exec, COLIMA_LABEL);

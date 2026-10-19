@@ -275,7 +275,7 @@ describe('environments (spec B3.2)', () => {
     await goto(h, 'Environments');
     await envAction(h, 'acme-api', 'Run setup again');
     const dlg = within(await screen.findByRole('dialog', { name: 'Set up business/acme-api' }));
-    expect(await dlg.findByRole('status')).toHaveTextContent(/Working on the Mac mini… 0:0\d/);
+    expect(await dlg.findByRole('status')).toHaveTextContent(/Working on \S+… 0:0\d/);
     expect(dlg.getAllByRole('progressbar').map((e) => e.getAttribute('aria-label'))).toEqual(expect.arrayContaining(['Working', 'env.acme-api is running']));
     release();
     expect(await dlg.findByText('Done.', undefined, { timeout: 8000 })).toBeInTheDocument();

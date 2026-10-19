@@ -11,7 +11,7 @@ const SYMBOL = { ok: '✅', warn: '⚠️', fail: '❌' } as const;
 
 /** Doctor as a checklist with fix hints (copy-to-clipboard), plus the log viewer (spec B3.5). */
 export function Doctor() {
-  const { client, connection, reportUnreachable } = useApp();
+  const { client, connection, reportUnreachable, hostName } = useApp();
   const [data, setData] = useState<DoctorData | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +54,7 @@ export function Doctor() {
             <Badge tone={data.summary.fail > 0 ? 'bad' : 'none'}>{data.summary.fail} failed</Badge>
           </div>
         )}
-        {!data ? <div className="empty">{running ? 'Running the checks on the Mac mini…' : 'No result yet.'}</div> : (
+        {!data ? <div className="empty">{running ? `Running the checks on ${hostName}…` : 'No result yet.'}</div> : (
           <div className="checklist">
             {data.checks.map((c) => (
               <div className="item" key={c.id}>

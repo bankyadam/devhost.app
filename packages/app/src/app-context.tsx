@@ -19,6 +19,8 @@ export interface AppCtx {
   reportUnreachable: (e: unknown) => void;
   navigate: (screen: Screen) => void;
   tools: { code: boolean; iterm: boolean };
+  /** The host's name as devhost reports it (`version` → host.name); the ssh host until it has answered. */
+  hostName: string;
 }
 
 export type Screen = 'dashboard' | 'environments' | 'accounts' | 'plugins' | 'configuration' | 'doctor';
@@ -40,13 +42,14 @@ export interface ProviderProps {
 }
 
 /**
- * Connects, checks the contract version (spec B2) and keeps checking: an unreachable Mac mini is
+ * Connects, checks the contract version (spec B2) and keeps checking: an unreachable host is
  * shown as such and the app recovers by itself when it returns (spec B6).
  */
 export function AppProvider({ transport, navigate, retryMs = 4000, heartbeatMs = 15000, children }: ProviderProps) {
   const client = useMemo(() => (transport ? new DevhostClient(transport) : null), [transport]);
   const [connection, setConnection] = useState<Connection>(transport ? { kind: 'connecting' } : { kind: 'no-host' });
   const [tools, setTools] = useState({ code: false, iterm: false });
+  const [reported, setReported] = useState<string | null>(null);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -63,6 +66,7 @@ export function AppProvider({ transport, navigate, retryMs = 4000, heartbeatMs =
       try {
         const version = await client.version();
         if (!alive.current) return;
+        if (version.host?.name) setReported(version.host.name);
         setConnection((c) => (c.kind === 'connected' && c.version.cliVersion === version.cliVersion ? c : { kind: 'connected', version }));
         timer = setTimeout(() => void check(), heartbeatMs);
         if (first) {
@@ -90,9 +94,10 @@ export function AppProvider({ transport, navigate, retryMs = 4000, heartbeatMs =
     if (e instanceof UnreachableError) setConnection((c) => (c.kind === 'unreachable' ? c : { kind: 'unreachable', since: Date.now(), message: e.message }));
   }, []);
 
+  const hostName = reported ?? transport?.host.replace(/^.*@/, '') ?? 'the host';
   const value = useMemo<AppCtx | null>(
-    () => (client && transport ? { client, transport, connection, reportUnreachable, navigate, tools } : null),
-    [client, transport, connection, reportUnreachable, navigate, tools],
+    () => (client && transport ? { client, transport, connection, reportUnreachable, navigate, tools, hostName } : null),
+    [client, transport, connection, reportUnreachable, navigate, tools, hostName],
   );
   if (!value) return <>{children}</>;
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

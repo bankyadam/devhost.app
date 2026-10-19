@@ -23,7 +23,7 @@ export const KNOWN_LIMITS = [
   'Cost is an estimate reported by Claude Code. On a subscription it is API-equivalent value, not billed money.',
   'Subscription plan limits (session and weekly usage) are not part of the telemetry and are not shown.',
   'CPU and memory per session is best effort; per-environment numbers are reliable.',
-  'Only this Mac mini is covered: cloud sessions and sessions on other machines are not included.',
+  'Only this host is covered: cloud sessions and sessions on other machines are not included.',
 ];
 
 const TOKEN_KINDS = ['input', 'output', 'cacheRead', 'cacheCreation'];

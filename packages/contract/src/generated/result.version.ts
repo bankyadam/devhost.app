@@ -6,4 +6,13 @@ export interface VersionData {
   node?: string;
   platform?: string;
   arch?: string;
+  /**
+   * The machine devhost runs on, as the app names it.
+   */
+  host?: {
+    /**
+     * machine.hostname from the config, else the system host name.
+     */
+    name: string;
+  };
 }

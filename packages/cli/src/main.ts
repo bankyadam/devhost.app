@@ -60,7 +60,7 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
 
   program
     .name('devhost')
-    .description('Turn a Mac mini (Apple Silicon or Intel) into a headless Claude Code dev server')
+    .description('Turn a Mac (Apple Silicon or Intel) into a headless Claude Code dev server')
     .version(cliVersion(), '-V, --cli-version', 'print the CLI version')
     .option('--json', 'machine-readable output (see the contract package)')
     .option('--verbose', 'show every command that is run')
@@ -77,7 +77,7 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .command('init')
     .description('Create ~/.config/devhost/config.yaml (asks a few questions)')
     .option('--force', 'overwrite an existing config (a backup is kept)')
-    .option('--hostname <name>', 'hostname of the Mac mini')
+    .option('--hostname <name>', 'hostname of this host')
     .option('--docker <runtime>', 'colima | orbstack | none')
     .option('--no-tailscale', 'do not set up Tailscale')
     .action(
