@@ -219,7 +219,9 @@ async function identityChecks(c: DoctorContext, accounts: Account[]): Promise<Ch
     if (!who.email) continue;
     const key = `${who.email}|${who.orgId ?? ''}`;
     const first = seen.find((x) => x.key === key);
-    out.push(first
+    out.push(a.claudeLogin && a.claudeLogin !== who.email
+      ? fail(`account.${a.name}.identity`, `signed in as ${who.email}, but its login is ${a.claudeLogin}`, `devhost login ${a.name}  # sign in with ${a.claudeLogin}; or --switch-login to keep ${who.email}`)
+      : first
       ? fail(`account.${a.name}.identity`, `signed in as ${who.email}, the same login as ${first.account}: its environments show up under ${first.account}`, `devhost login ${a.name}  # sign in with ${a.name}'s login (sign out of claude.ai in the browser first)`)
       : ok(`account.${a.name}.identity`, `signed in as ${who.email}`));
     seen.push({ account: a.name, key });

@@ -133,6 +133,14 @@ export const schemas = {
                   "default": null
                 }
               }
+            },
+            "claudeLogin": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "The claude.ai login (email) this account signs in with; recorded at its first `devhost login`. A login as anyone else is refused (signed out again) unless `devhost login <account> --switch-login`."
             }
           }
         }
@@ -371,6 +379,12 @@ export const schemas = {
                 "type": "integer",
                 "minimum": 1,
                 "default": 365
+              },
+              "logDays": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 7,
+                "description": "Service logs (~/Library/Logs/devhost) are rotated daily and kept compressed this many days; a log nothing wrote to for as long is removed."
               }
             }
           },

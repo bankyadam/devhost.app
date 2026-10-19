@@ -760,3 +760,37 @@ describe('commands', () => {
     expect(mac.state.loaded.has('com.devhost.collector')).toBe(true);
   });
 });
+
+describe('service log retention', () => {
+  it('rotates each log once a day into gzip archives, keeps `days` of them, empties the log in place, removes stale logs', async () => {
+    const { mkdtemp, writeFile, readFile, readdir, utimes, appendFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { gunzipSync } = await import('node:zlib');
+    const { rotateLogs } = await import('../src/collector/logs.js');
+    const dir = await mkdtemp(join(tmpdir(), 'logs-'));
+    const D = 24 * 3_600_000;
+    let t = Date.now();
+    const seen = new Map<string, number>();
+    const rotate = () => rotateLogs(dir, t, 3, (n) => seen.get(n) ?? null, (n, at) => seen.set(n, at));
+    await writeFile(join(dir, 'rc-a.log'), 'day0\n');
+    await writeFile(join(dir, 'notes.txt'), 'not a log\n');
+    await writeFile(join(dir, 'rc-old.log'), 'gone\n');
+    await writeFile(join(dir, 'rc-old.log.1.gz'), 'x');
+    await utimes(join(dir, 'rc-old.log'), (t - 4 * D) / 1000, (t - 4 * D) / 1000);
+
+    expect(await rotate()).toEqual(['rc-a.log']); // first seen: right away
+    expect(await readFile(join(dir, 'rc-a.log'), 'utf8')).toBe('');
+    expect(gunzipSync(await readFile(join(dir, 'rc-a.log.1.gz'))).toString()).toBe('day0\n');
+    expect(await rotate()).toEqual([]); // not again the same day
+
+    for (let day = 1; day <= 4; day++) {
+      t += D;
+      await appendFile(join(dir, 'rc-a.log'), `day${day}\n`);
+      await utimes(join(dir, 'rc-a.log'), t / 1000, t / 1000);
+      expect(await rotate()).toEqual(['rc-a.log']);
+    }
+    expect((await readdir(dir)).sort()).toEqual(['notes.txt', 'rc-a.log', 'rc-a.log.1.gz', 'rc-a.log.2.gz', 'rc-a.log.3.gz']);
+    expect(gunzipSync(await readFile(join(dir, 'rc-a.log.1.gz'))).toString()).toBe('day4\n');
+    expect(gunzipSync(await readFile(join(dir, 'rc-a.log.3.gz'))).toString()).toBe('day2\n');
+  });
+});

@@ -33,6 +33,10 @@ export interface DevhostConfig {
     alerts?: {
       dailyCostUsd?: number | null;
     };
+    /**
+     * The claude.ai login (email) this account signs in with; recorded at its first `devhost login`. A login as anyone else is refused (signed out again) unless `devhost login <account> --switch-login`.
+     */
+    claudeLogin?: string | null;
   }[];
   environments?: {
     name: string;
@@ -85,6 +89,10 @@ export interface DevhostConfig {
     retention?: {
       rawDays?: number;
       rollupDays?: number;
+      /**
+       * Service logs (~/Library/Logs/devhost) are rotated daily and kept compressed this many days; a log nothing wrote to for as long is removed.
+       */
+      logDays?: number;
     };
     alerts?: {
       memoryPercent?: number;
