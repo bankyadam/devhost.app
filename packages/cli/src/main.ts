@@ -248,7 +248,11 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
 
   const plugin = program.command('plugin').description('devhost plugins: built-in ones and ~/.config/devhost/plugins');
   plugin.command('list').description('Plugins, their actions and checks').action(run(() => pluginListCommand(deps, globals())));
-  plugin.command('widgets').description("Enabled plugins' dashboard cards (the desktop app shows them)").action(run(() => pluginWidgetsCommand(deps, globals())));
+  plugin
+    .command('widgets')
+    .description("Enabled plugins' dashboard controls and cards (the desktop app shows them)")
+    .option('--param <plugin.filter=value>', 'a filter value (repeatable)', (v: string, all: string[]) => [...all, v], [] as string[])
+    .action((o: { param: string[] }) => run(() => pluginWidgetsCommand(deps, globals(), o.param))());
   plugin
     .command('run <plugin> <action>')
     .description("Run a plugin's action (one that removes or stops something asks first; --yes answers)")

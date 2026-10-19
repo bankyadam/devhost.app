@@ -5,7 +5,8 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "widgets"
+    "widgets",
+    "filters"
   ],
   "properties": {
     "widgets": {
@@ -24,7 +25,8 @@
             "type": "string"
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "The widget's id; `<id>:<key>` for one of several cards of a widget."
           },
           "title": {
             "type": "string"
@@ -92,6 +94,185 @@
           "error": {
             "type": "string",
             "description": "The widget could not be computed."
+          },
+          "size": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "wide"
+            ]
+          },
+          "refreshSeconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "account": {
+            "type": "string",
+            "description": "The card belongs to this account (its color)."
+          },
+          "meter": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "label",
+              "value",
+              "max"
+            ],
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "value": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              }
+            }
+          },
+          "note": {
+            "type": "string"
+          },
+          "chart": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title",
+              "series",
+              "points",
+              "axis",
+              "format"
+            ],
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "series": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "key",
+                    "label"
+                  ],
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "colorBy": {
+                "type": "string",
+                "enum": [
+                  "account"
+                ]
+              },
+              "points": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ts",
+                    "values"
+                  ],
+                  "properties": {
+                    "ts": {
+                      "type": "number"
+                    },
+                    "values": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              },
+              "axis": {
+                "type": "string",
+                "enum": [
+                  "time",
+                  "date"
+                ]
+              },
+              "format": {
+                "type": "string",
+                "enum": [
+                  "compact",
+                  "usd",
+                  "integer"
+                ]
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 40
+              }
+            }
+          }
+        }
+      }
+    },
+    "filters": {
+      "type": "array",
+      "description": "Enabled plugins' dashboard controls; `value` is what the widgets were computed with.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "plugin",
+          "id",
+          "label",
+          "kind",
+          "options",
+          "value"
+        ],
+        "properties": {
+          "plugin": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "segmented",
+              "select"
+            ]
+          },
+          "allLabel": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value",
+                "label"
+              ],
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }

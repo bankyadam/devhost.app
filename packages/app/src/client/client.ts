@@ -201,7 +201,8 @@ export class DevhostClient {
 
   plugins = (): Promise<PluginListData> => this.short<PluginListData>(['plugin', 'list']);
   /** Plugins measure things (disk usage…): give them time. */
-  pluginWidgets = (): Promise<PluginWidgetsData> => this.short<PluginWidgetsData>(['plugin', 'widgets'], { timeoutMs: 120_000 });
+  pluginWidgets = (params: Record<string, string> = {}): Promise<PluginWidgetsData> =>
+    this.short<PluginWidgetsData>(['plugin', 'widgets', ...Object.entries(params).flatMap(([k, v]) => ['--param', `${k}=${v}`])], { timeoutMs: 120_000 });
   pluginInstall = (source: string, enable: boolean, h?: LongHandlers): LongRun<PluginChangeData> => this.run<PluginChangeData>(['plugin', 'install', source, ...(enable ? ['--enable'] : [])], h);
   pluginUninstall = (name: string): Promise<PluginChangeData> => this.short<PluginChangeData>(['plugin', 'uninstall', name]);
   pluginToggle = (name: string, enabled: boolean): Promise<PluginChangeData> => this.short<PluginChangeData>(['plugin', enabled ? 'enable' : 'disable', name]);

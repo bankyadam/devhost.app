@@ -50,7 +50,7 @@ describe('connection (spec B2, B6)', () => {
     await h.user.type(await screen.findByLabelText('Host'), 'macmini');
     await h.user.click(screen.getByRole('button', { name: 'Connect' }));
     expect(await screen.findByText(/connected · devhost/)).toBeInTheDocument();
-    expect(JSON.parse(storage.getItem('devhost.prefs.v1')!)).toEqual({ host: 'macmini', theme: 'system', range: '24h' });
+    expect(JSON.parse(storage.getItem('devhost.prefs.v1')!)).toEqual({ host: 'macmini', theme: 'system', pluginParams: {} });
   });
 
   it('changes the host through an in-app confirmation (no window.confirm)', async () => {
@@ -158,23 +158,25 @@ describe('dashboard (spec B3.1, B6)', () => {
     const columns = screen.getAllByLabelText(/business 10\.5K/);
     expect(columns.length).toBe(1);
     expect(columns[0]).toHaveAttribute('tabindex', '0');
-    await h.user.click(screen.getByRole('button', { name: 'Show as table' }));
-    const usage = within(screen.getByLabelText('Usage'));
+    const usage = within(screen.getByRole('region', { name: 'Usage over time (stats)' }));
+    await h.user.click(usage.getByRole('button', { name: 'Show as table' }));
     expect(usage.getAllByRole('row').length).toBe(25); // header + 24 hourly buckets
     expect(usage.getByRole('table')).toHaveTextContent('10.5K');
     await h.user.click(screen.getByRole('button', { name: 'Cost' }));
-    expect(within(screen.getByLabelText('Usage')).getByRole('table')).toHaveTextContent('$1.50');
-    await h.user.click(screen.getByRole('button', { name: 'Show chart' }));
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Usage over time (stats)' })).getByRole('table')).toHaveTextContent('$1.50'));
+    await h.user.click(within(screen.getByRole('region', { name: 'Usage over time (stats)' })).getByRole('button', { name: 'Show chart' }));
     await h.user.click(screen.getByRole('button', { name: 'Tokens' }));
     await h.user.click(screen.getByRole('button', { name: 'Token type' }));
-    expect(screen.getByLabelText('Legend')).toHaveTextContent('Cache read');
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Usage over time (stats)' })).getByLabelText('Legend')).toHaveTextContent('Cache read'));
   });
 
   it('filters re-query the host; sorting reorders the table', async () => {
     const h = await dashboard();
+    // The filters are the stats plugin's: they narrow its cards, not the sessions.
     await h.user.selectOptions(screen.getByLabelText('Account'), 'personal');
-    await waitFor(() => expect(h.transport.calls.some((c) => c[0] === 'dash' && c.includes('--account') && c.includes('personal'))).toBe(true));
-    await waitFor(() => expect(within(screen.getByLabelText('Sessions')).getByText('No sessions in this view.')).toBeInTheDocument());
+    await waitFor(() => expect(h.transport.calls.some((c) => c[0] === 'plugin' && c.includes('stats.account=personal'))).toBe(true));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Account business' })).toBeNull());
+    expect(screen.getByRole('region', { name: 'Account personal' })).toBeInTheDocument();
     await h.user.selectOptions(screen.getByLabelText('Account'), '');
     const sessions = within(await screen.findByLabelText('Sessions'));
     await sessions.findByText('sess-wai');
@@ -199,9 +201,9 @@ describe('dashboard (spec B3.1, B6)', () => {
 
   it('shows subagents per session and how many agents worked at once', async () => {
     await dashboard();
-    const card = within(await screen.findByRole('region', { name: 'Agents at work' }));
+    const card = within(await screen.findByRole('region', { name: 'Agents at work (stats)' }));
     expect(card.getByText(/now 1 session \+ 1 subagent/)).toBeInTheDocument();
-    expect(card.getByText('5')).toBeInTheDocument(); // the peak, an hour ago: 2 sessions + 3 subagents
+    expect(card.getByText(/most at once in this range: 5$/)).toBeInTheDocument(); // the peak, an hour ago: 2 sessions + 3 subagents
     const row = (await screen.findByText('sess-run')).closest('tr')!;
     expect(within(row).getByText('+1 subagent running')).toBeInTheDocument();
     expect(within(row).getByText(/2 subagents \(Explore, Plan\)/)).toBeInTheDocument();
@@ -229,9 +231,10 @@ describe('dashboard (spec B3.1, B6)', () => {
     const ask = await dlg.findByText(/Free disk space\?/, undefined, { timeout: 8000 });
     await h.user.click(within(ask.closest('.prompt') as HTMLElement).getByRole('button', { name: 'No' }));
     expect(h.transport.calls.some((c) => c.join(' ').startsWith('plugin run tidy clean'))).toBe(true);
-    const before = h.transport.calls.filter((c) => c.join(' ') === 'plugin widgets --json').length;
+    const widgetCalls = () => h.transport.calls.filter((c) => c[0] === 'plugin' && c[1] === 'widgets').length;
+    const before = widgetCalls();
     await h.user.click(await dlg.findByRole('button', { name: 'Close' }, { timeout: 8000 }));
-    await waitFor(() => expect(h.transport.calls.filter((c) => c.join(' ') === 'plugin widgets --json').length).toBe(before + 1)); // the card is refreshed
+    await waitFor(() => expect(widgetCalls()).toBeGreaterThan(before)); // the card is refreshed
 
     await h.user.click(screen.getByRole('button', { name: 'Doctor and logs' }));
     const advice = within(await screen.findByLabelText('Advice from tidy', undefined, { timeout: 8000 }));
@@ -280,7 +283,7 @@ describe('dashboard (spec B3.1, B6)', () => {
   it('time range presets and session actions', async () => {
     const h = await dashboard();
     await h.user.click(screen.getByRole('button', { name: '7 days' }));
-    await waitFor(() => expect(h.transport.calls.some((c) => c[0] === 'dash' && c.includes('7d'))).toBe(true));
+    await waitFor(() => expect(h.transport.calls.some((c) => c[0] === 'plugin' && c.includes('stats.range=7d'))).toBe(true));
     const row = (await screen.findByText('sess-wai')).closest('tr')!;
     await h.user.click(within(row).getByRole('button', { name: /Open/ }));
     await h.user.click(screen.getByRole('menuitem', { name: 'Terminal: resume this session' }));

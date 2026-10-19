@@ -5,6 +5,7 @@ import { useApp } from './app-context';
 export type PluginInfo = PluginListData['plugins'][number];
 export type PluginActionInfo = PluginInfo['actions'][number] & { plugin: string };
 export type PluginWidget = PluginWidgetsData['widgets'][number];
+export type PluginFilter = PluginWidgetsData['filters'][number];
 
 /** The host's plugins and their actions by scope, for the screens' menus. Loaded once per connection. */
 export function usePlugins() {
@@ -34,24 +35,28 @@ export function usePlugins() {
 }
 
 /**
- * Plugins' dashboard cards: loaded on connect, then every `everyMs` (they may measure slow things,
- * like disk usage, so not with every dashboard snapshot). The last cards stay while a reload runs.
+ * Plugins' dashboard controls and cards, computed with `params` (`<plugin>.<filter>` → value):
+ * loaded on connect and when a filter changes, then as often as the most eager card asks
+ * (`refreshSeconds`, default 5 minutes). The last cards stay while a reload runs.
  */
-export function usePluginWidgets(everyMs = 300_000) {
+export function usePluginWidgets(params: Record<string, string> = {}) {
   const { client, connection } = useApp();
-  const [widgets, setWidgets] = useState<PluginWidget[]>([]);
+  const [data, setData] = useState<PluginWidgetsData>({ filters: [], widgets: [] });
+  const key = JSON.stringify(params);
   const refresh = useCallback(async () => {
     try {
-      setWidgets((await client.pluginWidgets()).widgets);
+      const d = await client.pluginWidgets(JSON.parse(key) as Record<string, string>);
+      setData({ filters: d.filters ?? [], widgets: d.widgets });
     } catch {
       /* keep the last cards; an older CLI has no `plugin widgets` */
     }
-  }, [client]);
+  }, [client, key]);
+  const everyMs = Math.min(300, ...data.widgets.map((w) => w.refreshSeconds ?? 300)) * 1000;
   useEffect(() => {
     if (connection.kind !== 'connected') return;
     void refresh();
     const t = setInterval(() => void refresh(), everyMs);
     return () => clearInterval(t);
   }, [connection.kind, refresh, everyMs]);
-  return { widgets, refresh };
+  return { widgets: data.widgets, filters: data.filters, refresh };
 }

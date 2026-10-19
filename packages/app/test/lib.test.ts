@@ -200,11 +200,13 @@ describe('preferences', () => {
   it('store the host name and UI preferences only', () => {
     const mem = new Map<string, string>();
     const storage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
-    savePrefs({ host: 'macmini', theme: 'dark', range: '7d', ...({ password: 'x', ssh_key: 'y' } as object) } as never, storage);
+    savePrefs({ host: 'macmini', theme: 'dark', pluginParams: { 'stats.range': '7d' }, ...({ password: 'x', ssh_key: 'y' } as object) } as never, storage);
     const raw = JSON.parse([...mem.values()][0]!) as Record<string, unknown>;
-    expect(Object.keys(raw).sort()).toEqual(['host', 'range', 'theme']);
-    expect(loadPrefs(storage)).toEqual({ host: 'macmini', theme: 'dark', range: '7d' });
-    expect(loadPrefs({ getItem: () => '{broken' })).toEqual({ host: '', theme: 'system', range: '24h' });
+    expect(Object.keys(raw).sort()).toEqual(['host', 'pluginParams', 'theme']);
+    expect(loadPrefs(storage)).toEqual({ host: 'macmini', theme: 'dark', pluginParams: { 'stats.range': '7d' } });
+    expect(loadPrefs({ getItem: () => '{broken' })).toEqual({ host: '', theme: 'system', pluginParams: {} });
+    // The dashboard's own time range from before the stats plugin carries over.
+    expect(loadPrefs({ getItem: () => '{"host":"m","theme":"dark","range":"30d"}' })).toEqual({ host: 'm', theme: 'dark', pluginParams: { 'stats.range': '30d' } });
     expect(loadPrefs({ getItem: () => { throw new Error('blocked'); } })).toMatchObject({ host: '' });
   });
 });

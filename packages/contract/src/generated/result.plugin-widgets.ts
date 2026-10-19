@@ -6,6 +6,9 @@ export interface PluginWidgetsData {
    */
   widgets: {
     plugin: string;
+    /**
+     * The widget's id; `<id>:<key>` for one of several cards of a widget.
+     */
     id: string;
     title: string;
     status?: 'ok' | 'warn' | 'fail';
@@ -31,5 +34,49 @@ export interface PluginWidgetsData {
      * The widget could not be computed.
      */
     error?: string;
+    size?: 'normal' | 'wide';
+    refreshSeconds?: number;
+    /**
+     * The card belongs to this account (its color).
+     */
+    account?: string;
+    meter?: {
+      label: string;
+      value: number;
+      max: number;
+    };
+    note?: string;
+    chart?: {
+      title: string;
+      series: {
+        key: string;
+        label: string;
+      }[];
+      colorBy?: 'account';
+      points: {
+        ts: number;
+        values: {
+          [k: string]: number;
+        };
+      }[];
+      axis: 'time' | 'date';
+      format: 'compact' | 'usd' | 'integer';
+      height?: number;
+    };
+  }[];
+  /**
+   * Enabled plugins' dashboard controls; `value` is what the widgets were computed with.
+   */
+  filters: {
+    plugin: string;
+    id: string;
+    label: string;
+    kind: 'segmented' | 'select';
+    allLabel?: string;
+    value: string;
+    options: {
+      value: string;
+      label: string;
+    }[];
   }[];
 }

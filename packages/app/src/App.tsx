@@ -134,7 +134,7 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
         )}
         {connection.kind === 'incompatible' && <div className="banner bad" role="alert">{connection.message}</div>}
         {connection.kind === 'incompatible' ? null : screen === 'dashboard' ? (
-          <Dashboard range={prefs.range} onRange={(range) => update({ range })} />
+          <Dashboard params={prefs.pluginParams} onParams={(pluginParams) => update({ pluginParams })} />
         ) : screen === 'environments' ? (
           <Environments />
         ) : screen === 'accounts' ? (

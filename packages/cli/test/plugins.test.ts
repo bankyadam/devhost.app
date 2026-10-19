@@ -1,7 +1,8 @@
 import { cp, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { validate, type DoctorData, type Envelope } from '@devhost/contract';
+import { validate, type DoctorData, type Envelope, type PluginWidgetsData } from '@devhost/contract';
+import { Db, dbPath } from '../src/collector/db.js';
 import { parsePluginSource } from '../src/plugins/install.js';
 import { fakeMac, makeEnv, ndjson, type TestEnv } from './helpers.js';
 
@@ -151,18 +152,58 @@ describe('plugin advice and widgets', () => {
   it('plugin widgets lists the enabled plugins\' cards; one that throws carries its error', async () => {
     const env = await withPlugin(ADVISOR, 'advisor');
     expect(await env.run('plugin', 'widgets', '--json')).toBe(0);
-    expect((lastEnvelope(env).data as { widgets: unknown[] }).widgets).toEqual([]); // off until enabled
+    const others = (d: unknown) => (d as PluginWidgetsData).widgets.filter((w) => w.plugin !== 'stats');
+    expect(others(lastEnvelope(env).data)).toEqual([]); // off until enabled
     await enable(env, 'advisor');
     env.out.length = 0;
     expect(await env.run('plugin', 'widgets', '--json')).toBe(0);
     const data = lastEnvelope(env).data;
     expect(validate('result.plugin-widgets', data).ok).toBe(true);
-    expect(data).toEqual({
+    expect({ widgets: others(data) }).toEqual({
       widgets: [
         { plugin: 'advisor', id: 'space', title: 'Space', status: 'warn', summary: 'for adam', tiles: [{ label: 'Cache', value: '1 GB', sub: 'npm' }], rows: [{ label: 'old', value: '2 MB', note: 'pushed' }], action: 'fix' },
         { plugin: 'advisor', id: 'broken', title: 'Broken', error: 'no data' },
       ],
     });
+  });
+});
+
+describe('built-in stats plugin', () => {
+  it('gives the dashboard filters, a card per account, usage over time and agents; unknown filter values fall back; it can be turned off', async () => {
+    const env = await makeEnv(fakeMac().runner);
+    await env.run('init', '--yes', '--no-tailscale');
+    await env.run('account', 'add', '--name', 'business', '--git-email', 'a@work.example', '--no-login');
+    const now = env.deps.now().getTime();
+    const db = new Db(dbPath(env.home));
+    db.run("INSERT INTO usage VALUES (?, 'business', '', 's1', 'claude-sonnet-5-5', 'input', 1200)", now);
+    db.run("INSERT INTO usage VALUES (?, 'business', '', 's1', 'claude-sonnet-5-5', 'cost', 0.5)", now);
+    db.close();
+
+    env.out.length = 0;
+    expect(await env.run('plugin', 'widgets', '--json', '--param', 'stats.range=1h', '--param', 'stats.account=ghost')).toBe(0);
+    const data = lastEnvelope(env).data as PluginWidgetsData;
+    expect(validate('result.plugin-widgets', data).ok).toBe(true);
+    const filters = Object.fromEntries(data.filters.filter((f) => f.plugin === 'stats').map((f) => [f.id, f.value]));
+    expect(filters).toEqual({ range: '1h', account: '', env: '', model: '', metric: 'tokens', stack: 'account' });
+    expect(data.filters.find((f) => f.id === 'model')!.options).toEqual([{ value: 'claude-sonnet-5-5', label: 'claude-sonnet-5-5' }]);
+    const card = data.widgets.find((w) => w.id === 'accounts:business')!;
+    expect(card).toMatchObject({ plugin: 'stats', title: 'business', account: 'business', tiles: [{ label: 'Today', value: '1,200', sub: 'tokens · ~$0.50' }, { label: 'This week', value: '1,200' }] });
+    const usage = data.widgets.find((w) => w.id === 'usage')!;
+    expect(usage).toMatchObject({ size: 'wide', refreshSeconds: 15, chart: { title: 'Tokens per 5 minutes', colorBy: 'account', axis: 'time', format: 'compact' } });
+    expect(usage.chart!.points).toHaveLength(12);
+    expect(usage.chart!.points.at(-1)!.values).toEqual({ business: 1200 });
+    expect(data.widgets.find((w) => w.id === 'agents')).toMatchObject({ title: 'Agents at work', size: 'wide' });
+
+    env.out.length = 0;
+    await env.run('plugin', 'widgets', '--json', '--param', 'stats.metric=cost', '--param', 'stats.stack=type');
+    const cost = (lastEnvelope(env).data as PluginWidgetsData).widgets.find((w) => w.id === 'usage')!.chart!;
+    expect(cost).toMatchObject({ title: 'Estimated cost per hour', format: 'usd', series: [{ key: 'business', label: 'business' }] }); // cost stacks by account
+
+    expect(await env.run('plugin', 'widgets', '--param', 'nonsense')).toBe(2);
+    await env.run('config', 'set', '/plugins/stats', '{"enabled":false}');
+    env.out.length = 0;
+    await env.run('plugin', 'widgets', '--json');
+    expect((lastEnvelope(env).data as PluginWidgetsData).widgets.filter((w) => w.plugin === 'stats')).toEqual([]);
   });
 });
 
