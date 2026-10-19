@@ -148,6 +148,12 @@ plugins:                             # A18; built-in ones are on unless enabled:
 
 Each item is a **step** with `check()`, `apply()`, and a description. Steps run in order; a failure stops with a clear message and fix hint.
 
+**Running sessions are not disturbed.** A Remote Control service is restarted only when what it runs changes (its plist bytes, its login, its working directory). A change elsewhere in the config, a storage step, or a re-run of `apply` leaves a running service and its sessions alone. In particular:
+- Without a work volume, every generated plist stays byte-identical to what it was before the storage feature.
+- With a work volume, only the services of environments whose directory is on the volume get the readiness gate; the others keep their plist. Adding the gate restarts a service once; it is listed in `--dry-run` as such.
+- A storage step that only re-checks an unchanged volume (same uuid, label, mount, encryption) changes nothing and restarts nothing; Colima restarts only when its mount set changes.
+- `storage migrate` stops only the migrated account's services.
+
 ### A7.1 System
 
 - **Root helper** (`machine.rootHelper: true`): installs `/Library/PrivilegedHelperTools/app.devhost.root` (a JavaScript for Automation script run by `/usr/bin/osascript`, root:wheel 0755) and `/etc/sudoers.d/devhost` (checked with `visudo -c` first) that lets the operator run it, and only it, without a password. It does only fixed, validated operations: install/load/unload/remove devhost's own LaunchDaemons (labels `com.devhost.*`; plists restricted to `Label`, `UserName` = operator, `ProgramArguments`, `EnvironmentVariables`, `WorkingDirectory` inside the home, `RunAtLoad`, `KeepAlive`, `ThrottleInterval`), hostname, power, Remote Login. So the app and ssh need nobody at the keyboard. `false` removes both. Services log through `/bin/sh` as the operator (`exec >>"$0" 2>&1 && exec "$@"`), never `StandardOutPath` (opened as root).
@@ -284,7 +290,7 @@ Steps (each announced; the sudo ones go through the root helper where it can, el
    - The passphrase never appears in argv, config, logs, the DB, or `--json` output.
    - `devhost storage set-passphrase` (stdin only) writes or rotates the keychain item.
    - The root helper gains exactly these operations (validated like the others): install/remove the unlock daemon, write the keychain item from stdin, `enableOwnership`, `mdutil`, the autodiskmount preference.
-5. **Readiness gate for every dependent launchd job:** Remote Control services, session reattach jobs, and compose start-up run through `devhost storage wait && exec <original command>`.
+5. **Readiness gate for every dependent launchd job:** Remote Control services, session reattach jobs, and compose start-up **of environments on the volume** run through `devhost storage wait && exec <original command>`. Environments on the internal disk keep their plists unchanged (A7, running sessions are not disturbed).
    - If the volume is missing, the job exits non-zero and launchd retries (existing `ThrottleInterval`).
    - The collector alerts once per state change, not per retry (A10.5).
 6. **Colima mounts:** Colima only mounts `$HOME` by default. Add `workVolume.root` as a writable mount (virtiofs) in the generated Colima config and restart Colima only when the mount set changed. Without this, compose bind mounts from the volume silently mount empty directories.
@@ -325,7 +331,7 @@ Every command accepts `--json`. The contract is versioned and lives in the share
   - `{"type":"result","ok":true,"data":{...}}` as the last line
 - **Exit codes:** 0 ok · 1 checks failed · 2 usage/config error · 3 human action required · 130 cancelled (SIGINT).
 - **Cancellation:** SIGINT stops after the current step, leaving a consistent state.
-- `devhost version --json` returns CLI version and `contractVersion`; the app refuses to run against an incompatible major.
+- `devhost version --json` returns CLI version, `contractVersion`, and `host.name` (the configured `machine.hostname`, else the system host name); the app refuses to run against an incompatible major and names the host by `host.name`.
 - Human output and JSON output are produced from the same data; JSON never contains ANSI codes.
 - Secrets (the storage passphrase) are never part of any event, result, or error.
 
@@ -498,7 +504,7 @@ packages/
 
 **Work volume (A7.12):**
 
-14. `storage adopt` + `apply`: new accounts land on the volume; `doctor` is green.
+14. `storage adopt` + `apply`: new accounts land on the volume; `doctor` is green. Sessions of environments on the internal disk keep running through it (no service restarted), and without a work volume `apply` after this phase changes no plist.
 15. Reboot with FileVault unlock and no GUI login: the encrypted volume unlocks and mounts, then Remote Control services start; no service starts before the volume is ready.
 16. Unplug the volume: alert within one sample interval; services stop retrying noisily; no files are created under `/Volumes/<label>` on the internal disk. Replug: services recover without manual action.
 17. A compose service with a bind mount from an environment on the volume sees real files.
@@ -545,6 +551,7 @@ A macOS app on the MacBook to configure and control the Mac mini, create environ
 - **Transport:** the system `ssh` binary, using the user's `~/.ssh/config`, agent, and keys, over Tailscale (MagicDNS host name). Persistent connection via `ControlMaster`/`ControlPersist` for low latency. Every operation is `ssh <host> devhost <command> --json`; long-running ones read the NDJSON stream and write prompt answers to stdin (A9). The webview may only ask for `devhost <known subcommand>`, a few fixed Terminal actions, and http(s) URLs.
 - **No server component on the Mac mini** beyond Part A. No ports opened beyond SSH.
 - **Compatibility:** on connect, `devhost version --json`; refuse incompatible `contractVersion` majors with a clear message.
+- **Naming:** the app never says "Mac mini". It names the machine by what `devhost version --json` reports (`host.name`: the configured `machine.hostname`, else the system host name), and says "the host" before it knows.
 - **Storage in the app:** host name and UI preferences only (theme, dashboard plugin filters, which web app is which account's). No Claude credentials, no SSH keys, no telemetry copies, never the storage passphrase.
 - Single host in v2; the data model allows a list of hosts later.
 - A demo transport (sample data, scripted event streams) runs the UI in a plain browser for development and screenshots; never used inside the app.
@@ -555,7 +562,7 @@ A macOS app on the MacBook to configure and control the Mac mini, create environ
 
 One view across all accounts and environments, from `devhost dash --follow --json` and `devhost plugin widgets --json`:
 
-- **Header:** Mac mini health (online, uptime, CPU, RAM, internal disk free, Docker, Tailscale), with a work volume its state (mounted, free space, encrypted), collector status, alert badges.
+- **Header:** the host's health, titled with its name (online, uptime, CPU, RAM, internal disk free, Docker, Tailscale), with a work volume its state (mounted, free space, encrypted), collector status, alert badges.
 - **Plugin cards:** each enabled plugin's filters and cards (A18). The usage statistics are the built-in `stats` plugin's: filters (time range 1h / 24h / 7d / 30d, account, environment, model, tokens or cost, stacked by account or token type), a card per account (today / this week, login state, daily cost alert meter), tokens or estimated cost over time, and agents at work (now, most at once, over time). Charts have a table view.
 - **Environments panel:** per environment: Remote Control service state, CPU/RAM (process tree + its containers), port block, disk size.
 - **Sessions table:** every Claude Code session on the Mac mini, all accounts together. Columns: account, environment, session title (or last prompt) and id, subagents, state (running / waiting for input / idle / ended), started, last activity, tokens today, estimated cost today, CPU, RAM. Sort by any column. Sessions waiting for input are highlighted.
@@ -624,7 +631,8 @@ One view across all accounts and environments, from `devhost dash --follow --jso
 3. Creating an environment from the wizard produces the same result as `devhost env create`, and its session appears in the Claude app.
 4. Adding a new account from the app (including login) and removing it works end to end, with the same result as the CLI; re-login of an existing account works, including the browser step.
 5. Editing config in the form, reviewing the dry-run diff, and applying works; invalid config cannot be saved.
-6. With the Mac mini offline, the app shows it as unreachable and recovers automatically when it returns.
+6. With the host offline, the app shows it (by name) as unreachable and recovers automatically when it returns.
+9. No screen or message of the app says "Mac mini"; the host is named as `devhost version` reports it.
 7. Plugin cards and filters on the dashboard match `devhost plugin widgets --json`; turning the `stats` plugin off removes the statistics.
 8. With a work volume: its state shows in the header and on the Environments screen; adopt and migrate work from the Storage panel; the app offers no way to erase a disk.
 
