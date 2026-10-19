@@ -3128,6 +3128,26 @@ export const schemas = {
             "type": "boolean"
           }
         }
+      },
+      "oldCopies": {
+        "type": "array",
+        "description": "Account roots `storage migrate` moved: the old copies, kept until --cleanup.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "account",
+            "path"
+          ],
+          "properties": {
+            "account": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        }
       }
     }
   },

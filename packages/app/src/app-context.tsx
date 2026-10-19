@@ -23,7 +23,7 @@ export interface AppCtx {
   hostName: string;
 }
 
-export type Screen = 'dashboard' | 'environments' | 'accounts' | 'plugins' | 'configuration' | 'doctor';
+export type Screen = 'dashboard' | 'environments' | 'accounts' | 'storage' | 'plugins' | 'configuration' | 'doctor';
 
 const Ctx = createContext<AppCtx | null>(null);
 export const useApp = (): AppCtx => {

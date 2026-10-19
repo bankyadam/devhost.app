@@ -367,7 +367,10 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       if (!v) return { code: 1, stderr: `Could not find disk: ${m[1]}\n` };
       return { stdout: plistXml({ VolumeUUID: v.uuid, DeviceIdentifier: v.device, VolumeName: v.name, MountPoint: v.mountPoint ?? '', FilesystemType: v.apfs === false ? 'exfat' : 'apfs', Encryption: v.encrypted === true, Locked: v.locked === true, GlobalPermissionsEnabled: v.ownership === true, Internal: v.internal === true, TotalSize: v.totalBytes ?? 1e12, APFSContainerFree: v.freeBytes ?? 6e11, MediaName: 'Fake SSD' }) };
     }
-    if (line === 'diskutil list -plist external') {
+    if (line === 'diskutil list -plist external physical') {
+      return { stdout: plistXml({ WholeDisks: ['disk4'], AllDisksAndPartitions: [{ DeviceIdentifier: 'disk4', Size: 1e12, Content: 'GUID_partition_scheme', Partitions: [{ DeviceIdentifier: 'disk4s2' }] }] }) };
+    }
+    if (line === 'diskutil list -plist') {
       const ext = (state.volumes ?? []).filter((v) => !v.internal);
       return { stdout: plistXml({ AllDisksAndPartitions: [{ DeviceIdentifier: 'disk4', Size: 1e12, Content: 'GUID_partition_scheme', Partitions: [{ DeviceIdentifier: 'disk4s2' }] }, { DeviceIdentifier: 'disk5', APFSPhysicalStores: [{ DeviceIdentifier: 'disk4s2' }], APFSVolumes: ext.map((v) => ({ DeviceIdentifier: v.device, VolumeName: v.name, VolumeUUID: v.uuid, MountPoint: v.mountPoint ?? '', Size: v.totalBytes ?? 1e12 })) }] }) };
     }
