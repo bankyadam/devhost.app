@@ -1,5 +1,6 @@
 import YAML from 'yaml';
 import type { DashData } from '@devhost/contract/lite';
+import { agentBuckets, buildBuckets, TOKEN_TYPES, type Metric, type Stack } from '../lib/usage';
 import type { RunResult, StreamHandle, TerminalRequest, Transport, TrayStatus } from './types';
 
 /**
@@ -23,7 +24,10 @@ export function createDemoTransport(host: string): Transport {
     if ((a === 'env' || a === 'collector') && b === 'logs') return envelope({ name: args[2] ?? 'collector', path: '/Users/me/Library/Logs/devhost/x.log', lines: LOG });
     if (a === 'doctor') return envelope(DOCTOR);
     if (a === 'plugin' && b === 'list') return envelope({ plugins: DEMO_PLUGINS });
-    if (a === 'plugin' && b === 'widgets') return envelope({ widgets: DEMO_WIDGETS });
+    if (a === 'plugin' && b === 'widgets') {
+      const param = (k: string): string | undefined => args.find((x) => x.startsWith(`stats.${k}=`))?.slice(k.length + 7);
+      return envelope(demoStats(demoDash(Date.now(), (param('range') || '24h') as DashData['range']), param('metric') === 'cost' ? 'cost' : 'tokens', param('stack') === 'type' ? 'type' : 'account', DEMO_WIDGETS));
+    }
     if (a === 'config' && b === 'raw') return envelope({ path: '~/.config/devhost/config.yaml', text: config });
     if (a === 'config' && b === 'get') return envelope({ pointer: '', value: YAML.parse(config) });
     if (a === 'config' && b === 'validate') {
@@ -193,6 +197,41 @@ function demoDash(at: number, range: DashData['range']): DashData {
       'Subscription plan limits (session and weekly usage) are not part of the telemetry and are not shown.',
       'CPU and memory per session is best effort; per-environment numbers are reliable.',
       'Only this Mac mini is covered: cloud sessions and sessions on other machines are not included.',
+    ],
+  };
+}
+
+/** What the built-in stats plugin would answer, from the demo dashboard data. */
+function demoStats(d: DashData, metric: Metric, stack: Stack, others: unknown[]) {
+  const usd = (v: number): string => `$${v.toFixed(2)}`;
+  const seg = (id: string, label: string, value: string, options: [string, string][]) => ({ plugin: 'stats', id, label, kind: 'segmented', value, options: options.map(([v, l]) => ({ value: v, label: l })) });
+  const byType = stack === 'type' && metric === 'tokens';
+  return {
+    filters: [
+      seg('range', 'Time range', d.range, [['1h', 'Last hour'], ['24h', '24 hours'], ['7d', '7 days'], ['30d', '30 days']]),
+      { plugin: 'stats', id: 'account', label: 'Account', kind: 'select', allLabel: 'All accounts', value: '', options: d.accounts.map((x) => ({ value: x.name, label: x.name })) },
+      { plugin: 'stats', id: 'model', label: 'Model', kind: 'select', allLabel: 'All models', value: '', options: d.models.map((m) => ({ value: m, label: m })) },
+      seg('metric', 'Metric', metric, [['tokens', 'Tokens'], ['cost', 'Cost']]),
+      seg('stack', 'Stack by', byType ? 'type' : 'account', [['account', 'Account'], ['type', 'Token type']]),
+    ],
+    widgets: [
+      ...d.accounts.map((x) => ({
+        plugin: 'stats', id: `accounts:${x.name}`, title: x.name, account: x.name, refreshSeconds: 15, status: 'ok', summary: 'logged in',
+        tiles: [{ label: 'Today', value: String(x.today.tokens), sub: `tokens · ~${usd(x.today.costUsd)}` }, { label: 'This week', value: String(x.week.tokens), sub: `tokens · ~${usd(x.week.costUsd)}` }],
+        ...(x.dailyCostAlertUsd != null ? { meter: { label: `Daily cost alert at ${usd(x.dailyCostAlertUsd)} (estimate)`, value: x.today.costUsd, max: x.dailyCostAlertUsd } } : {}),
+      })),
+      {
+        plugin: 'stats', id: 'usage', title: 'Usage over time', size: 'wide', refreshSeconds: 15,
+        chart: {
+          title: metric === 'tokens' ? 'Tokens over time' : 'Estimated cost over time',
+          series: byType ? TOKEN_TYPES.map((t) => ({ key: t.key, label: t.label })) : d.accounts.map((x) => ({ key: x.name, label: x.name })),
+          ...(byType ? {} : { colorBy: 'account' }),
+          points: buildBuckets(d, metric, byType ? 'type' : 'account', d.accounts.map((x) => x.name)),
+          axis: d.range === '1h' || d.range === '24h' ? 'time' : 'date', format: metric === 'cost' ? 'usd' : 'compact',
+        },
+      },
+      { plugin: 'stats', id: 'agents', title: 'Agents at work', size: 'wide', refreshSeconds: 15, summary: `now ${d.agents?.now.sessions ?? 0} sessions + ${d.agents?.now.subagents ?? 0} subagents`, chart: { title: 'Most agents at once', series: [{ key: 'total', label: 'Agents' }], points: agentBuckets(d), axis: 'time', format: 'integer', height: 140 } },
+      ...others,
     ],
   };
 }

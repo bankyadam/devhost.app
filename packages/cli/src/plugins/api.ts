@@ -1,4 +1,4 @@
-import type { DevhostConfig } from '@devhost/contract';
+import type { DashData, DevhostConfig } from '@devhost/contract';
 import type { Prompter } from '../prompter.js';
 import type { Reporter } from '../reporter.js';
 import type { Executor } from '../runner/executor.js';
@@ -22,6 +22,8 @@ export interface DevhostPlugin {
   advice?: PluginAdvice[];
   /** Cards on the desktop app's dashboard (`devhost plugin widgets`). */
   widgets?: PluginWidget[];
+  /** Controls above the plugin's cards on the dashboard; their values reach every widget's `run` as `params`. */
+  filters?: PluginFilter[];
 }
 
 /** Where an action applies: the whole host, one environment, or one session (the app puts it in that menu). */
@@ -81,21 +83,71 @@ export interface Advice {
   action?: string;
 }
 
+export interface PluginFilter {
+  id: string;
+  label: string;
+  /** Segmented buttons (a few fixed choices) or a drop-down. */
+  kind: 'segmented' | 'select';
+  /** The value when none is chosen; a select without one starts at "all" (the empty value). */
+  default?: string;
+  /** A select's label for the empty value, e.g. "All accounts". */
+  allLabel?: string;
+  options(ctx: PluginContext): Promise<{ value: string; label: string }[]>;
+}
+
 export interface PluginWidget {
   id: string;
   title: string;
-  run(ctx: PluginContext): Promise<WidgetContent>;
+  /** `wide` spans the dashboard's width (charts). */
+  size?: 'normal' | 'wide';
+  /** How often the app reloads it (default 300 s). */
+  refreshSeconds?: number;
+  /** One card, or several (one per account, say: each with its own key and title). */
+  run(ctx: PluginContext, params: Record<string, string>): Promise<WidgetContent | WidgetCard[]>;
 }
 
-/** What a dashboard card shows. Values are text: the plugin formats them. */
+export interface WidgetCard extends WidgetContent {
+  key: string;
+  title: string;
+}
+
+/** What a dashboard card shows. Values are text: the plugin formats them (charts take numbers). */
 export interface WidgetContent {
   status?: CheckStatus;
   /** One line under the title. */
   summary?: string;
+  /** The card belongs to this account: it gets the account's color. */
+  account?: string;
   tiles?: { label: string; value: string; sub?: string }[];
   rows?: { label: string; value: string; note?: string }[];
+  /** A bar filled `value / max`; warns from 80 %, fails from 100 %. */
+  meter?: { label: string; value: number; max: number };
+  chart?: WidgetChart;
+  /** Small print under the card. */
+  note?: string;
   /** One of this plugin's host actions, offered as a button on the card. */
   action?: string;
+}
+
+/** Stacked columns over time. */
+export interface WidgetChart {
+  title: string;
+  /** `colorBy: 'account'`: series keys are account names and take the accounts' colors. */
+  series: { key: string; label: string }[];
+  colorBy?: 'account';
+  points: { ts: number; values: Record<string, number> }[];
+  /** Column labels: clock times or dates. */
+  axis: 'time' | 'date';
+  format: 'compact' | 'usd' | 'integer';
+  height?: number;
+}
+
+/** A dashboard query against the collector's data (what `devhost dash` shows). */
+export interface StatsQuery {
+  range: DashData['range'];
+  account?: string;
+  env?: string;
+  model?: string;
 }
 
 export interface EnvironmentInfo {
@@ -143,6 +195,8 @@ export interface PluginContext {
   services(): Promise<ServiceInfo[]>;
   /** Each account's Claude config directory (the default account's is ~/.claude). */
   claudeDirs: { account: string; dir: string }[];
+  /** Usage, cost and agents from the collector; null before the collector has data. */
+  stats(q: StatsQuery): Promise<DashData | null>;
 }
 
 /** For plugin authors: identity at runtime, types at edit time. */

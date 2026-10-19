@@ -1,19 +1,21 @@
-import type { Range } from '../client/client';
-
 export interface Prefs {
   host: string;
   theme: 'system' | 'light' | 'dark';
-  range: Range;
+  /** Dashboard plugin filters, `<plugin>.<filter>` → value (e.g. `stats.range`: `7d`). */
+  pluginParams: Record<string, string>;
 }
 
 const KEY = 'devhost.prefs.v1';
-const DEFAULTS: Prefs = { host: '', theme: 'system', range: '24h' };
+const DEFAULTS: Prefs = { host: '', theme: 'system', pluginParams: {} };
 
 /** The app stores the host name and UI preferences only (spec B2): no credentials, no keys, no telemetry. */
 export function loadPrefs(storage: Pick<Storage, 'getItem'> = localStorage): Prefs {
   try {
     const raw = storage.getItem(KEY);
-    return { ...DEFAULTS, ...(raw ? (JSON.parse(raw) as Partial<Prefs>) : {}) };
+    const stored = (raw ? JSON.parse(raw) : {}) as Partial<Prefs> & { range?: string };
+    // The time range was the dashboard's own before the stats plugin took the statistics over.
+    const pluginParams = stored.pluginParams ?? (stored.range ? { 'stats.range': stored.range } : {});
+    return { host: stored.host ?? DEFAULTS.host, theme: stored.theme ?? DEFAULTS.theme, pluginParams };
   } catch {
     return DEFAULTS;
   }
@@ -42,7 +44,7 @@ export function saveWebAppChoices(choices: Record<string, string>, storage: Pick
 
 export function savePrefs(p: Prefs, storage: Pick<Storage, 'setItem'> = localStorage): void {
   try {
-    storage.setItem(KEY, JSON.stringify({ host: p.host, theme: p.theme, range: p.range }));
+    storage.setItem(KEY, JSON.stringify({ host: p.host, theme: p.theme, pluginParams: p.pluginParams }));
   } catch {
     /* private mode etc.: preferences just do not persist */
   }

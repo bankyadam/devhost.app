@@ -8,7 +8,7 @@ import { loadConfig } from './config/load.js';
 import type { Deps } from './deps.js';
 import { DevhostError, UsageError } from './errors.js';
 import { makePrompter, NoPrompter } from './prompter.js';
-import type { ActionTarget } from './plugins/api.js';
+import type { ActionTarget, WidgetContent } from './plugins/api.js';
 import { findEnvironment, findSession, pluginContext } from './plugins/context.js';
 import { builtinPlugins } from './plugins/builtin/index.js';
 import { parsePluginSource, PLUGIN_NAME, pluginDir, SOURCE_FILE } from './plugins/install.js';
@@ -41,29 +41,65 @@ export function pluginListCommand(deps: Deps, g: GlobalOptions): Promise<number>
 }
 
 type Widget = PluginWidgetsData['widgets'][number];
+type Filter = PluginWidgetsData['filters'][number];
 
-/** `devhost plugin widgets`: every enabled plugin's dashboard cards. Read-only; a widget that throws says so on its card. */
-export function pluginWidgetsCommand(deps: Deps, g: GlobalOptions): Promise<number> {
+/** The card as the contract has it: only what is set, text as text. */
+function widgetOut(base: Pick<Widget, 'plugin' | 'id' | 'title'> & Partial<Widget>, c: WidgetContent): Widget {
+  return {
+    ...base,
+    ...(c.status ? { status: c.status } : {}),
+    ...(c.summary ? { summary: c.summary } : {}),
+    ...(c.account ? { account: c.account } : {}),
+    ...(c.tiles?.length ? { tiles: c.tiles.map((t) => ({ label: String(t.label), value: String(t.value), ...(t.sub ? { sub: String(t.sub) } : {}) })) } : {}),
+    ...(c.rows?.length ? { rows: c.rows.map((r) => ({ label: String(r.label), value: String(r.value), ...(r.note ? { note: String(r.note) } : {}) })) } : {}),
+    ...(c.meter ? { meter: { label: String(c.meter.label), value: Number(c.meter.value), max: Number(c.meter.max) } } : {}),
+    ...(c.chart ? { chart: c.chart } : {}),
+    ...(c.note ? { note: c.note } : {}),
+    ...(c.action ? { action: c.action } : {}),
+  };
+}
+
+/**
+ * `devhost plugin widgets [--param <plugin>.<filter>=<value>]…`: every enabled plugin's dashboard
+ * controls and cards, computed with the given filter values (else their defaults). Read-only; a
+ * widget that throws says so on its card.
+ */
+export function pluginWidgetsCommand(deps: Deps, g: GlobalOptions, rawParams: string[] = []): Promise<number> {
   return short<PluginWidgetsData>(deps, g, async () => {
     const { config } = await loadConfig(g.configPath);
+    const given = new Map<string, string>();
+    for (const p of rawParams) {
+      const m = /^([a-z][a-z0-9-]*)\.([A-Za-z0-9_-]+)=(.*)$/s.exec(p);
+      if (!m) throw new UsageError(`--param takes <plugin>.<filter>=<value>, not "${p}"`);
+      given.set(`${m[1]}.${m[2]}`, m[3]!);
+    }
     const exec = newExecutor(deps, g, newReporter(deps, g), false);
     const silent = { step: () => undefined, log: () => undefined };
     const widgets: Widget[] = [];
+    const filters: Filter[] = [];
     for (const p of await loadPlugins(config, deps.home)) {
       if (!p.enabled || !p.plugin?.widgets?.length) continue;
-      const ctx = pluginContext({ config, name: p.name, home: deps.home, user: deps.user, nodePath: deps.nodePath, exec, reporter: silent, prompter: new NoPrompter() });
-      for (const w of p.plugin.widgets) {
-        const base = { plugin: p.name, id: w.id, title: w.title };
+      const ctx = pluginContext({ config, name: p.name, home: deps.home, user: deps.user, nodePath: deps.nodePath, exec, reporter: silent, prompter: new NoPrompter(), now: () => deps.now().getTime() });
+      const params: Record<string, string> = {};
+      for (const f of p.plugin.filters ?? []) {
+        let options: { value: string; label: string }[] = [];
         try {
-          const c = await w.run(ctx);
-          widgets.push({
-            ...base,
-            ...(c.status ? { status: c.status } : {}),
-            ...(c.summary ? { summary: c.summary } : {}),
-            ...(c.tiles?.length ? { tiles: c.tiles.map((t) => ({ label: String(t.label), value: String(t.value), ...(t.sub ? { sub: String(t.sub) } : {}) })) } : {}),
-            ...(c.rows?.length ? { rows: c.rows.map((r) => ({ label: String(r.label), value: String(r.value), ...(r.note ? { note: String(r.note) } : {}) })) } : {}),
-            ...(c.action ? { action: c.action } : {}),
-          });
+          options = (await f.options(ctx)).map((o) => ({ value: String(o.value), label: String(o.label) }));
+        } catch {
+          /* no choices this time */
+        }
+        const want = given.get(`${p.name}.${f.id}`) ?? f.default ?? '';
+        // An unknown value (an account since removed) falls back to the default.
+        const value = want === '' && f.kind === 'select' ? '' : options.some((o) => o.value === want) ? want : (f.default ?? (f.kind === 'select' ? '' : (options[0]?.value ?? '')));
+        params[f.id] = value;
+        filters.push({ plugin: p.name, id: f.id, label: f.label, kind: f.kind, options, value, ...(f.allLabel ? { allLabel: f.allLabel } : {}) });
+      }
+      for (const w of p.plugin.widgets) {
+        const base = { plugin: p.name, id: w.id, title: w.title, ...(w.size ? { size: w.size } : {}), ...(w.refreshSeconds ? { refreshSeconds: w.refreshSeconds } : {}) };
+        try {
+          const c = await w.run(ctx, { ...params });
+          if (Array.isArray(c)) for (const card of c) widgets.push(widgetOut({ ...base, id: `${w.id}:${card.key}`, title: card.title }, card));
+          else widgets.push(widgetOut(base, c));
         } catch (err) {
           widgets.push({ ...base, error: err instanceof Error ? err.message : String(err) });
         }
@@ -71,15 +107,18 @@ export function pluginWidgetsCommand(deps: Deps, g: GlobalOptions): Promise<numb
     }
     const human = widgets.length === 0
       ? 'No plugin widgets.'
-      : widgets
-          .map((w) => [
+      : [
+          ...filters.map((f) => `${f.plugin} ${f.label}: ${f.options.find((o) => o.value === f.value)?.label ?? (f.allLabel ?? 'all')}`),
+          ...widgets.map((w) => [
             `${w.title} (${w.plugin})${w.status ? ` [${w.status}]` : ''}${w.summary ? ` — ${w.summary}` : ''}${w.error ? `\n    ❌ ${w.error}` : ''}`,
             ...(w.tiles ?? []).map((t) => `    ${t.label}: ${t.value}${t.sub ? ` (${t.sub})` : ''}`),
             ...(w.rows ?? []).map((r) => `    ${r.label}: ${r.value}${r.note ? ` — ${r.note}` : ''}`),
+            ...(w.meter ? [`    ${w.meter.label}: ${Math.round((w.meter.value / (w.meter.max || 1)) * 100)}%`] : []),
+            ...(w.chart ? [`    ${w.chart.title}: ${w.chart.points.length} columns`] : []),
             ...(w.action ? [`    → devhost plugin run ${w.plugin} ${w.action}`] : []),
-          ].join('\n'))
-          .join('\n');
-    return { data: { widgets }, human };
+          ].join('\n')),
+        ].join('\n');
+    return { data: { filters, widgets }, human };
   });
 }
 

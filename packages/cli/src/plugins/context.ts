@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs';
-import type { DevhostConfig } from '@devhost/contract';
+import { hostname } from 'node:os';
+import type { DashData, DevhostConfig } from '@devhost/contract';
+import { buildDash } from '../collector/query.js';
 import { Db, dbPath } from '../collector/db.js';
 import { accountsOf, effectiveClaudeDir, envDir, environmentsOf, findAccount, rcLabel } from '../config/accounts.js';
 import { daemonState } from '../launchd.js';
@@ -7,9 +9,9 @@ import { UsageError } from '../errors.js';
 import type { Prompter } from '../prompter.js';
 import type { Reporter } from '../reporter.js';
 import type { Executor } from '../runner/executor.js';
-import type { EnvironmentInfo, PluginContext, ServiceInfo, SessionInfo, SessionState } from './api.js';
+import type { EnvironmentInfo, PluginContext, ServiceInfo, SessionInfo, SessionState, StatsQuery } from './api.js';
 
-export function pluginContext(c: { config: DevhostConfig; name: string; home: string; user: string; nodePath: string; exec: Executor; reporter: Reporter; prompter: Prompter }): PluginContext {
+export function pluginContext(c: { config: DevhostConfig; name: string; home: string; user: string; nodePath: string; exec: Executor; reporter: Reporter; prompter: Prompter; now?: () => number }): PluginContext {
   const environments: EnvironmentInfo[] = environmentsOf(c.config).flatMap((e) => {
     const a = findAccount(c.config, e.account);
     return a ? [{ name: e.name, account: e.account, dir: envDir(a, e, c.home) }] : [];
@@ -36,6 +38,16 @@ export function pluginContext(c: { config: DevhostConfig; name: string; home: st
       return out;
     },
     claudeDirs: accountsOf(c.config).map((a) => ({ account: a.name, dir: effectiveClaudeDir(a, c.home) })),
+    stats: async (q: StatsQuery): Promise<DashData | null> => {
+      const path = dbPath(c.home);
+      if (!existsSync(path)) return null;
+      const db = new Db(path, { readonly: true });
+      try {
+        return buildDash(db, c.config, q, (c.now ?? Date.now)(), hostname(), null);
+      } finally {
+        db.close();
+      }
+    },
   };
 }
 

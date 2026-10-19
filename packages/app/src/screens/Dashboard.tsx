@@ -1,42 +1,30 @@
 import { useEffect, useState } from 'react';
 import type { DashData, EnvListData, SessionReattachData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
-import type { Range } from '../client/client';
 import { seriesSlot, seriesVar } from '../lib/colors';
 import { ago, bytes, compact, duration, pct, usd } from '../lib/format';
 import { filterSessions, sortSessions, STATE_LABEL, type Session, type SortDir, type SortKey } from '../lib/sessions';
-import { agentBuckets, bucketLabel, buildBuckets, meterTone, TOKEN_TYPES, type Metric, type Stack } from '../lib/usage';
+import { meterTone } from '../lib/usage';
 import { Legend, StackedColumns, type Series } from '../ui/chart';
 import { RunDialog } from '../ui/run-dialog';
 import { Badge, Empty, Menu, Segmented } from '../ui/primitives';
 import { useDash } from '../use-dash';
 import { PluginRunDialog } from '../ui/plugin-run';
-import { usePlugins, usePluginWidgets, type PluginActionInfo, type PluginWidget } from '../use-plugins';
+import { usePlugins, usePluginWidgets, type PluginActionInfo, type PluginFilter, type PluginWidget } from '../use-plugins';
 import { openClaude, useWebApps } from '../use-web-apps';
 
-const RANGES: { value: Range; label: string }[] = [
-  { value: '1h', label: 'Last hour' },
-  { value: '24h', label: '24 hours' },
-  { value: '7d', label: '7 days' },
-  { value: '30d', label: '30 days' },
-];
 
-export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range) => void }) {
+export function Dashboard({ params = {}, onParams = () => undefined }: { params?: Record<string, string>; onParams?: (p: Record<string, string>) => void }) {
   const { client, transport, connection } = useApp();
-  const [account, setAccount] = useState('');
-  const [env, setEnv] = useState('');
-  const [model, setModel] = useState('');
-  const [metric, setMetric] = useState<Metric>('tokens');
-  const [stack, setStack] = useState<Stack>('account');
-  const [asTable, setAsTable] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'lastActivityAt', dir: 'desc' });
   const [known, setKnown] = useState<string[]>([]);
   const [envs, setEnvs] = useState<EnvListData['environments']>([]);
 
-  const { dash, loading, error, stale } = useDash(range, { account, env, model });
+  // Health, environments and sessions: the statistics (and their filters) are the stats plugin's.
+  const { dash, loading, error, stale } = useDash('24h', {});
   const webApps = useWebApps();
   const plugins = usePlugins();
-  const widgets = usePluginWidgets();
+  const widgets = usePluginWidgets(params);
   const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; session?: string } | null>(null);
   const [reattach, setReattach] = useState<string | null>(null);
 
@@ -56,17 +44,9 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
   }
 
   const accountNames = known.length > 0 ? known : dash.accounts.map((a) => a.name);
-  const visibleAccounts = dash.accounts.map((a) => a.name);
   const sessions = sortSessions(filterSessions(dash.sessions, {}), sort.key, sort.dir);
   const waiting = dash.sessions.filter((s) => s.state === 'waiting').length;
 
-  const series: Series[] =
-    stack === 'account'
-      ? visibleAccounts.map((a) => ({ key: a, label: a, color: seriesVar(seriesSlot(accountNames, a)) }))
-      : TOKEN_TYPES.map((t, i) => ({ key: t.key, label: t.label, color: seriesVar(i + 1) }));
-  const buckets = buildBuckets(dash, metric, stack, visibleAccounts);
-  const fmt = metric === 'cost' ? usd : compact;
-  const label = bucketLabel(dash.range);
 
   const envDir = (name: string | null): string | undefined => envs.find((e) => e.name === name)?.dir;
 
@@ -76,15 +56,20 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
         <h1>Dashboard</h1>
         {waiting > 0 && <Badge tone="warn">{waiting} waiting for input</Badge>}
         {stale && <Badge tone="warn">showing the last data</Badge>}
+        {error && <span className="note" role="alert">{error}</span>}
       </div>
 
       <Health dash={dash} now={now} />
 
-      {widgets.widgets.length > 0 && (
-        <div className="grid cols-3">
-          {widgets.widgets.map((w) => <WidgetCard key={`${w.plugin}.${w.id}`} w={w} action={w.action ? plugins.action(w.plugin, w.action) : undefined} onAction={(action) => setPluginRun({ action })} />)}
-        </div>
-      )}
+      <PluginWidgets
+        filters={widgets.filters}
+        widgets={widgets.widgets}
+        params={params}
+        accountNames={accountNames}
+        onParam={(key, value) => onParams({ ...params, [key]: value })}
+        actionFor={(w) => (w.action ? plugins.action(w.plugin, w.action) : undefined)}
+        onAction={(action) => setPluginRun({ action })}
+      />
 
       {dash.alerts.length > 0 && (
         <div className="notice bad" role="alert">
@@ -92,86 +77,6 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
             <div key={a.id}><b>{a.id.split(':')[0]}</b>: {a.message}</div>
           ))}
         </div>
-      )}
-
-      <div className="row" role="group" aria-label="Filters">
-        <Segmented label="Time range" value={range} options={RANGES} onChange={onRange} />
-        <select className="select" aria-label="Account" value={account} onChange={(e) => setAccount(e.target.value)}>
-          <option value="">All accounts</option>
-          {accountNames.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <select className="select" aria-label="Environment" value={env} onChange={(e) => setEnv(e.target.value)}>
-          <option value="">All environments</option>
-          {envs.filter((e) => !account || e.account === account).map((e) => <option key={e.name} value={e.name}>{e.name}</option>)}
-        </select>
-        <select className="select" aria-label="Model" value={model} onChange={(e) => setModel(e.target.value)}>
-          <option value="">All models</option>
-          {dash.models.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-        {error && <span className="note" role="alert">{error}</span>}
-      </div>
-
-      <div className="grid cols-3">
-        {dash.accounts.map((a) => {
-          const limit = a.dailyCostAlertUsd;
-          const frac = limit ? a.today.costUsd / limit : 0;
-          return (
-            <div className="card" key={a.name} aria-label={`Account ${a.name}`}>
-              <header>
-                <i style={{ width: 10, height: 10, borderRadius: 2, background: seriesVar(seriesSlot(accountNames, a.name)) }} aria-hidden="true" />
-                <h2>{a.name}</h2>
-                <span className="push">{a.loggedIn === false ? <Badge tone="bad">login invalid</Badge> : a.loggedIn ? <Badge tone="good">logged in</Badge> : <Badge>login unknown</Badge>}</span>
-              </header>
-              <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                <div className="tile"><span className="label">Today</span><span className="value">{compact(a.today.tokens)}</span><span className="sub">tokens · ~{usd(a.today.costUsd)}</span></div>
-                <div className="tile"><span className="label">This week</span><span className="value">{compact(a.week.tokens)}</span><span className="sub">tokens · ~{usd(a.week.costUsd)}</span></div>
-              </div>
-              {limit != null && (
-                <div>
-                  <div className="note">Daily cost alert at {usd(limit)} (estimate)</div>
-                  <div className={`meter ${meterTone(frac)}`} role="meter" aria-valuemin={0} aria-valuemax={limit} aria-valuenow={Math.min(a.today.costUsd, limit)} aria-label={`${a.name} cost today against its alert limit`}><i style={{ width: `${Math.min(100, frac * 100)}%` }} /></div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      <section className="card" aria-label="Usage">
-        <header>
-          <h2>{metric === 'tokens' ? 'Tokens' : 'Estimated cost'} over time</h2>
-          <span className="push row">
-            <Segmented label="Metric" value={metric} options={[{ value: 'tokens', label: 'Tokens' }, { value: 'cost', label: 'Cost' }]} onChange={(m) => { setMetric(m); if (m === 'cost') setStack('account'); }} />
-            <Segmented label="Stack by" value={stack} options={[{ value: 'account', label: 'Account' }, ...(metric === 'tokens' ? [{ value: 'type' as const, label: 'Token type' }] : [])]} onChange={setStack} />
-            <button className="btn sm" aria-pressed={asTable} onClick={() => setAsTable((t) => !t)}>{asTable ? 'Show chart' : 'Show as table'}</button>
-          </span>
-        </header>
-        <Legend series={series} />
-        {asTable ? (
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Time</th>{series.map((s) => <th className="num" key={s.key}>{s.label}</th>)}</tr></thead>
-              <tbody>{buckets.map((b) => <tr key={b.ts}><td>{label(b.ts)}</td>{series.map((s) => <td className="num" key={s.key}>{fmt(b.values[s.key] ?? 0)}</td>)}</tr>)}</tbody>
-            </table>
-          </div>
-        ) : (
-          <StackedColumns buckets={buckets} series={series} format={fmt} label={label} title={`${metric === 'tokens' ? 'Tokens' : 'Estimated cost'} per ${dash.range === '1h' ? '5 minutes' : dash.range === '24h' ? 'hour' : dash.range === '7d' ? '6 hours' : 'day'}`} />
-        )}
-        <p className="note">Cost is an estimate from Claude Code; on a subscription it is API-equivalent value, not billed money. Plan limits are not available.</p>
-      </section>
-
-      {dash.agents && (
-        <section className="card" aria-label="Agents at work">
-          <header className="row">
-            <h2>Agents at work</h2>
-            <span className="note">
-              now {dash.agents.now.sessions} {dash.agents.now.sessions === 1 ? 'session' : 'sessions'} + {dash.agents.now.subagents} {dash.agents.now.subagents === 1 ? 'subagent' : 'subagents'}
-              {' · '}most at once in this range: <b>{dash.agents.peak.total}</b>{dash.agents.peak.at !== null ? ` (${label(dash.agents.peak.at)})` : ''}
-            </span>
-          </header>
-          <StackedColumns buckets={agentBuckets(dash)} series={[{ key: 'total', label: 'Agents', color: 'var(--series-1)' }]} format={(v) => String(Math.round(v))} label={label} title={`Most agents at once per ${dash.range === '1h' ? '5 minutes' : dash.range === '24h' ? 'hour' : dash.range === '7d' ? '6 hours' : 'day'}`} height={140} />
-          <p className="note">Sessions running a turn plus the subagents they started, sampled every few seconds{account ? ` (${account})` : ', all accounts'}.</p>
-        </section>
       )}
 
       <section className="card" aria-label="Environments">
@@ -243,15 +148,80 @@ export function Dashboard({ range, onRange }: { range: Range; onRange: (r: Range
 }
 
 const STATUS_BADGE = { ok: <Badge tone="good">ok</Badge>, warn: <Badge tone="warn">warning</Badge>, fail: <Badge tone="bad">problem</Badge> } as const;
+const FORMAT = { compact, usd, integer: (v: number) => String(Math.round(v)) } as const;
 
-/** A plugin's card (`devhost plugin widgets`): status, a line, tiles, rows and one action. */
-function WidgetCard({ w, action, onAction }: { w: PluginWidget; action?: PluginActionInfo; onAction: (a: PluginActionInfo) => void }) {
+/**
+ * Plugins' dashboard part (`devhost plugin widgets`): each plugin's filters, then its cards in
+ * order, normal ones side by side, wide ones (charts) across the page.
+ */
+function PluginWidgets({ filters, widgets, params, accountNames, onParam, actionFor, onAction }: {
+  filters: PluginFilter[];
+  widgets: PluginWidget[];
+  params: Record<string, string>;
+  accountNames: string[];
+  onParam: (key: string, value: string) => void;
+  actionFor: (w: PluginWidget) => PluginActionInfo | undefined;
+  onAction: (a: PluginActionInfo) => void;
+}) {
+  const plugins = [...new Set(widgets.map((w) => w.plugin))];
   return (
-    <section className="card" aria-label={`${w.title} (${w.plugin})`}>
+    <>
+      {plugins.map((plugin) => {
+        const mine = filters.filter((f) => f.plugin === plugin);
+        // Consecutive normal cards share a grid row; a wide card stands alone.
+        const runs: PluginWidget[][] = [];
+        for (const w of widgets.filter((x) => x.plugin === plugin)) {
+          const last = runs.at(-1);
+          if (w.size !== 'wide' && last && last[0]!.size !== 'wide') last.push(w);
+          else runs.push([w]);
+        }
+        return (
+          <div key={plugin} className="stack" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {mine.length > 0 && (
+              <div className="row" role="group" aria-label={`Filters (${plugin})`}>
+                {mine.map((f) => {
+                  const key = `${f.plugin}.${f.id}`;
+                  return f.kind === 'segmented' ? (
+                    <Segmented key={key} label={f.label} value={f.value} options={f.options} onChange={(v) => onParam(key, v)} />
+                  ) : (
+                    <select key={key} className="select" aria-label={f.label} value={params[key] ?? f.value} onChange={(e) => onParam(key, e.target.value)}>
+                      <option value="">{f.allLabel ?? 'All'}</option>
+                      {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  );
+                })}
+              </div>
+            )}
+            {runs.map((run) => (
+              run[0]!.size === 'wide'
+                ? <WidgetCard key={run[0]!.id} w={run[0]!} accountNames={accountNames} action={actionFor(run[0]!)} onAction={onAction} />
+                : <div className="grid cols-3" key={run[0]!.id}>{run.map((w) => <WidgetCard key={`${w.plugin}.${w.id}`} w={w} accountNames={accountNames} action={actionFor(w)} onAction={onAction} />)}</div>
+            ))}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/** A plugin's card: status, a line, tiles, a meter, a chart, rows, a note and one action. */
+function WidgetCard({ w, accountNames, action, onAction }: { w: PluginWidget; accountNames: string[]; action?: PluginActionInfo; onAction: (a: PluginActionInfo) => void }) {
+  const [asTable, setAsTable] = useState(false);
+  const chart = w.chart;
+  const series: Series[] = chart ? chart.series.map((x, i) => ({ key: x.key, label: x.label, color: seriesVar(chart.colorBy === 'account' ? seriesSlot(accountNames, x.key) : i + 1) })) : [];
+  const fmt = chart ? FORMAT[chart.format] : compact;
+  const label = (ts: number): string => (chart?.axis === 'date' ? new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' }) : new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  const frac = w.meter && w.meter.max > 0 ? w.meter.value / w.meter.max : 0;
+  return (
+    <section className="card" aria-label={w.account ? `Account ${w.account}` : `${w.title} (${w.plugin})`}>
       <header>
+        {w.account && <i style={{ width: 10, height: 10, borderRadius: 2, background: seriesVar(seriesSlot(accountNames, w.account)) }} aria-hidden="true" />}
         <h2>{w.title}</h2>
         {w.status && STATUS_BADGE[w.status]}
-        <span className="push note">{w.plugin}</span>
+        <span className="push row">
+          {chart && <button className="btn sm" aria-pressed={asTable} onClick={() => setAsTable((t) => !t)}>{asTable ? 'Show chart' : 'Show as table'}</button>}
+          {!w.account && !chart && <span className="note">{w.plugin}</span>}
+        </span>
       </header>
       {w.error ? <div className="note" role="alert">Could not be computed: {w.error}</div> : w.summary && <div className="note">{w.summary}</div>}
       {w.tiles && (
@@ -259,11 +229,33 @@ function WidgetCard({ w, action, onAction }: { w: PluginWidget; action?: PluginA
           {w.tiles.map((t) => <div className="tile" key={t.label}><span className="label">{t.label}</span><span className="value">{t.value}</span>{t.sub && <span className="sub">{t.sub}</span>}</div>)}
         </div>
       )}
+      {w.meter && (
+        <div>
+          <div className="note">{w.meter.label}</div>
+          <div className={`meter ${meterTone(frac)}`} role="meter" aria-valuemin={0} aria-valuemax={w.meter.max} aria-valuenow={Math.min(w.meter.value, w.meter.max)} aria-label={`${w.title}: ${w.meter.label}`}><i style={{ width: `${Math.min(100, frac * 100)}%` }} /></div>
+        </div>
+      )}
+      {chart && (
+        <>
+          <Legend series={series} />
+          {asTable ? (
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Time</th>{series.map((x) => <th className="num" key={x.key}>{x.label}</th>)}</tr></thead>
+                <tbody>{chart.points.map((b) => <tr key={b.ts}><td>{label(b.ts)}</td>{series.map((x) => <td className="num" key={x.key}>{fmt(b.values[x.key] ?? 0)}</td>)}</tr>)}</tbody>
+              </table>
+            </div>
+          ) : (
+            <StackedColumns buckets={chart.points} series={series} format={fmt} label={label} title={chart.title} {...(chart.height ? { height: chart.height } : {})} />
+          )}
+        </>
+      )}
       {w.rows && (
         <table>
           <tbody>{w.rows.map((r, i) => <tr key={i}><td>{r.label}{r.note && <div className="note">{r.note}</div>}</td><td className="num">{r.value}</td></tr>)}</tbody>
         </table>
       )}
+      {w.note && <p className="note">{w.note}</p>}
       {action && <div><button className={`btn sm${action.destructive ? ' danger' : ''}`} onClick={() => onAction(action)}>{action.title}{action.destructive ? '…' : ''}</button></div>}
     </section>
   );
