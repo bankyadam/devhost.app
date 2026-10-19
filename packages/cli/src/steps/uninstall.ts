@@ -5,6 +5,7 @@ import { devhostConfigDir } from '../config/paths.js';
 import { daemonInstalled, removeDaemon } from '../launchd.js';
 import { reattachLabels } from '../reattach.js';
 import { statePath } from '../state.js';
+import { passphraseStored, removePassphrase, removeUnlockDaemon, unlockPlistInstalled } from '../storage/root.js';
 import { dbPath } from '../collector/db.js';
 import { accountArtifactsPresent, removeAccountArtifacts } from './accounts-remove.js';
 import { COLLECTOR_LABEL } from './collector.js';
@@ -18,6 +19,8 @@ import { ok, skip, todo, type Step } from './types.js';
 export interface UninstallOptions {
   keepPackages: boolean;
   purgeData: boolean;
+  /** Also the work volume's unlock service and keychain item; never the volume or its data (spec A13). */
+  purgeStorage?: boolean;
 }
 
 const labels = (config: DevhostConfig): string[] => [
@@ -149,6 +152,20 @@ export function uninstallSteps(config: DevhostConfig, opts: UninstallOptions): S
         },
   );
 
+  if (opts.purgeStorage) {
+    steps.push({
+      id: 'uninstall.storage',
+      description: "Remove the work volume's unlock service and passphrase (--purge-storage; the volume and its data stay)",
+      async check(ctx) {
+        return (await unlockPlistInstalled(ctx.exec)) || (await passphraseStored(ctx.exec)) ? todo('unlock service or keychain item present') : ok();
+      },
+      async apply(ctx) {
+        await removeUnlockDaemon(ctx.exec);
+        await removePassphrase(ctx.exec);
+      },
+    });
+  }
+
   if (opts.purgeData) {
     steps.push({
       id: 'uninstall.data',
@@ -175,5 +192,6 @@ export function keptByUninstall(config: DevhostConfig, home: string, opts: Unins
     ...(opts.purgeData ? [] : [dbPath(home)]),
     join(devhostConfigDir(home), 'config.yaml'),
     'hostname, power and Remote Login settings, Tailscale, Colima VM data, mise runtimes',
+    ...(config.storage?.workVolume ? [`the work volume ${config.storage.workVolume.label} and everything on it${opts.purgeStorage ? '' : ', its unlock service and keychain item (--purge-storage removes those two)'}`] : []),
   ];
 }

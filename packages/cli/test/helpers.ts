@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -20,6 +20,8 @@ export async function makeEnv(runner = new MockRunner(), tty = false): Promise<T
   const home = await mkdtemp(join(tmpdir(), 'devhost-test-'));
   process.env['DEVHOST_LAUNCHD_DIR'] = join(home, 'LaunchDaemons');
   process.env['DEVHOST_ROOT_HELPER_DIR'] = join(home, 'PrivilegedHelperTools');
+  process.env['DEVHOST_VOLUMES_DIR'] = join(home, 'Volumes');
+  mkdirSync(join(home, 'Volumes'), { recursive: true });
   runner.context['home'] = home;
   const out: string[] = [];
   const err: string[] = [];
@@ -59,6 +61,40 @@ export function ndjson(text: string): unknown[] {
 
 const strip = (line: string): string => line.replace(/^sudo (-n )?-- /, '');
 
+export interface FakeVolume {
+  uuid: string;
+  name: string;
+  device: string;
+  mountPoint: string | null;
+  apfs?: boolean;
+  encrypted?: boolean;
+  locked?: boolean;
+  ownership?: boolean;
+  internal?: boolean;
+  totalBytes?: number;
+  freeBytes?: number;
+}
+
+const plistValue = (v: unknown): string =>
+  v === true ? '<true/>' : v === false ? '<false/>' : typeof v === 'number' ? `<integer>${v}</integer>`
+  : Array.isArray(v) ? `<array>${v.map(plistValue).join('')}</array>`
+  : v && typeof v === 'object' ? `<dict>${Object.entries(v).map(([k, x]) => `<key>${k}</key>${plistValue(x)}`).join('')}</dict>`
+  : `<string>${String(v ?? '')}</string>`;
+export const plistXml = (v: unknown): string => `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n${plistValue(v)}\n</plist>\n`;
+
+/** Mount (or unmount) a fake volume: its directory under the test /Volumes, with the test-mode mount marker. */
+export function mountVolume(volumesDir: string, v: FakeVolume, mounted: boolean): void {
+  const dir = join(volumesDir, v.name);
+  if (mounted) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, '.test-mounted'), '');
+    v.mountPoint = dir;
+  } else {
+    rmSync(join(dir, '.test-mounted'), { force: true });
+    v.mountPoint = null;
+  }
+}
+
 export interface FakeState {
   /** Called when a LaunchDaemon is loaded (a test can play the service starting). */
   onBootstrap?: (label: string) => void;
@@ -85,6 +121,14 @@ export interface FakeState {
   loginAs?: string;
   /** Keychain items by service (`security find-generic-password -s <service> -w`). */
   keychain?: Map<string, string>;
+  /** External volumes diskutil knows (mounted ones also need their mount directory, see mountVolume). */
+  volumes?: FakeVolume[];
+  /** Mount points with Spotlight off; AutomountDisksWithoutUserLogin; the System keychain's work volume passphrase. */
+  spotlightOff?: Set<string>;
+  automount?: boolean;
+  volumePassphrase?: string;
+  /** What a container sees in a bind mount from the work volume (false: an empty directory, Colima without the mount). */
+  colimaSeesVolume?: boolean;
   composeUp: Set<string>;
   /** Output of `git log --branches --not --remotes --oneline` per directory. */
   unpushed: Map<string, string>;
@@ -144,7 +188,7 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
   };
   const brewBin = (): string => (state.arch === 'arm64' ? '/opt/homebrew/bin' : '/usr/local/bin');
   const runner = new MockRunner();
-  const dispatch = (call: { command: string; args: string[]; opts?: { env?: Record<string, string>; cwd?: string } }) => {
+  const dispatch = (call: { command: string; args: string[]; opts?: { env?: Record<string, string>; cwd?: string; input?: string } }) => {
     if (state.sudoNeedsPassword && call.command === 'sudo' && call.args[0] === '-n') return { code: 1, stderr: 'sudo: a password is required\n' };
     // mise from its installer runs by absolute path (~/.local/bin is not on ssh's PATH).
     const line = strip([call.command, ...call.args].join(' ')).replace(/^\/\S+\/\.local\/bin\/mise /, 'mise ');
@@ -315,6 +359,58 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     if ((m = /^brew uninstall --(formula|cask) (\S+)$/.exec(line))) {
       state.uninstalled.push(m[2]!);
       return {};
+    }
+    // The work volume (spec A7.12).
+    const vol = (id: string): FakeVolume | undefined => state.volumes?.find((v) => v.uuid === id.toUpperCase() || v.device === id || v.mountPoint === id);
+    if ((m = /^diskutil info -plist (.+)$/.exec(line))) {
+      const v = vol(m[1]!);
+      if (!v) return { code: 1, stderr: `Could not find disk: ${m[1]}\n` };
+      return { stdout: plistXml({ VolumeUUID: v.uuid, DeviceIdentifier: v.device, VolumeName: v.name, MountPoint: v.mountPoint ?? '', FilesystemType: v.apfs === false ? 'exfat' : 'apfs', Encryption: v.encrypted === true, Locked: v.locked === true, GlobalPermissionsEnabled: v.ownership === true, Internal: v.internal === true, TotalSize: v.totalBytes ?? 1e12, APFSContainerFree: v.freeBytes ?? 6e11, MediaName: 'Fake SSD' }) };
+    }
+    if (line === 'diskutil list -plist external') {
+      const ext = (state.volumes ?? []).filter((v) => !v.internal);
+      return { stdout: plistXml({ AllDisksAndPartitions: [{ DeviceIdentifier: 'disk4', Size: 1e12, Content: 'GUID_partition_scheme', Partitions: [{ DeviceIdentifier: 'disk4s2' }] }, { DeviceIdentifier: 'disk5', APFSPhysicalStores: [{ DeviceIdentifier: 'disk4s2' }], APFSVolumes: ext.map((v) => ({ DeviceIdentifier: v.device, VolumeName: v.name, VolumeUUID: v.uuid, MountPoint: v.mountPoint ?? '', Size: v.totalBytes ?? 1e12 })) }] }) };
+    }
+    if ((m = /^diskutil enableOwnership (\S+)$/.exec(line))) {
+      const v = vol(m[1]!);
+      if (v) v.ownership = true;
+      return v ? {} : { code: 1 };
+    }
+    if ((m = /^mdutil -s (.+)$/.exec(line))) return { stdout: `${m[1]}:\n\tIndexing ${state.spotlightOff?.has(m[1]!) ? 'disabled' : 'enabled'}.\n` };
+    if ((m = /^mdutil -i off (.+)$/.exec(line))) {
+      (state.spotlightOff ??= new Set()).add(m[1]!);
+      return {};
+    }
+    if (line === 'defaults read /Library/Preferences/SystemConfiguration/autodiskmount AutomountDisksWithoutUserLogin') return state.automount ? { stdout: '1\n' } : { code: 1, stderr: 'does not exist' };
+    if (line === 'defaults write /Library/Preferences/SystemConfiguration/autodiskmount AutomountDisksWithoutUserLogin -bool true') {
+      state.automount = true;
+      return {};
+    }
+    if (line === 'security find-generic-password -s devhost.workvolume -a devhost /Library/Keychains/System.keychain') return state.volumePassphrase !== undefined ? { stdout: 'keychain: "/Library/Keychains/System.keychain"\n' } : { code: 44 };
+    if (line === 'security -i') {
+      const input = String((call.opts as { input?: string } | undefined)?.input ?? '');
+      const pm = /-w "((?:[^"\\]|\\.)*)" \/Library\/Keychains\/System\.keychain/.exec(input);
+      if (!pm) return { code: 1 };
+      state.volumePassphrase = pm[1]!.replace(/\\(.)/g, '$1');
+      return {};
+    }
+    if (line === 'security delete-generic-password -s devhost.workvolume -a devhost /Library/Keychains/System.keychain') {
+      delete state.volumePassphrase;
+      return {};
+    }
+    if ((m = /^rsync -aH (\S+)\/ (\S+)\/$/.exec(line))) {
+      cpSync(m[1]!, m[2]!, { recursive: true });
+      return {};
+    }
+    if ((m = /^ls -A (\S+)$/.exec(line))) {
+      try {
+        return { stdout: readdirSync(m[1]!).join('\n') };
+      } catch {
+        return { code: 1 };
+      }
+    }
+    if ((m = /^docker run --rm --pull=never -v (\S+):\/x:ro alpine ls -A \/x$/.exec(line))) {
+      return { stdout: state.colimaSeesVolume === false ? '' : readdirSync(m[1]!).join('\n') };
     }
     if ((m = /^security find-generic-password -s (.+) -w$/.exec(line))) {
       const secret = state.keychain?.get(m[1]!);

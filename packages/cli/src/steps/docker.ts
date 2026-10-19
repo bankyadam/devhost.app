@@ -3,6 +3,8 @@ import type { DevhostConfig } from '@devhost/contract';
 import { logsDir } from '../config/accounts.js';
 import { applyDaemon, checkDaemon, daemonState, serviceEnv, type DaemonSpec } from '../launchd.js';
 import { toolPath } from '../state.js';
+import { workVolumeOf } from '../storage/volume.js';
+import { storageGate } from './env.js';
 import { ok, skip, todo, type Step, type StepContext } from './types.js';
 
 export const COLIMA_LABEL = 'com.devhost.colima';
@@ -13,13 +15,27 @@ export async function colimaSpec(ctx: StepContext): Promise<DaemonSpec> {
   const colima = await toolPath(ctx.exec, ctx.home, 'colimaPath', 'colima', `${ctx.brewPrefix}/bin/colima`);
   return {
     label: COLIMA_LABEL,
-    args: [colima, 'start', '--foreground', '--cpu', String(d?.cpu ?? 6), '--memory', String(d?.memoryGiB ?? 16), '--disk', String(d?.diskGiB ?? 200)],
+    args: [colima, 'start', '--foreground', '--cpu', String(d?.cpu ?? 6), '--memory', String(d?.memoryGiB ?? 16), '--disk', String(d?.diskGiB ?? 200), ...colimaMounts(ctx)],
     env: serviceEnv(ctx.home),
     logPath: join(logsDir(ctx.home), 'colima.log'),
+    // Colima starts the compose containers at boot: with a work volume it waits for it, or their
+    // bind mounts from the volume would come up empty (spec A7.12).
+    ...(workVolumeOf(ctx.config) ? { gate: storageGate(ctx) } : {}),
   };
 }
 
 const wantsColima = (c: DevhostConfig): boolean => c.docker?.runtime === 'colima';
+
+/**
+ * Colima mounts only $HOME by default: a compose bind mount from the work volume would silently
+ * mount an empty directory. With a work volume, $HOME and the volume's root are mounted writable
+ * (virtiofs, Colima's default); without one the arguments, and so the plist, stay as they were.
+ * A changed mount set changes the plist, which restarts Colima once.
+ */
+export function colimaMounts(ctx: Pick<StepContext, 'config' | 'home'>): string[] {
+  const v = workVolumeOf(ctx.config);
+  return v ? ['--mount', `${ctx.home}:w`, '--mount', `${v.root}:w`] : [];
+}
 
 /** Docker CLI plugins installed by Homebrew (compose, buildx) must be on the CLI's search path. */
 export const dockerConfigStep: Step = {

@@ -6,6 +6,8 @@ import type { Executor } from './runner/executor.js';
 export interface DevhostState {
   claudePath?: string;
   colimaPath?: string;
+  /** Account roots `storage migrate` moved, by account: the old copy, kept until `--cleanup`. */
+  migrated?: Record<string, string>;
 }
 
 export const statePath = (home: string): string => join(devhostConfigDir(home), 'state.json');

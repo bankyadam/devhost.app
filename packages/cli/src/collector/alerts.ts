@@ -17,6 +17,8 @@ export interface AlertInputs {
   restarts: Map<string, number>;
   /** account → login valid? (absent = unknown). */
   auth: Map<string, boolean>;
+  /** The work volume (spec A7.12), when one is configured. */
+  volume?: { label: string; mountPoint: string; mounted: boolean; identityOk: boolean; doubleMount: boolean; strayDirectory: boolean; freePct: number | null; freeLimit: number } | null;
 }
 
 const MEM_WINDOW_MS = 5 * 60_000;
@@ -62,6 +64,16 @@ export class AlertEngine {
 
     if (input.diskFreePct !== null) {
       await this.set('disk', input.diskFreePct < thresholds.diskFreePercent, `Free disk space is ${input.diskFreePct.toFixed(1)}% (limit ${thresholds.diskFreePercent}%)`, 'Free disk space is back above the limit', 'high');
+    }
+
+    // The work volume: each condition once per state change, however often services retry meanwhile.
+    const v = input.volume;
+    if (v) {
+      await this.set(`volume:missing:${v.label}`, !v.mounted, `Work volume ${v.label} is not mounted at ${v.mountPoint}: services on it wait until it is back`, `Work volume ${v.label} is mounted again`, 'high');
+      await this.set(`volume:identity:${v.label}`, v.mounted && !v.identityOk, `The volume at ${v.mountPoint} is not the configured work volume (uuid or marker differs): services on it do not start`, `Work volume ${v.label} identity matches again`, 'high');
+      await this.set(`volume:double:${v.label}`, v.doubleMount, `${v.mountPoint} 1 exists: ${v.label} is mounted a second time (a stray directory or a second volume is in its place)`, `${v.label} is mounted once again`, 'high');
+      await this.set(`volume:stray:${v.label}`, v.strayDirectory, `${v.mountPoint} is a plain directory on the internal disk while the volume is away`, `${v.mountPoint} is no longer a stray directory`, 'high');
+      if (v.freePct !== null) await this.set(`volume:space:${v.label}`, v.freePct < v.freeLimit, `Work volume ${v.label} has ${v.freePct.toFixed(1)}% free (limit ${v.freeLimit}%)`, `Work volume ${v.label} free space is back above the limit`, 'high');
     }
 
     for (const [account, limit] of thresholds.dailyCostUsd) {

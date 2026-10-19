@@ -17,6 +17,12 @@ const ALLOWED_KEYS = ['Label', 'UserName', 'WorkingDirectory', 'ProgramArguments
 const HOSTNAME_KEYS = ['ComputerName', 'LocalHostName', 'HostName'];
 const HOSTNAME = /^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
 const PMSET_KEYS = ['sleep', 'disksleep', 'autorestart', 'womp'];
+const UUID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/;
+const VOLUME_MOUNT = /^\/Volumes\/[A-Za-z0-9][A-Za-z0-9 ._-]{0,62}$/;
+const UNLOCK_LABEL = 'com.devhost.storage.unlock';
+const KEYCHAIN = '/Library/Keychains/System.keychain';
+const PASSPHRASE_SERVICE = 'devhost.workvolume';
+const AUTODISKMOUNT = '/Library/Preferences/SystemConfiguration/autodiskmount';
 
 function fail(message) {
   throw new Error(message);
@@ -27,13 +33,67 @@ function env(name) {
   return v.isNil() ? '' : ObjC.unwrap(v);
 }
 
-function exec(cmd, args) {
+function exec(cmd, args, input, quiet) {
   const task = $.NSTask.alloc.init;
   task.launchPath = cmd;
   task.arguments = args;
+  if (quiet) task.standardOutput = $.NSFileHandle.fileHandleWithNullDevice;
+  let pipe = null;
+  if (input !== undefined) {
+    pipe = $.NSPipe.pipe;
+    task.standardInput = pipe;
+  }
   task.launch;
+  if (pipe) {
+    const h = pipe.fileHandleForWriting;
+    h.writeData($(input).dataUsingEncoding($.NSUTF8StringEncoding));
+    h.closeFile;
+  }
   task.waitUntilExit;
   return task.terminationStatus;
+}
+
+function uuid(value) {
+  if (typeof value !== 'string' || !UUID.test(value)) fail(`"${value}" is not an APFS volume UUID`);
+  return value;
+}
+
+function readStdin() {
+  const data = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;
+  return ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding)) || '';
+}
+
+/**
+ * The work volume's unlock daemon (spec A7.12): built here from the UUID alone, never taken from a
+ * file, because unlike every other devhost service it runs as root. Every 30 s (KeepAlive with
+ * ThrottleInterval) it checks the volume and, only when the volume is present but not mounted,
+ * pipes the passphrase from the System keychain into diskutil. Nothing user-writable runs.
+ */
+function unlockDaemon(id) {
+  const script =
+    'if [ -z "$(/usr/sbin/diskutil info -plist "$0" 2>/dev/null | /usr/bin/plutil -extract MountPoint raw - 2>/dev/null)" ] && /usr/sbin/diskutil info "$0" >/dev/null 2>&1; then ' +
+    `/usr/bin/security find-generic-password -s ${PASSPHRASE_SERVICE} -a devhost -w ${KEYCHAIN} | /usr/bin/tr -d '\\n' | /usr/sbin/diskutil apfs unlockVolume "$0" -stdinpassphrase >/dev/null 2>&1; fi; exit 0`;
+  const plist = $.NSDictionary.dictionaryWithDictionary({
+    Label: UNLOCK_LABEL,
+    ProgramArguments: ['/bin/sh', '-c', script, uuid(id)],
+    RunAtLoad: true,
+    KeepAlive: true,
+    ThrottleInterval: 30,
+  });
+  const path = plistPath(UNLOCK_LABEL);
+  exec('/bin/launchctl', ['bootout', `system/${UNLOCK_LABEL}`]);
+  if (!plist.writeToFileAtomically(path, true)) fail(`cannot write ${path}`);
+  exec('/usr/sbin/chown', ['root:wheel', path]);
+  exec('/bin/chmod', ['644', path]);
+  return exec('/bin/launchctl', ['bootstrap', 'system', path]);
+}
+
+/** The passphrase, from stdin only, into the System keychain (spec A7.12): never in an argument. */
+function setPassphrase() {
+  const pass = readStdin().replace(/\r?\n$/, '');
+  if (pass === '' || /[\r\n]/.test(pass)) fail('the passphrase is one non-empty line on stdin');
+  const quoted = pass.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return exec('/usr/bin/security', ['-i'], `add-generic-password -U -a devhost -s ${PASSPHRASE_SERVICE} -l "devhost work volume" -w "${quoted}" ${KEYCHAIN}\n`, true);
 }
 
 function label(value) {
@@ -133,6 +193,23 @@ function main(argv) {
     }
     case 'remote-login':
       return exec('/usr/sbin/systemsetup', ['-setremotelogin', 'on']);
+    // The work volume (spec A7.12).
+    case 'enable-ownership':
+      return exec('/usr/sbin/diskutil', ['enableOwnership', uuid(a[0])]);
+    case 'spotlight-off':
+      if (!VOLUME_MOUNT.test(a[0] || '')) fail('spotlight-off takes a /Volumes/<name> mount point');
+      return exec('/usr/bin/mdutil', ['-i', 'off', a[0]]);
+    case 'automount-without-login':
+      return exec('/usr/bin/defaults', ['write', AUTODISKMOUNT, 'AutomountDisksWithoutUserLogin', '-bool', 'true']);
+    case 'unlock-daemon':
+      return unlockDaemon(a[0]);
+    case 'unlock-daemon-remove':
+      exec('/bin/launchctl', ['bootout', `system/${UNLOCK_LABEL}`]);
+      return exec('/bin/rm', ['-f', plistPath(UNLOCK_LABEL)]);
+    case 'set-passphrase':
+      return setPassphrase();
+    case 'remove-passphrase':
+      return exec('/usr/bin/security', ['delete-generic-password', '-s', PASSPHRASE_SERVICE, '-a', 'devhost', KEYCHAIN]);
     default:
       fail(`unknown operation "${op}"`);
   }

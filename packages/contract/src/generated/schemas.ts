@@ -51,6 +51,62 @@ export const schemas = {
           }
         }
       },
+      "storage": {
+        "type": "object",
+        "additionalProperties": false,
+        "default": {},
+        "description": "An external work volume for project data (spec A7.12); omit workVolume to keep everything on the internal disk.",
+        "properties": {
+          "workVolume": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "label",
+              "uuid",
+              "root"
+            ],
+            "properties": {
+              "label": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,62}$",
+                "description": "Volume name; mounted at /Volumes/<label>."
+              },
+              "uuid": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
+                "description": "APFS volume UUID: the identity check (never the path alone)."
+              },
+              "encrypted": {
+                "type": "boolean",
+                "default": false
+              },
+              "root": {
+                "type": "string",
+                "pattern": "^/",
+                "description": "Account roots default to <root>/<account>; must be on the volume."
+              },
+              "spotlight": {
+                "type": "boolean",
+                "default": false,
+                "description": "false: Spotlight indexing off on the volume."
+              },
+              "alerts": {
+                "type": "object",
+                "additionalProperties": false,
+                "default": {},
+                "properties": {
+                  "freePercent": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 15
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "accounts": {
         "type": "array",
         "default": [],
@@ -446,7 +502,7 @@ export const schemas = {
       },
       "plugins": {
         "type": "object",
-        "description": "devhost plugins by name: built-in ones (disk-cleanup, session-stop) are on unless enabled is false; one in ~/.config/devhost/plugins/<name>/index.js only with enabled: true.",
+        "description": "devhost plugins by name: built-in ones (stats) are on unless enabled is false; one in ~/.config/devhost/plugins/<name>/index.js only with enabled: true.",
         "default": {},
         "additionalProperties": {
           "type": "object",
@@ -1605,6 +1661,86 @@ export const schemas = {
             }
           }
         }
+      },
+      "volume": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "description": "The work volume (spec A7.12), as the collector last sampled it; null without one.",
+        "required": [
+          "label",
+          "mountPoint",
+          "root",
+          "ready",
+          "mounted",
+          "encrypted",
+          "locked",
+          "totalBytes",
+          "freeBytes",
+          "freePct",
+          "freeLimit"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "mountPoint": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "mounted": {
+            "type": "boolean"
+          },
+          "encrypted": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "locked": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "totalBytes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "freeBytes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "freePct": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "freeLimit": {
+            "type": "number"
+          },
+          "doubleMount": {
+            "type": "boolean"
+          },
+          "strayDirectory": {
+            "type": "boolean"
+          },
+          "sampledAt": {
+            "type": "number"
+          }
+        }
       }
     }
   },
@@ -2728,6 +2864,270 @@ export const schemas = {
           "number",
           "null"
         ]
+      }
+    }
+  },
+  "result.storage-change": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.storage-change.schema.json",
+    "title": "StorageChangeData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "action"
+    ],
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "adopted",
+          "prepared",
+          "passphrase-set",
+          "migrated",
+          "cleaned-up"
+        ]
+      },
+      "label": {
+        "type": "string"
+      },
+      "uuid": {
+        "type": "string"
+      },
+      "root": {
+        "type": "string"
+      },
+      "account": {
+        "type": "string"
+      },
+      "from": {
+        "type": "string"
+      },
+      "to": {
+        "type": "string"
+      },
+      "files": {
+        "type": "integer"
+      },
+      "bytes": {
+        "type": "number"
+      },
+      "environments": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "notes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "dryRun": {
+        "type": "boolean"
+      },
+      "plan": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "result.storage-list": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.storage-list.schema.json",
+    "title": "StorageListData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "disks"
+    ],
+    "properties": {
+      "disks": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "device",
+            "model",
+            "sizeBytes",
+            "volumes"
+          ],
+          "properties": {
+            "device": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "sizeBytes": {
+              "type": "number"
+            },
+            "volumes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "device",
+                  "name",
+                  "uuid",
+                  "mountPoint",
+                  "sizeBytes"
+                ],
+                "properties": {
+                  "device": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "uuid": {
+                    "type": "string"
+                  },
+                  "mountPoint": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "sizeBytes": {
+                    "type": "number"
+                  },
+                  "adopted": {
+                    "type": "boolean",
+                    "description": "It is the configured work volume."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "result.storage-status": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.storage-status.schema.json",
+    "title": "StorageStatusData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "configured"
+    ],
+    "properties": {
+      "configured": {
+        "type": "boolean"
+      },
+      "volume": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "uuid",
+          "mountPoint",
+          "mounted",
+          "uuidMatch",
+          "markerMatch",
+          "ready",
+          "doubleMount",
+          "strayDirectory",
+          "apfs",
+          "encrypted",
+          "locked",
+          "ownership",
+          "totalBytes",
+          "freeBytes"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "uuid": {
+            "type": "string"
+          },
+          "mountPoint": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "mounted": {
+            "type": "boolean"
+          },
+          "uuidMatch": {
+            "type": "boolean"
+          },
+          "markerMatch": {
+            "type": "boolean"
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Mounted, uuid and marker match: what `storage wait` waits for."
+          },
+          "doubleMount": {
+            "type": "boolean"
+          },
+          "strayDirectory": {
+            "type": "boolean"
+          },
+          "apfs": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "encrypted": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "locked": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "ownership": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "totalBytes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "freeBytes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "encryptedInConfig": {
+            "type": "boolean"
+          },
+          "spotlightOff": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "automountWithoutLogin": {
+            "type": "boolean"
+          },
+          "unlockDaemon": {
+            "type": "boolean"
+          },
+          "passphraseStored": {
+            "type": "boolean"
+          }
+        }
       }
     }
   },

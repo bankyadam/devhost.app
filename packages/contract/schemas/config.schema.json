@@ -48,6 +48,62 @@
         }
       }
     },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "description": "An external work volume for project data (spec A7.12); omit workVolume to keep everything on the internal disk.",
+      "properties": {
+        "workVolume": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "label",
+            "uuid",
+            "root"
+          ],
+          "properties": {
+            "label": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,62}$",
+              "description": "Volume name; mounted at /Volumes/<label>."
+            },
+            "uuid": {
+              "type": "string",
+              "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$",
+              "description": "APFS volume UUID: the identity check (never the path alone)."
+            },
+            "encrypted": {
+              "type": "boolean",
+              "default": false
+            },
+            "root": {
+              "type": "string",
+              "pattern": "^/",
+              "description": "Account roots default to <root>/<account>; must be on the volume."
+            },
+            "spotlight": {
+              "type": "boolean",
+              "default": false,
+              "description": "false: Spotlight indexing off on the volume."
+            },
+            "alerts": {
+              "type": "object",
+              "additionalProperties": false,
+              "default": {},
+              "properties": {
+                "freePercent": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 100,
+                  "default": 15
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "accounts": {
       "type": "array",
       "default": [],
@@ -443,7 +499,7 @@
     },
     "plugins": {
       "type": "object",
-      "description": "devhost plugins by name: built-in ones (disk-cleanup, session-stop) are on unless enabled is false; one in ~/.config/devhost/plugins/<name>/index.js only with enabled: true.",
+      "description": "devhost plugins by name: built-in ones (stats) are on unless enabled is false; one in ~/.config/devhost/plugins/<name>/index.js only with enabled: true.",
       "default": {},
       "additionalProperties": {
         "type": "object",

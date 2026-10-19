@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DevhostConfig } from '@devhost/contract';
 import { MIN_REMOTE_CONTROL_VERSION, parseVersion, versionAtLeast } from '../claude-version.js';
@@ -20,6 +20,8 @@ import { parsePs, subtree } from '../collector/samplers.js';
 import type { DevhostPlugin, PluginContext } from '../plugins/api.js';
 import { credentialsFile, serviceLogin } from '../credentials.js';
 import { pluginContext } from '../plugins/context.js';
+import { storageStatus } from '../commands-storage.js';
+import { onVolume, workVolumeOf } from '../storage/volume.js';
 import { loadPlugins } from '../plugins/loader.js';
 import { NoPrompter } from '../prompter.js';
 import type { Reporter } from '../reporter.js';
@@ -421,6 +423,69 @@ export function rcLogCheck(id: string, log: string | null, account: string, env:
   return bad.length === 0 ? ok(`${id}.log`, 'recent log has no errors') : warn(`${id}.log`, `recent log: ${bad.at(-1)!.trim().slice(0, 160)}`, `devhost env logs ${env}`);
 }
 
+/** The work volume (spec A12): identity, settings, the services' view of it, and where the data really is. */
+async function storageChecks(c: DoctorContext): Promise<Check[]> {
+  const v = workVolumeOf(c.config);
+  if (!v) return [];
+  const { exec, config, deps } = c;
+  const st = (await storageStatus(exec, config)).volume!;
+  const out: Check[] = [];
+  out.push(
+    st.ready ? ok('storage.volume', `${v.label} (${st.uuid}) is mounted at ${st.mountPoint}`)
+    : !st.mounted ? fail('storage.volume', `${v.label} is not mounted at ${st.mountPoint}${st.locked ? ' (locked)' : ''}`, st.locked ? 'devhost apply --only storage.unlock  # or unlock it by hand' : 'Connect the work volume; devhost storage status')
+    : fail('storage.volume', `the volume at ${st.mountPoint} is not the configured one (uuid ${st.uuidMatch ? 'matches' : 'differs'}, marker ${st.markerMatch ? 'matches' : 'differs'})`, 'devhost storage status; adopt the right volume with devhost storage adopt'),
+  );
+  out.push(st.strayDirectory ? fail('storage.stray', `${st.mountPoint} is a plain directory on the internal disk, not the volume`, `Move ${st.mountPoint} aside (check what is in it), then reconnect the volume`) : ok('storage.stray', `no stray directory at ${st.mountPoint}`));
+  out.push(st.doubleMount ? fail('storage.double-mount', `${st.mountPoint} 1 exists: the volume is mounted a second time`, `Eject "${st.mountPoint} 1" and remove the stray ${st.mountPoint}, then reconnect`) : ok('storage.double-mount', 'mounted once'));
+  if (st.apfs !== null) out.push(st.apfs ? ok('storage.apfs', 'APFS') : fail('storage.apfs', 'the volume is not APFS', 'devhost storage prepare <disk>  # destructive'));
+  if (st.encrypted !== null) out.push(st.encrypted === (v.encrypted === true) ? ok('storage.encryption', st.encrypted ? 'encrypted, as configured' : 'not encrypted, as configured') : fail('storage.encryption', `the volume is ${st.encrypted ? '' : 'not '}encrypted, the config says encrypted: ${v.encrypted === true}`, 'devhost config set /storage/workVolume/encrypted <true|false>'));
+  if (st.ownership !== null) out.push(st.ownership ? ok('storage.ownership', 'file owners are honored') : fail('storage.ownership', 'ownership is off: git, ssh and file modes break', 'devhost apply --only storage.ownership'));
+  if (v.spotlight !== true && st.spotlightOff !== null) out.push(st.spotlightOff ? ok('storage.spotlight', 'Spotlight is off on the volume') : warn('storage.spotlight', 'Spotlight indexes the volume', 'devhost apply --only storage.spotlight'));
+  out.push(st.automountWithoutLogin ? ok('storage.automount', 'external volumes mount without a login') : fail('storage.automount', 'AutomountDisksWithoutUserLogin is not set: the volume would wait for a login after a reboot', 'devhost apply --only storage.automount'));
+  if (v.encrypted) {
+    out.push(st.passphraseStored ? ok('storage.passphrase', 'the passphrase is in the System keychain') : fail('storage.passphrase', 'no passphrase in the System keychain: the volume cannot unlock at boot', 'devhost storage set-passphrase'));
+    out.push(st.unlockDaemon ? ok('storage.unlock', 'the unlock service is loaded') : fail('storage.unlock', 'the unlock service is not loaded', 'devhost apply --only storage.unlock'));
+  }
+  if (st.freeBytes !== null && st.totalBytes) {
+    const pct = (st.freeBytes / st.totalBytes) * 100;
+    const limit = v.alerts?.freePercent ?? 15;
+    out.push(pct >= limit ? ok('storage.space', `${pct.toFixed(0)}% free`) : fail('storage.space', `only ${pct.toFixed(0)}% free on the volume (alert limit ${limit}%)`, 'Free space on the volume (old worktrees, node_modules)'));
+  }
+  // Every account root and environment really lives on the volume (realpath: no symlinks around it).
+  if (st.ready) {
+    const outside: string[] = [];
+    for (const a of accountsOf(config)) {
+      const root = accountRoot(a, deps.home);
+      if (!onVolume(v, realpathOr(root))) outside.push(`${a.name} (${root})`);
+    }
+    out.push(outside.length === 0 ? ok('storage.roots', 'every account root is on the volume') : warn('storage.roots', `account roots not on the volume: ${outside.join(', ')}`, 'devhost storage migrate --account <name>'));
+  }
+  if (config.docker?.runtime === 'colima') {
+    const plist = (await exec.readText(plistPath(COLIMA_LABEL))) ?? '';
+    out.push(plist.includes(`${v.root}:w`) ? ok('storage.colima-mount', `Colima mounts ${v.root}`) : fail('storage.colima-mount', `Colima does not mount ${v.root}: compose bind mounts from the volume come up empty`, 'devhost apply --only docker.runtime'));
+    if (st.ready && plist.includes(`${v.root}:w`)) {
+      const host = await exec.query('ls', ['-A', v.root]);
+      const inVm = await exec.query('docker', ['run', '--rm', '--pull=never', '-v', `${v.root}:/x:ro`, 'alpine', 'ls', '-A', '/x'], { timeoutMs: 60_000 });
+      if (inVm.code !== 0 && /No such image|not found locally/i.test(inVm.stderr)) out.push(warn('storage.colima-files', 'cannot test the mount: no alpine image', 'docker pull alpine'));
+      else if (inVm.code !== 0) out.push(fail('storage.colima-files', `docker cannot read ${v.root}: ${inVm.stderr.trim().split('\n')[0] ?? ''}`, 'devhost apply --only docker.runtime'));
+      else out.push(host.stdout.trim() !== '' && inVm.stdout.trim() === '' ? fail('storage.colima-files', `a container sees ${v.root} empty`, 'colima restart; devhost apply --only docker.runtime') : ok('storage.colima-files', `a container sees the files in ${v.root}`));
+    }
+    const disk = config.docker?.diskGiB ?? 200;
+    const sys = await deps.runner.run('df', ['-k', deps.home]);
+    const free = Number(sys.stdout.trim().split('\n')[1]?.trim().split(/\s+/)[3] ?? 0) * 1024;
+    if (free > 0) out.push(disk * 2 ** 30 <= free * 0.4 ? ok('storage.docker-disk', `docker.diskGiB ${disk} fits the internal disk`) : warn('storage.docker-disk', `docker.diskGiB ${disk} is more than 40% of the internal disk's free space (${(free / 2 ** 30).toFixed(0)} GiB)`, 'Lower docker.diskGiB (a new Colima disk only), or free space on the internal disk'));
+  }
+  return out;
+}
+
+const realpathOr = (p: string): string => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+
 /** Everything `devhost doctor` checks (spec A12), then the plugins' advice on them. Read-only. */
 export async function runDoctor(c: DoctorContext): Promise<Check[]> {
   const plugins = await enabledPlugins(c);
@@ -430,6 +495,7 @@ export async function runDoctor(c: DoctorContext): Promise<Check[]> {
     ...(await guarded('accounts', () => accountChecks(c))),
     ...(await guarded('envs', () => envChecks(c))),
     ...(await guarded('collector', () => collectorChecks(c))),
+    ...(await guarded('storage', () => storageChecks(c))),
     ...(await guarded('plugins', () => pluginChecks(plugins))),
   ];
   await addAdvice(plugins, checks);

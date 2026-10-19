@@ -24,4 +24,7 @@ export type { PluginRunData } from './result.plugin-run.js';
 export type { PluginWidgetsData } from './result.plugin-widgets.js';
 export type { SessionReattachData } from './result.session-reattach.js';
 export type { StatusData } from './result.status.js';
+export type { StorageChangeData } from './result.storage-change.js';
+export type { StorageListData } from './result.storage-list.js';
+export type { StorageStatusData } from './result.storage-status.js';
 export type { VersionData } from './result.version.js';

@@ -4,6 +4,7 @@ import { CommandError, HumanActionRequired } from '../errors.js';
 import { backupFile, readTextIfExists, writeTextWithBackup } from '../fsutil.js';
 import type { Reporter } from '../reporter.js';
 import { helperArgs } from '../root-helper.js';
+import { assertWritable } from '../storage/mount.js';
 import type { RunOptions, RunResult, Runner } from './types.js';
 
 export type PlanEntry = ApplyData['plan'][number];
@@ -101,6 +102,41 @@ export class Executor {
     return result;
   }
 
+  /**
+   * A root operation the helper knows by name (`helper`: its operation and arguments) or, without a
+   * usable helper, the equivalent sudo commands (`fallback`). `input` goes to stdin only: a secret
+   * there never reaches the plan, a log or an argument list.
+   */
+  async rootOp(o: { helper: string[]; fallback: { command: string; args: string[]; input?: string }[]; reason: string; input?: string; allowFailure?: boolean }): Promise<RunResult> {
+    const h = this.opts.rootHelper;
+    if (h) this.helperUsable ??= this.runner.run('sudo', ['-n', '-l', h.path]).then((r) => r.code === 0);
+    const viaHelper = h && (await this.helperUsable) ? [h.path, ...o.helper] : null;
+    if (viaHelper) {
+      const line = `sudo ${viaHelper.join(' ')}`;
+      this.plan.push({ stepId: this.stepId, action: line, sudo: true, reason: o.reason });
+      if (this.opts.dryRun) return { code: 0, stdout: '', stderr: '' };
+      this.trace('sudo', ['-n', '--', ...viaHelper]);
+      const r = await this.runner.run('sudo', ['-n', '--', ...viaHelper], o.input !== undefined ? { input: o.input } : {});
+      if (r.code !== 0 && !o.allowFailure) throw new CommandError(line, r.code, r.stderr);
+      return r;
+    }
+    let last: RunResult = { code: 0, stdout: '', stderr: '' };
+    for (const f of o.fallback) {
+      if (f.input === undefined || this.opts.dryRun || !this.opts.interactiveSudo) {
+        last = await this.exec(f.command, f.args, { sudo: true, reason: o.reason, ...(f.input !== undefined ? { input: f.input } : {}), ...(o.allowFailure ? { allowFailure: true } : {}) });
+        continue;
+      }
+      // stdin carries the input, so the password is asked first (sudo -v, on the terminal), then the command runs with -n.
+      const line = `sudo ${f.command} ${f.args.join(' ')}`;
+      this.plan.push({ stepId: this.stepId, action: line, sudo: true, reason: o.reason });
+      this.reporter.log('warn', `sudo required: ${o.reason}`);
+      await this.runner.run('sudo', ['-v'], { interactive: true });
+      last = await this.runner.run('sudo', ['-n', '--', f.command, ...f.args], { input: f.input });
+      if (last.code !== 0 && !o.allowFailure) throw new CommandError(line, last.code, last.stderr);
+    }
+    return last;
+  }
+
   /** The helper call for a root command, when the helper does it and sudo lets this user run it without a password (asked once). */
   private async helperCall(command: string, args: string[]): Promise<string[] | null> {
     const h = this.opts.rootHelper;
@@ -135,6 +171,7 @@ export class Executor {
   async mkdirp(path: string, opts: { mode?: number } = {}): Promise<void> {
     this.plan.push({ stepId: this.stepId, action: `mkdir -p ${path}`, sudo: false });
     if (this.opts.dryRun) return;
+    assertWritable(path);
     await mkdir(path, { recursive: true, mode: opts.mode });
   }
 
@@ -161,6 +198,7 @@ export class Executor {
   ): Promise<{ backup: string | null }> {
     this.plan.push({ stepId: this.stepId, action: opts.description ?? `write ${path}`, sudo: false });
     if (this.opts.dryRun) return { backup: null };
+    assertWritable(path);
     this.trace('write', [path]);
     return writeTextWithBackup(path, content, { now: this.opts.now(), mode: opts.mode, dirMode: opts.dirMode });
   }

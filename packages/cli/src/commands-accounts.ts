@@ -1,5 +1,6 @@
 import type { AccountChangeData, AccountListData, DevhostConfig, LoginData } from '@devhost/contract';
 import { runSteps } from './apply.js';
+import { workVolumeOf } from './storage/volume.js';
 import { long, newExecutor, newStepContext, short, type GlobalOptions } from './command-support.js';
 import { accountsOf, environmentsOf, findAccount, type Account } from './config/accounts.js';
 import { appendTo, editConfigFile, removeFrom } from './config/edit.js';
@@ -52,6 +53,8 @@ export interface AccountAddOptions {
   dailyCostAlert?: number;
   noLogin: boolean;
   forceDefaultSwitch: boolean;
+  /** Account root; default <storage.workVolume.root>/<name> with a work volume, else ~/work/<name>. */
+  root?: string;
 }
 
 export function accountAddCommand(deps: Deps, g: GlobalOptions, opts: AccountAddOptions): Promise<number> {
@@ -87,7 +90,8 @@ export function accountAddCommand(deps: Deps, g: GlobalOptions, opts: AccountAdd
         name: opts.name,
         default: opts.default,
         configDir: opts.default ? null : `~/.claude-${opts.name}`,
-        root: `~/work/${opts.name}`,
+        // On the work volume when one is configured (spec A7.11); --root wins. Real paths, never ~/work symlinks.
+        root: opts.root ?? (workVolumeOf(loaded.config) ? `${workVolumeOf(loaded.config)!.root}/${opts.name}` : `~/work/${opts.name}`),
         portRange,
         git: { name: gitName, email: opts.gitEmail },
         alerts: { dailyCostUsd: opts.dailyCostAlert ?? null },

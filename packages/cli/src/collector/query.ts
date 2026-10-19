@@ -228,6 +228,21 @@ export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now:
     ).map((r) => r.model),
     usage: [...series.values()].sort((a, b) => a.ts - b.ts || a.account.localeCompare(b.account)),
     limits: KNOWN_LIMITS,
+    volume: volumeOf(db, config),
+  };
+}
+
+/** The work volume as last sampled (null without one, or before the first sample). */
+function volumeOf(db: Db, config: DevhostConfig): DashData['volume'] {
+  if (!config.storage?.workVolume) return null;
+  const row = db.get<{ value: string; updated_at: number }>("SELECT value, updated_at FROM kv WHERE key = 'volume'");
+  if (!row) return null;
+  const v = JSON.parse(row.value) as Record<string, unknown>;
+  return {
+    label: String(v['label']), mountPoint: String(v['mountPoint']), root: String(v['root']), ready: v['ready'] === true, mounted: v['mounted'] === true,
+    encrypted: (v['encrypted'] as boolean | null) ?? null, locked: (v['locked'] as boolean | null) ?? null,
+    totalBytes: (v['totalBytes'] as number | null) ?? null, freeBytes: (v['freeBytes'] as number | null) ?? null, freePct: (v['freePct'] as number | null) ?? null,
+    freeLimit: Number(v['freeLimit'] ?? 15), doubleMount: v['doubleMount'] === true, strayDirectory: v['strayDirectory'] === true, sampledAt: row.updated_at,
   };
 }
 
