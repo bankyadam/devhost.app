@@ -585,6 +585,86 @@
           }
         }
       }
+    },
+    "volume": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "The work volume (spec A7.12), as the collector last sampled it; null without one.",
+      "required": [
+        "label",
+        "mountPoint",
+        "root",
+        "ready",
+        "mounted",
+        "encrypted",
+        "locked",
+        "totalBytes",
+        "freeBytes",
+        "freePct",
+        "freeLimit"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "mountPoint": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "mounted": {
+          "type": "boolean"
+        },
+        "encrypted": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "locked": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "totalBytes": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "freeBytes": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "freePct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "freeLimit": {
+          "type": "number"
+        },
+        "doubleMount": {
+          "type": "boolean"
+        },
+        "strayDirectory": {
+          "type": "boolean"
+        },
+        "sampledAt": {
+          "type": "number"
+        }
+      }
     }
   }
 }

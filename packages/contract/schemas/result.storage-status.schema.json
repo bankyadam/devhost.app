@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.storage-status.schema.json",
+  "title": "StorageStatusData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "configured"
+  ],
+  "properties": {
+    "configured": {
+      "type": "boolean"
+    },
+    "volume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "uuid",
+        "mountPoint",
+        "mounted",
+        "uuidMatch",
+        "markerMatch",
+        "ready",
+        "doubleMount",
+        "strayDirectory",
+        "apfs",
+        "encrypted",
+        "locked",
+        "ownership",
+        "totalBytes",
+        "freeBytes"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "mountPoint": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "mounted": {
+          "type": "boolean"
+        },
+        "uuidMatch": {
+          "type": "boolean"
+        },
+        "markerMatch": {
+          "type": "boolean"
+        },
+        "ready": {
+          "type": "boolean",
+          "description": "Mounted, uuid and marker match: what `storage wait` waits for."
+        },
+        "doubleMount": {
+          "type": "boolean"
+        },
+        "strayDirectory": {
+          "type": "boolean"
+        },
+        "apfs": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "encrypted": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "locked": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "ownership": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "totalBytes": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "freeBytes": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "encryptedInConfig": {
+          "type": "boolean"
+        },
+        "spotlightOff": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "automountWithoutLogin": {
+          "type": "boolean"
+        },
+        "unlockDaemon": {
+          "type": "boolean"
+        },
+        "passphraseStored": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -148,4 +148,23 @@ export interface DashData {
       total: number;
     }[];
   };
+  /**
+   * The work volume (spec A7.12), as the collector last sampled it; null without one.
+   */
+  volume?: {
+    label: string;
+    mountPoint: string;
+    root: string;
+    ready: boolean;
+    mounted: boolean;
+    encrypted: boolean | null;
+    locked: boolean | null;
+    totalBytes: number | null;
+    freeBytes: number | null;
+    freePct: number | null;
+    freeLimit: number;
+    doubleMount?: boolean;
+    strayDirectory?: boolean;
+    sampledAt?: number;
+  } | null;
 }

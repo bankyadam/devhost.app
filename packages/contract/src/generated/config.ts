@@ -16,6 +16,33 @@ export interface DevhostConfig {
       wakeOnLan?: boolean;
     };
   };
+  /**
+   * An external work volume for project data (spec A7.12); omit workVolume to keep everything on the internal disk.
+   */
+  storage?: {
+    workVolume?: {
+      /**
+       * Volume name; mounted at /Volumes/<label>.
+       */
+      label: string;
+      /**
+       * APFS volume UUID: the identity check (never the path alone).
+       */
+      uuid: string;
+      encrypted?: boolean;
+      /**
+       * Account roots default to <root>/<account>; must be on the volume.
+       */
+      root: string;
+      /**
+       * false: Spotlight indexing off on the volume.
+       */
+      spotlight?: boolean;
+      alerts?: {
+        freePercent?: number;
+      };
+    };
+  };
   accounts?: {
     name: string;
     default?: boolean;
@@ -113,7 +140,7 @@ export interface DevhostConfig {
     server?: string;
   };
   /**
-   * devhost plugins by name: built-in ones (disk-cleanup, session-stop) are on unless enabled is false; one in ~/.config/devhost/plugins/<name>/index.js only with enabled: true.
+   * devhost plugins by name: built-in ones (stats) are on unless enabled is false; one in ~/.config/devhost/plugins/<name>/index.js only with enabled: true.
    */
   plugins?: {
     [k: string]: {

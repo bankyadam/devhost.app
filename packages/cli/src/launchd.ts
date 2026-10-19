@@ -21,6 +21,11 @@ export interface DaemonSpec {
    * network comes up after launchd starts the daemons, and Claude Code exits on a failed lookup.
    */
   waitForHost?: string;
+  /**
+   * A command that must succeed after the network wait and before the program starts (the work
+   * volume's `devhost storage wait`); when it fails the job exits and launchd retries it.
+   */
+  gate?: string[];
 }
 
 /** Overridable so tests never touch the real /Library/LaunchDaemons. */
@@ -40,11 +45,23 @@ export const LOG_WRAPPER = 'exec >>"$0" 2>&1 && exec "$@"';
 /** The line that starts each run in a service log (`waitForHost` services). */
 export const START_MARKER = '[devhost] started';
 const HOST = /^[A-Za-z0-9.-]+$/;
-export const networkWrapper = (host: string): string => {
+const shq = (a: string): string => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
+
+export const networkWrapper = (host: string, gate?: string[]): string => {
   if (!HOST.test(host)) throw new Error(`not a host name: ${host}`);
-  return `exec >>"$0" 2>&1 && echo "${START_MARKER} $(date '+%Y-%m-%d %H:%M:%S')" && i=0 && until /usr/bin/dscacheutil -q host -a name ${host} | /usr/bin/grep -q address || [ $i -ge 90 ]; do i=$((i+1)); sleep 2; done; exec "$@"`;
+  const before = gate?.length ? `${gate.map(shq).join(' ')} || exit 75; ` : '';
+  return `exec >>"$0" 2>&1 && echo "${START_MARKER} $(date '+%Y-%m-%d %H:%M:%S')" && i=0 && until /usr/bin/dscacheutil -q host -a name ${host} | /usr/bin/grep -q address || [ $i -ge 90 ]; do i=$((i+1)); sleep 2; done; ${before}exec "$@"`;
 };
-export const loggedArgs = (spec: Pick<DaemonSpec, 'args' | 'logPath' | 'waitForHost'>): string[] => ['/bin/sh', '-c', spec.waitForHost ? networkWrapper(spec.waitForHost) : LOG_WRAPPER, spec.logPath, ...spec.args];
+/** The log wrapper with a gate and no network wait (Colima waiting for the work volume). */
+export const gateWrapper = (gate: string[]): string => `exec >>"$0" 2>&1 && ${gate.map(shq).join(' ')} || exit 75; exec "$@"`;
+
+export const loggedArgs = (spec: Pick<DaemonSpec, 'args' | 'logPath' | 'waitForHost' | 'gate'>): string[] => [
+  '/bin/sh',
+  '-c',
+  spec.waitForHost ? networkWrapper(spec.waitForHost, spec.gate) : spec.gate?.length ? gateWrapper(spec.gate) : LOG_WRAPPER,
+  spec.logPath,
+  ...spec.args,
+];
 
 export async function renderPlist(spec: DaemonSpec, user: string): Promise<string> {
   return renderTemplate('launchd.plist', {

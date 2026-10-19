@@ -14,6 +14,7 @@ import {
 } from '../config/accounts.js';
 import { applyDaemon, checkDaemon, daemonInstalled, removeDaemon, serviceEnv, type DaemonSpec } from '../launchd.js';
 import { toolPath } from '../state.js';
+import { onVolume, workVolumeOf } from '../storage/volume.js';
 import { DevhostError } from '../errors.js';
 import { ok, todo, type EnvInfo, type Step, type StepContext } from './types.js';
 
@@ -58,8 +59,13 @@ export async function rcSpec(ctx: StepContext, a: Account, e: Environment): Prom
     logPath: rcLogPath(ctx.home, a.name, e.name),
     throttle: 30,
     waitForHost: CLAUDE_API_HOST,
+    // Only environments on the work volume wait for it; every other plist stays as it was (spec A7).
+    ...(onVolume(workVolumeOf(ctx.config), info.dir) ? { gate: storageGate(ctx) } : {}),
   };
 }
+
+/** `devhost storage wait` as a service runs it (the installed wrapper, this config). */
+export const storageGate = (ctx: Pick<StepContext, 'brewPrefix' | 'configPath'>): string[] => [`${ctx.brewPrefix}/bin/devhost`, 'storage', 'wait', '--timeout', '120', '--config', ctx.configPath];
 
 /** Best effort: Claude Code keeps `projects[<dir>].hasTrustDialogAccepted` in its state file. */
 export async function workspaceTrusted(ctx: StepContext, a: Account, dir: string): Promise<boolean> {

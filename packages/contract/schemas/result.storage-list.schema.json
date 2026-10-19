@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.storage-list.schema.json",
+  "title": "StorageListData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "disks"
+  ],
+  "properties": {
+    "disks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "device",
+          "model",
+          "sizeBytes",
+          "volumes"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "number"
+          },
+          "volumes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "device",
+                "name",
+                "uuid",
+                "mountPoint",
+                "sizeBytes"
+              ],
+              "properties": {
+                "device": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "uuid": {
+                  "type": "string"
+                },
+                "mountPoint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sizeBytes": {
+                  "type": "number"
+                },
+                "adopted": {
+                  "type": "boolean",
+                  "description": "It is the configured work volume."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

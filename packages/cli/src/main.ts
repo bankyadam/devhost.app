@@ -18,6 +18,7 @@ import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, env
 import { collectorLogsCommand, collectorRunCommand, dashCommand, notifyCommand, topCommand } from './commands-collector.js';
 import { doctorCommand, statusCommand, uninstallCommand } from './commands-doctor.js';
 import { sessionReattachCommand } from './reattach.js';
+import { storageAdoptCommand, storageListCommand, storageMigrateCommand, storagePrepareCommand, storageSetPassphraseCommand, storageStatusCommand, storageWaitCommand } from './commands-storage.js';
 import { pluginInstallCommand, pluginListCommand, pluginRunCommand, pluginToggleCommand, pluginUninstallCommand, pluginWidgetsCommand } from './commands-plugins.js';
 import { closeInput } from './prompter.js';
 import { resolveConfigPath } from './config/paths.js';
@@ -141,10 +142,11 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .option('--default', 'use Claude Code\'s default config dir (only one account may)')
     .option('--daily-cost-alert <usd>', 'alert when the estimated daily cost passes this', (v) => Number(v))
     .option('--no-login', 'skip the login flow; doctor will report the account as not logged in')
+    .option('--root <path>', 'account root (default: on the work volume when one is configured, else ~/work/<name>)')
     .option('--force-default-switch', 'not supported in v1')
     .action(
       run(() => {
-        const o = account.commands.find((c) => c.name() === 'add')!.opts<{ name: string; gitEmail: string; gitName?: string; default?: boolean; dailyCostAlert?: number; login: boolean; forceDefaultSwitch?: boolean }>();
+        const o = account.commands.find((c) => c.name() === 'add')!.opts<{ name: string; gitEmail: string; gitName?: string; default?: boolean; dailyCostAlert?: number; login: boolean; forceDefaultSwitch?: boolean; root?: string }>();
         return accountAddCommand(deps, globals(), {
           name: o.name,
           gitEmail: o.gitEmail,
@@ -153,6 +155,7 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
           dailyCostAlert: o.dailyCostAlert,
           noLogin: !o.login,
           forceDefaultSwitch: o.forceDefaultSwitch === true,
+          ...(o.root ? { root: o.root } : {}),
         });
       }),
     );
@@ -246,6 +249,35 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .option('--dry-run', 'only print the plan')
     .action((id: string, o: { dryRun?: boolean }) => run(() => sessionReattachCommand(deps, globals(), id, o.dryRun === true))());
 
+  const storage = program.command('storage').description('The external work volume for project data (spec A7.12)');
+  storage.command('list').description('External disks and their APFS volumes').action(run(() => storageListCommand(deps, globals())));
+  storage.command('status').description('The work volume: mounted, identity, encryption, ownership, free space, Spotlight').action(run(() => storageStatusCommand(deps, globals())));
+  storage
+    .command('wait')
+    .description('Exit 0 once the work volume is mounted and is the configured one (services start through this)')
+    .option('--timeout <seconds>', 'give up after this long', (v) => Number(v), 300)
+    .action((o: { timeout: number }) => run(() => storageWaitCommand(deps, globals(), o.timeout))());
+  storage
+    .command('adopt <volume>')
+    .description('Make an existing external APFS volume the work volume (config and a marker file on it)')
+    .option('--root <path>', 'where account roots go (default /Volumes/<name>/work)')
+    .action((volume: string, o: { root?: string }) => run(() => storageAdoptCommand(deps, globals(), { volume, ...(o.root ? { root: o.root } : {}) }))());
+  storage
+    .command('prepare <disk>')
+    .description('ERASE an external disk as APFS (encrypted with --encrypted), then adopt it. Destructive; CLI only')
+    .requiredOption('--label <name>', 'name of the new volume')
+    .option('--encrypted', 'encrypt the new volume (passphrase from stdin)')
+    .option('--yes-erase', 'confirm that everything on the disk is destroyed')
+    .action((disk: string, o: { label: string; encrypted?: boolean; yesErase?: boolean }) => run(() => storagePrepareCommand(deps, globals(), { disk, label: o.label, encrypted: o.encrypted === true, yesErase: o.yesErase === true }))());
+  storage.command('set-passphrase').description('Store or rotate the work volume passphrase in the System keychain (read from stdin)').action(run(() => storageSetPassphraseCommand(deps, globals())));
+  storage
+    .command('migrate')
+    .description("Move an account's root onto the work volume (the old copy stays until --cleanup)")
+    .requiredOption('--account <name>', 'the account to move')
+    .option('--cleanup', 'delete the old copy left by an earlier migrate (asks first)')
+    .option('--dry-run', 'only print the plan')
+    .action((o: { account: string; cleanup?: boolean; dryRun?: boolean }) => run(() => storageMigrateCommand(deps, globals(), { account: o.account, cleanup: o.cleanup === true, dryRun: o.dryRun === true }))());
+
   const plugin = program.command('plugin').description('devhost plugins: built-in ones and ~/.config/devhost/plugins');
   plugin.command('list').description('Plugins, their actions and checks').action(run(() => pluginListCommand(deps, globals())));
   plugin
@@ -279,11 +311,12 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .description('Remove services, shell/git blocks and generated files; never projects, Claude config dirs or credentials')
     .option('--keep-packages', 'do not uninstall Homebrew packages')
     .option('--purge-data', 'also delete the collector database')
+    .option('--purge-storage', "also remove the work volume's unlock service and keychain item (never the volume or its data)")
     .option('--dry-run', 'print what would be removed, including every sudo command')
     .action(
       run(() => {
-        const o = program.commands.find((c) => c.name() === 'uninstall')!.opts<{ keepPackages?: boolean; purgeData?: boolean; dryRun?: boolean }>();
-        return uninstallCommand(deps, globals(), { keepPackages: o.keepPackages === true, purgeData: o.purgeData === true, dryRun: o.dryRun === true });
+        const o = program.commands.find((c) => c.name() === 'uninstall')!.opts<{ keepPackages?: boolean; purgeData?: boolean; purgeStorage?: boolean; dryRun?: boolean }>();
+        return uninstallCommand(deps, globals(), { keepPackages: o.keepPackages === true, purgeData: o.purgeData === true, purgeStorage: o.purgeStorage === true, dryRun: o.dryRun === true });
       }),
     );
 

@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.storage-change.schema.json",
+  "title": "StorageChangeData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "action"
+  ],
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "adopted",
+        "prepared",
+        "passphrase-set",
+        "migrated",
+        "cleaned-up"
+      ]
+    },
+    "label": {
+      "type": "string"
+    },
+    "uuid": {
+      "type": "string"
+    },
+    "root": {
+      "type": "string"
+    },
+    "account": {
+      "type": "string"
+    },
+    "from": {
+      "type": "string"
+    },
+    "to": {
+      "type": "string"
+    },
+    "files": {
+      "type": "integer"
+    },
+    "bytes": {
+      "type": "number"
+    },
+    "environments": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "plan": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  }
+}

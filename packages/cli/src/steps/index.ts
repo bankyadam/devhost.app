@@ -9,6 +9,7 @@ import { packagesStep } from './packages.js';
 import { routingStep } from './routing.js';
 import { runtimesStep } from './runtimes.js';
 import { shellStep } from './shell.js';
+import { storageSteps } from './storage.js';
 import { systemSteps } from './system.js';
 import { tailscaleStep } from './tailscale.js';
 import type { Step } from './types.js';
@@ -20,6 +21,7 @@ import type { Step } from './types.js';
 export function buildSteps(config: DevhostConfig, extra: (config: DevhostConfig) => Step[] = extraSteps): Step[] {
   return [
     ...systemSteps,
+    ...storageSteps,
     packagesStep,
     runtimesStep,
     shellStep,

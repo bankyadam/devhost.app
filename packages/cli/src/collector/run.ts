@@ -13,6 +13,7 @@ import { envLocations, type EnvLocation } from './hooks.js';
 import { Ingestor } from './ingest.js';
 import type { Notifier } from './notify.js';
 import { retain, rollup } from './rollup.js';
+import { volumeStatus, workVolumeOf } from '../storage/volume.js';
 import { rotateLogs } from './logs.js';
 import {
   cpuPercent, cpuTimes, memoryFromVmStat, parseDockerPs, parseDockerStats, parseDu, parseLsofCwd, parsePs, parseVmStat,
@@ -115,6 +116,7 @@ export class Collector {
   async sampleTick(): Promise<void> {
     await this.safe('system sample', () => this.sampleSystem());
     await this.safe('process sample', () => this.sampleProcesses());
+    await this.safe('volume sample', () => this.sampleVolume());
     await this.safe('alerts', () => this.evaluateAlerts());
   }
 
@@ -141,6 +143,18 @@ export class Collector {
       disk.totalBytes > 0 ? (disk.freeBytes / disk.totalBytes) * 100 : null, Math.round(disk.freeBytes), this.os.loadavg()[0] ?? null,
     );
     this.db.kvSet('uptime_s', String(Math.round(this.os.uptime())), now);
+  }
+
+  /** The work volume every sample (spec A10.1): its state for the dashboard and the alerts. */
+  private async sampleVolume(): Promise<void> {
+    const v = workVolumeOf(this.config);
+    if (!v) {
+      this.db.run("DELETE FROM kv WHERE key = 'volume'");
+      return;
+    }
+    const s = await volumeStatus(this.exec, v);
+    const freePct = s.totalBytes && s.freeBytes !== null ? (s.freeBytes / s.totalBytes) * 100 : null;
+    this.db.kvSet('volume', JSON.stringify({ ...s, root: v.root, freePct, freeLimit: v.alerts?.freePercent ?? 15, encryptedInConfig: v.encrypted === true }), this.now());
   }
 
   private async sampleProcesses(): Promise<void> {
@@ -326,7 +340,9 @@ export class Collector {
       const v = this.db.kvGet(`auth:${a.name}`);
       if (v !== null) auth.set(a.name, v === 'ok');
     }
-    await this.alerts.evaluate(thresholds, { memPct: sys?.mem_pct ?? null, diskFreePct: sys?.disk_free_pct ?? null, costToday, restarts, auth });
+    const vol = workVolumeOf(cfg) ? (JSON.parse(this.db.kvGet('volume') ?? 'null') as null | { label: string; mountPoint: string; mounted: boolean; uuidMatch: boolean; markerMatch: boolean; doubleMount: boolean; strayDirectory: boolean; freePct: number | null; freeLimit: number }) : null;
+    const volume = vol ? { label: vol.label, mountPoint: vol.mountPoint, mounted: vol.mounted, identityOk: vol.uuidMatch && vol.markerMatch, doubleMount: vol.doubleMount, strayDirectory: vol.strayDirectory, freePct: vol.freePct, freeLimit: vol.freeLimit } : null;
+    await this.alerts.evaluate(thresholds, { memPct: sys?.mem_pct ?? null, diskFreePct: sys?.disk_free_pct ?? null, costToday, restarts, auth, volume });
   }
 
   // ---- lifecycle ----
