@@ -3,6 +3,7 @@ import type { AccountListData, EnvListData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import { envCreateArgs, type EnvCreateInput } from '../client/client';
 import { errorMessage } from '../client/errors';
+import { seriesSlot, seriesVar } from '../lib/colors';
 import { ENV_SLUG, predictEnvBlock } from '../lib/ports';
 import { Badge, Dialog, Empty, Field, Menu, WizardStep } from '../ui/primitives';
 import { RunDialog } from '../ui/run-dialog';
@@ -12,6 +13,14 @@ import { openClaude, useWebApps } from '../use-web-apps';
 
 type Env = EnvListData['environments'][number];
 
+/** Environments grouped by account: accounts in `order` (the config's) first, then any other in order of appearance. */
+export function byAccount(envs: Env[], order: readonly string[] = []): [string, Env[]][] {
+  const groups = new Map<string, Env[]>();
+  for (const a of order) if (envs.some((e) => e.account === a)) groups.set(a, []);
+  for (const e of envs) groups.set(e.account, [...(groups.get(e.account) ?? []), e]);
+  return [...groups];
+}
+
 export function Environments() {
   const { client, transport, connection, reportUnreachable } = useApp();
   const [envs, setEnvs] = useState<Env[] | null>(null);
@@ -19,6 +28,9 @@ export function Environments() {
   const plugins = usePlugins();
   const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; env: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [accountOrder, setAccountOrder] = useState<string[]>([]);
+  // The dashboard colors accounts by their place in the config: the same here.
+  const accountNames = accountOrder.length > 0 ? accountOrder : envs ? byAccount(envs).map(([a]) => a) : [];
   const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env } | { kind: 'setup'; env: Env }>(null);
 
   const refresh = useCallback(async () => {
@@ -34,9 +46,10 @@ export function Environments() {
   useEffect(() => {
     if (connection.kind !== 'connected') return;
     void refresh();
+    void client.accounts().then((a) => setAccountOrder(a.accounts.map((x) => x.name))).catch(() => undefined);
     const t = setInterval(() => void refresh(), 10_000);
     return () => clearInterval(t);
-  }, [connection.kind, refresh]);
+  }, [client, connection.kind, refresh]);
 
   return (
     <div className="content">
@@ -45,57 +58,64 @@ export function Environments() {
         <span className="push" style={{ marginLeft: 'auto' }}><button className="btn primary" onClick={() => setDialog({ kind: 'create' })}>New environment</button></span>
       </div>
       {error && <div className="notice bad" role="alert">{error}</div>}
-      <section className="card">
-        {envs === null ? <Empty>Loading…</Empty> : envs.length === 0 ? <Empty>No environments yet. Create one to get a project with its own Remote Control session.</Empty> : (
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Environment</th><th>Remote Control service</th><th>Port block</th><th>Compose</th><th>Directory</th><th><span className="sr">Actions</span></th></tr></thead>
-              <tbody>
-                {envs.map((e) => (
-                  <tr key={e.name}>
-                    <td><b>{e.name}</b> <span className="muted">{e.account}</span></td>
-                    <td>{e.service.state === 'running' ? <Badge tone="good">running{e.service.pid ? ` · pid ${e.service.pid}` : ''}</Badge> : e.service.state === 'stopped' ? <Badge tone="bad">stopped</Badge> : e.service.state === 'not-installed' ? <Badge tone="warn">not installed</Badge> : <Badge>off</Badge>}</td>
-                    <td className="mono">{e.portBase === null ? '–' : `${e.portBase}–${e.portBase + 99}`}</td>
-                    <td>{e.compose}</td>
-                    <td className="mono small" title={e.dir}>{e.dir}{e.dirExists === false && <> <Badge tone="bad">missing</Badge></>}</td>
-                    <td>
-                      <div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
-                        {(() => {
-                          const app = webApps.appFor(e.account);
-                          const where = e.remoteControl.url ? `${e.name}'s Remote Control environment` : 'claude.ai/code';
-                          return (
-                            <button
-                              className="btn sm primary"
-                              aria-label={`Open Claude for ${e.name}`}
-                              title={app ? `Open ${where} in ${app}` : `Open ${where} in the browser (no web app for ${e.account} yet, see Accounts)`}
-                              onClick={() => void openClaude(transport, app, e.remoteControl.url)}
-                            >▶</button>
-                          );
-                        })()}
-                        <Menu
-                          label="…"
-                          caret={false}
-                          ariaLabel={`More actions for ${e.name}`}
-                          items={[
-                            { label: 'Start', hidden: !e.remoteControl.enabled, disabled: e.service.state === 'running', onSelect: () => setDialog({ kind: 'service', env: e, action: 'start' }) },
-                            { label: 'Stop', hidden: !e.remoteControl.enabled, disabled: e.service.state !== 'running', onSelect: () => setDialog({ kind: 'service', env: e, action: 'stop' }) },
-                            { label: 'Restart', hidden: !e.remoteControl.enabled, onSelect: () => setDialog({ kind: 'service', env: e, action: 'restart' }) },
-                            { label: 'Logs', onSelect: () => setDialog({ kind: 'logs', env: e }) },
-                            { label: 'Run setup again', onSelect: () => setDialog({ kind: 'setup', env: e }) },
-                            ...plugins.actions('environment').map((a) => ({ label: `${a.title}${a.destructive ? '…' : ''}`, danger: a.destructive, onSelect: () => setPluginRun({ action: a, env: e.name }) })),
-                            { label: 'Delete…', danger: true, onSelect: () => setDialog({ kind: 'delete', env: e }) },
-                          ]}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <p className="note">Start, stop and restart change a system service, so they need the sudo password; if it cannot be asked here you get a Terminal window for it. A stopped service stays stopped until you start it or the Mac mini reboots.</p>
-      </section>
+      {envs === null ? <section className="card"><Empty>Loading…</Empty></section> : envs.length === 0 ? <section className="card"><Empty>No environments yet. Create one to get a project with its own Remote Control session.</Empty></section> : (
+        byAccount(envs, accountOrder).map(([account, list]) => (
+          <section className="card" key={account} aria-label={`Environments of ${account}`}>
+            <header>
+              <i style={{ width: 10, height: 10, borderRadius: 2, background: seriesVar(seriesSlot(accountNames, account)) }} aria-hidden="true" />
+              <h2>{account}</h2>
+              <span className="note">{list.length} {list.length === 1 ? 'environment' : 'environments'}</span>
+            </header>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Environment</th><th>Remote Control service</th><th>Port block</th><th>Compose</th><th>Directory</th><th><span className="sr">Actions</span></th></tr></thead>
+                <tbody>
+                  {list.map((e) => (
+                    <tr key={e.name}>
+                      <td><b>{e.name}</b></td>
+                      <td>{e.service.state === 'running' ? <Badge tone="good">running{e.service.pid ? ` · pid ${e.service.pid}` : ''}</Badge> : e.service.state === 'stopped' ? <Badge tone="bad">stopped</Badge> : e.service.state === 'not-installed' ? <Badge tone="warn">not installed</Badge> : <Badge>off</Badge>}</td>
+                      <td className="mono">{e.portBase === null ? '–' : `${e.portBase}–${e.portBase + 99}`}</td>
+                      <td>{e.compose}</td>
+                      <td className="mono small" title={e.dir}>{e.dir}{e.dirExists === false && <> <Badge tone="bad">missing</Badge></>}</td>
+                      <td>
+                        <div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
+                          {(() => {
+                            const app = webApps.appFor(e.account);
+                            const where = e.remoteControl.url ? `${e.name}'s Remote Control environment` : 'claude.ai/code';
+                            return (
+                              <button
+                                className="btn sm primary"
+                                aria-label={`Open Claude for ${e.name}`}
+                                title={app ? `Open ${where} in ${app}` : `Open ${where} in the browser (no web app for ${e.account} yet, see Accounts)`}
+                                onClick={() => void openClaude(transport, app, e.remoteControl.url)}
+                              >▶</button>
+                            );
+                          })()}
+                          <Menu
+                            label="…"
+                            caret={false}
+                            ariaLabel={`More actions for ${e.name}`}
+                            items={[
+                              { label: 'Start', hidden: !e.remoteControl.enabled, disabled: e.service.state === 'running', onSelect: () => setDialog({ kind: 'service', env: e, action: 'start' }) },
+                              { label: 'Stop', hidden: !e.remoteControl.enabled, disabled: e.service.state !== 'running', onSelect: () => setDialog({ kind: 'service', env: e, action: 'stop' }) },
+                              { label: 'Restart', hidden: !e.remoteControl.enabled, onSelect: () => setDialog({ kind: 'service', env: e, action: 'restart' }) },
+                              { label: 'Logs', onSelect: () => setDialog({ kind: 'logs', env: e }) },
+                              { label: 'Run setup again', onSelect: () => setDialog({ kind: 'setup', env: e }) },
+                              ...plugins.actions('environment').map((a) => ({ label: `${a.title}${a.destructive ? '…' : ''}`, danger: a.destructive, onSelect: () => setPluginRun({ action: a, env: e.name }) })),
+                              { label: 'Delete…', danger: true, onSelect: () => setDialog({ kind: 'delete', env: e }) },
+                            ]}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ))
+      )}
+      <p className="note">Start, stop and restart change a system service, so they need the sudo password; if it cannot be asked here you get a Terminal window for it. A stopped service stays stopped until you start it or the Mac mini reboots.</p>
 
       {pluginRun && <PluginRunDialog action={pluginRun.action} target={{ env: pluginRun.env }} onClose={() => setPluginRun(null)} />}
       {dialog?.kind === 'setup' && (
