@@ -119,6 +119,9 @@ export interface FakeState {
   /** Who each config dir is signed in as (`claude auth status` email), and who the next `auth login` signs in. */
   identities?: Map<string, string>;
   loginAs?: string;
+  /** Repositories (by directory) that have a commit; a clone has one unless its remote is in emptyRemotes. */
+  commits?: Set<string>;
+  emptyRemotes?: Set<string>;
   /** Keychain items by service (`security find-generic-password -s <service> -w`). */
   keychain?: Map<string, string>;
   /** External volumes diskutil knows (mounted ones also need their mount directory, see mountVolume). */
@@ -313,9 +316,15 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     }
     if ((m = /^git clone -- (\S+) (\S+)$/.exec(line))) {
       mkdirSync(join(m[2]!, '.git', 'info'), { recursive: true });
+      if (!state.emptyRemotes?.has(m[1]!)) (state.commits ??= new Set()).add(m[2]!);
       return {};
     }
     if ((m = /^git -C (\S+) rev-parse --git-dir$/.exec(line))) return { code: existsSync(join(m[1]!, '.git')) ? 0 : 128 };
+    if ((m = /^git -C (\S+) rev-parse --verify --quiet HEAD$/.exec(line))) return { code: existsSync(join(m[1]!, '.git')) && (state.commits ??= new Set()).has(m[1]!) ? 0 : 1 };
+    if ((m = /^git -C (\S+) commit --allow-empty --quiet -m Initial commit$/.exec(line))) {
+      (state.commits ??= new Set()).add(m[1]!);
+      return {};
+    }
     if ((m = /^git -C (\S+) log --branches --not --remotes --oneline$/.exec(line))) return { stdout: state.unpushed.get(m[1]!) ?? '' };
     if ((m = /^git -C (\S+) status --porcelain$/.exec(line))) return { stdout: '' };
     if ((m = /^docker compose -p (\S+) up -d$/.exec(line))) {
