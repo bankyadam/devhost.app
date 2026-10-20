@@ -11,7 +11,7 @@ import { authStatus, claudeBinary, claudeRunOptions, loginIdentity, stripAnsi } 
 import type { Executor } from '../runner/executor.js';
 import { miseBinary } from '../mise.js';
 import { brewfilePath, renderBrewfile, BUNDLE_CHECK_ENV, bundleCheckArgs } from '../steps/packages.js';
-import { COMPOSE_FILES, envrcFor, workspaceTrusted } from '../steps/env.js';
+import { COMPOSE_FILES, envrcFor, hasCommit, workspaceTrusted } from '../steps/env.js';
 import { COLIMA_LABEL } from '../steps/docker.js';
 import { COLLECTOR_LABEL } from '../steps/collector.js';
 import { parseTailscale } from '../steps/tailscale.js';
@@ -316,6 +316,9 @@ async function oneEnv(c: DoctorContext, a: Account, e: Environment): Promise<Che
     return [fail(`${id}.repo`, `${dir} is not a git repository`, `devhost apply --only ${id}`)];
   }
   out.push(ok(`${id}.repo`, dir));
+  if (e.remoteControl?.enabled !== false && (e.remoteControl?.spawn ?? 'worktree') === 'worktree' && !(await hasCommit(exec, dir))) {
+    out.push(fail(`${id}.head`, 'the repository has no commit: Remote Control cannot start worktree sessions ("Failed to resolve base branch HEAD")', `devhost apply --only ${id}  # adds an empty first commit (local only)`));
+  }
 
   const rcOn = e.remoteControl?.enabled !== false;
   if (rcOn) {

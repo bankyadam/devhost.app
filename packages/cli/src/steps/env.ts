@@ -118,6 +118,18 @@ async function isGitRepo(ctx: StepContext, dir: string): Promise<boolean> {
   return (await ctx.exec.query('git', ['-C', dir, 'rev-parse', '--git-dir'])).code === 0;
 }
 
+/**
+ * Does the repository have a commit? An empty one (`git init`, or a clone of an empty remote) has
+ * an unborn HEAD, and Remote Control's `--spawn worktree` cannot start any session from it ("Failed
+ * to resolve base branch HEAD").
+ */
+export async function hasCommit(exec: StepContext['exec'], dir: string): Promise<boolean> {
+  return (await exec.query('git', ['-C', dir, 'rev-parse', '--verify', '--quiet', 'HEAD'])).code === 0;
+}
+
+/** Worktree sessions need a commit to branch from: an empty repository gets an empty first commit (local only, never pushed). */
+const needsFirstCommit = (e: Environment): boolean => e.remoteControl?.enabled !== false && (e.remoteControl?.spawn ?? 'worktree') === 'worktree';
+
 export function envStep(a: Account, e: Environment): Step {
   const id = `env.${e.name}`;
   return {
@@ -136,6 +148,7 @@ export function envStep(a: Account, e: Environment): Step {
         const exclude = (await ctx.exec.readText(join(dir, '.git', 'info', 'exclude'))) ?? '';
         if (!exclude.split('\n').includes('.envrc')) problems.push('.envrc is not git-excluded');
         if (e.compose !== 'off' && (await composeFile(ctx, dir)) && !(await composeUp(ctx, e, dir))) problems.push('compose services are not up');
+        if (needsFirstCommit(e) && !(await hasCommit(ctx.exec, dir))) problems.push('the repository has no commit: worktree sessions cannot start');
       }
 
       if (rcEnabled) {
@@ -163,6 +176,10 @@ export function envStep(a: Account, e: Environment): Step {
           await exec.mkdirp(dir);
           await exec.exec('git', ['init', dir]);
         }
+      }
+      if (needsFirstCommit(e) && !(await hasCommit(exec, dir))) {
+        // The account's git identity applies (includeIf on the account root); nothing is pushed.
+        await exec.exec('git', ['-C', dir, 'commit', '--allow-empty', '--quiet', '-m', 'Initial commit'], { reason: 'an empty repository: worktree sessions need a commit to branch from' });
       }
       await exec.writeText(join(dir, '.envrc'), envrcFor(a.name, e.name, base), { description: `write ${join(dir, '.envrc')}` });
       const excludeFile = join(dir, '.git', 'info', 'exclude');

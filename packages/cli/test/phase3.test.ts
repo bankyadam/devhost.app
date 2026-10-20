@@ -393,6 +393,28 @@ describe('environments', () => {
     await expect(stat(join(env.home, 'LaunchDaemons', 'com.devhost.reattach.cse_02Gone.plist'))).rejects.toThrow();
   });
 
+  it('an empty repository gets an empty first commit for worktree sessions; without Remote Control it is left alone; doctor reports one without', async () => {
+    const s = await withAccount();
+    const { env, mac } = s;
+    mac.state.emptyRemotes = new Set(['git@gitlab.com:acme/new.git']);
+    feed(env, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'fresh', '--repo', 'git@gitlab.com:acme/new.git', '--json')).toBe(0);
+    const dir = join(env.home, 'work', 'business', 'fresh');
+    expect(mac.runner.lines()).toContain(`git -C ${dir} commit --allow-empty --quiet -m Initial commit`);
+    expect(mac.runner.lines().some((l) => /git .*push/.test(l))).toBe(false); // local only
+
+    mac.runner.calls.length = 0;
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'plain', '--no-rc')).toBe(0);
+    expect(mac.runner.lines().some((l) => l.includes('commit --allow-empty'))).toBe(false);
+
+    mac.state.commits!.delete(dir);
+    env.out.length = 0;
+    await env.run('doctor', '--json');
+    expect((lastEnvelope(env).data as { checks: { id: string; status: string }[] }).checks.find((c) => c.id === 'env.fresh.head')).toMatchObject({ status: 'fail' });
+    expect(await env.run('apply', '--only', 'env.fresh')).toBe(0);
+    expect(mac.state.commits!.has(dir)).toBe(true);
+  });
+
   it('a second apply after creation changes nothing', async () => {
     const { env } = await created();
     expect(await env.run('apply')).toBe(0); // converge the machine-level steps first
