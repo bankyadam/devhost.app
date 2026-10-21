@@ -1843,6 +1843,130 @@ export const schemas = {
             }
           }
         }
+      },
+      "profile": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "description": "Where agents spent their time in the range, and memory (spec A10.8). Null until the first tool_result event arrives.",
+        "required": [
+          "since",
+          "busyMs",
+          "modelMs",
+          "localMs",
+          "localOnlyMs",
+          "networkMs",
+          "cpuBoundMs",
+          "tools",
+          "memory"
+        ],
+        "properties": {
+          "since": {
+            "type": "number",
+            "description": "When tool runs started to be recorded (ms since epoch); nothing before it counts."
+          },
+          "busyMs": {
+            "type": "number",
+            "description": "Time any agent of a session was working (API requests and tools merged per session, summed over sessions)."
+          },
+          "modelMs": {
+            "type": "number",
+            "description": "API requests: the model's time, not this host's."
+          },
+          "localMs": {
+            "type": "number",
+            "description": "Tools that run on this host (Bash, Read, Edit, Grep…)."
+          },
+          "localOnlyMs": {
+            "type": "number",
+            "description": "Local tool time with no API request or network tool running in the same session: what a faster host could shorten."
+          },
+          "networkMs": {
+            "type": "number",
+            "description": "Tools waiting on another service (WebFetch, WebSearch, MCP)."
+          },
+          "cpuBoundMs": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "The CPU-bound part of localOnlyMs, from the session's process-tree CPU samples (null: no samples then)."
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "tool",
+                "class",
+                "runs",
+                "ms"
+              ],
+              "properties": {
+                "tool": {
+                  "type": "string"
+                },
+                "class": {
+                  "type": "string",
+                  "enum": [
+                    "local",
+                    "network",
+                    "wait",
+                    "nested"
+                  ]
+                },
+                "runs": {
+                  "type": "integer"
+                },
+                "ms": {
+                  "type": "number",
+                  "description": "Summed run time (parallel runs each count)."
+                }
+              }
+            }
+          },
+          "memory": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sessionPeakBytes",
+              "systemPeakPercent",
+              "swapPeakBytes",
+              "pressureShare"
+            ],
+            "properties": {
+              "sessionPeakBytes": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "Highest process-tree memory of one session."
+              },
+              "systemPeakPercent": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "swapPeakBytes": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "pressureShare": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "Share of samples with the kernel's memory pressure at warning or critical (0–1)."
+              }
+            }
+          }
+        }
       }
     }
   },

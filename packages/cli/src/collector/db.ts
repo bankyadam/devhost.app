@@ -69,6 +69,20 @@ const MIGRATIONS: string[] = [
   CREATE TABLE rollup_agents (hour INTEGER NOT NULL, account TEXT NOT NULL, sessions_max INTEGER NOT NULL, subagents_max INTEGER NOT NULL, total_max INTEGER NOT NULL, total_avg REAL NOT NULL, samples INTEGER NOT NULL,
     PRIMARY KEY (hour, account));
   `,
+  // Where agents spend their time (tool_result events) and memory pressure (spec A10.8).
+  `
+  CREATE TABLE tool_runs (ts INTEGER NOT NULL, account TEXT NOT NULL, env TEXT NOT NULL, session_id TEXT NOT NULL, tool TEXT NOT NULL, duration_ms REAL NOT NULL, success INTEGER);
+  CREATE INDEX tool_runs_ts ON tool_runs (ts);
+  CREATE INDEX samples_session_id ON samples_session (session_id, ts);
+  ALTER TABLE samples_system ADD COLUMN swap_used INTEGER;
+  ALTER TABLE samples_system ADD COLUMN mem_pressure INTEGER;
+  CREATE TABLE rollup_profile (hour INTEGER NOT NULL, account TEXT NOT NULL, env TEXT NOT NULL, busy_ms REAL NOT NULL, model_ms REAL NOT NULL, local_ms REAL NOT NULL,
+    local_only_ms REAL NOT NULL, network_ms REAL NOT NULL, local_samples INTEGER NOT NULL, local_busy_samples INTEGER NOT NULL, rss_peak INTEGER NOT NULL,
+    PRIMARY KEY (hour, account, env));
+  CREATE TABLE rollup_tools (hour INTEGER NOT NULL, account TEXT NOT NULL, env TEXT NOT NULL, tool TEXT NOT NULL, runs INTEGER NOT NULL, ms REAL NOT NULL,
+    PRIMARY KEY (hour, account, env, tool));
+  CREATE TABLE rollup_memory (hour INTEGER PRIMARY KEY, mem_pct_max REAL, mem_pct_avg REAL, swap_max INTEGER, pressure_samples INTEGER NOT NULL, samples INTEGER NOT NULL);
+  `,
 ];
 
 export class Db {

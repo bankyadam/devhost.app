@@ -17,7 +17,7 @@ import { retain, rollup } from './rollup.js';
 import { volumeStatus, workVolumeOf } from '../storage/volume.js';
 import { rotateLogs } from './logs.js';
 import {
-  cpuPercent, cpuTimes, memoryFromVmStat, parseDockerPs, parseDockerStats, parseDu, parseLsofCwd, parsePs, parseVmStat,
+  cpuPercent, cpuTimes, memoryFromVmStat, parseMemorySysctl, parseDockerPs, parseDockerStats, parseDu, parseLsofCwd, parsePs, parseVmStat,
   subtree, sumProcs, type Proc,
 } from './samplers.js';
 
@@ -142,11 +142,18 @@ export class Collector {
         memUsed = memoryFromVmStat(parseVmStat(vm.stdout), memTotal).used;
       }
     }
+    // Swap in use and the kernel's memory pressure level (1 normal, 2 warning, 4 critical).
+    let swapUsed: number | null = null;
+    let pressure: number | null = null;
+    if (this.os.platform === 'darwin') {
+      const r = await this.exec.query('sysctl', ['vm.swapusage', 'kern.memorystatus_vm_pressure_level']);
+      if (r.code === 0) ({ swapUsed, pressure } = parseMemorySysctl(r.stdout));
+    }
     const disk = await this.os.disk();
     this.db.run(
-      'INSERT INTO samples_system (ts, cpu_pct, mem_pct, mem_used, mem_total, disk_free_pct, disk_free_bytes, load1) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO samples_system (ts, cpu_pct, mem_pct, mem_used, mem_total, disk_free_pct, disk_free_bytes, load1, swap_used, mem_pressure) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       now, cpu, memTotal > 0 ? (memUsed / memTotal) * 100 : null, Math.round(memUsed), Math.round(memTotal),
-      disk.totalBytes > 0 ? (disk.freeBytes / disk.totalBytes) * 100 : null, Math.round(disk.freeBytes), this.os.loadavg()[0] ?? null,
+      disk.totalBytes > 0 ? (disk.freeBytes / disk.totalBytes) * 100 : null, Math.round(disk.freeBytes), this.os.loadavg()[0] ?? null, swapUsed, pressure,
     );
     this.db.kvSet('uptime_s', String(Math.round(this.os.uptime())), now);
   }

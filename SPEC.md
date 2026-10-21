@@ -358,9 +358,9 @@ A single long-running process, `devhost collector`, run by launchd (LaunchDaemon
 
 | Source | What it gives | How |
 | --- | --- | --- |
-| Claude Code OpenTelemetry (OTLP/HTTP JSON) | Tokens by type (`input`, `output`, `cacheRead`, `cacheCreation`) and model, estimated cost, sessions started, active time, lines changed, commits, PRs; per request via `claude_code.api_request` events with `session.id` | Collector implements a minimal OTLP/HTTP JSON receiver (`/v1/metrics`, `/v1/logs`) |
+| Claude Code OpenTelemetry (OTLP/HTTP JSON) | Tokens by type (`input`, `output`, `cacheRead`, `cacheCreation`) and model, estimated cost, sessions started, active time, lines changed, commits, PRs; per request via `claude_code.api_request` events with `session.id` and `duration_ms`; per tool run via `claude_code.tool_result` events (tool name, `duration_ms`, success only; never its input or output) | Collector implements a minimal OTLP/HTTP JSON receiver (`/v1/metrics`, `/v1/logs`) |
 | Claude Code HTTP hooks | Session lifecycle and live state: started, prompt submitted, waiting for input, stopped, ended; subagents started/stopped; `cwd` → environment | Collector endpoint `/hooks`; hooks configured in each account's user settings |
-| Process sampler | CPU % and RSS per environment (process tree of its launchd job) and system totals; per session where processes can be attributed; a session no `claude` works in any more is marked ended | `ps`/libproc every `sampleIntervalSeconds` |
+| Process sampler | CPU % and RSS per environment (process tree of its launchd job) and system totals, swap in use and the kernel's memory pressure level (`sysctl vm.swapusage kern.memorystatus_vm_pressure_level`); per session where processes can be attributed; a session no `claude` works in any more is marked ended | `ps`/libproc every `sampleIntervalSeconds` |
 | Agents | Sessions running a turn plus the subagents they started, sampled; most at once per bucket | From hook state every sample |
 | Docker | CPU / memory per container, mapped to environments via compose project `devhost-<name>` | `docker stats --no-stream --format json` every 15 s |
 | Disk | Free space of the internal disk and, when configured, of the work volume; size per environment (worktrees, `node_modules`), wherever it lives | Free space every sample; per-env `du` daily |
@@ -421,6 +421,17 @@ Notify (ntfy in v1, provider behind a small interface) when: memory above `alert
 - **Per-session CPU/RAM** is best effort; per-environment numbers are reliable.
 - Sessions on other machines (cloud sessions, the MacBook) are out of scope; the dashboard shows the Mac mini only.
 - Claude Code session history is keyed by project path: it does not follow an environment moved by `storage migrate`.
+
+### A10.8 Where agents spend their time, and memory
+
+Question it answers: how much of agent time is this host's, i.e. what a faster or bigger host would shorten.
+
+- Each `api_request` and `tool_result` event ends at its timestamp and lasted `duration_ms`. Per session the intervals are merged, so parallel subagents and tool calls count once.
+- Tools are classed: **local** (run here: Bash, Read, Edit, Write, Glob, Grep…), **network** (WebFetch, WebSearch, `mcp__*`), **wait** (AskUserQuestion, plan mode, ScheduleWakeup, Monitor), **nested** (Task/Agent: the subagent's own requests and tools count instead).
+- **Busy** = model ∪ local ∪ network. **Model** = API requests (Anthropic's side). **Local only** = local tool time with no API request or network tool in flight in that session: the part a faster host can shorten. Its **CPU-bound** share is the share of the session's process-tree CPU samples taken in local-only time that used at least half a core; the rest waits on disk, network calls inside Bash (npm, git) or sleeps. "2× / 4× faster CPU" = CPU-bound × (1 − 1/k) as a share of busy (Amdahl; nothing else speeds up).
+- **Memory:** the largest session's process-tree RSS, the system's peak use, peak swap, and the share of samples with memory pressure at warning or critical. Swap and pressure mean a bigger host would help even where the CPU idles.
+- Nothing before the first `tool_result` event counts (earlier time has API requests only): `profile.since`. Hourly rollups (`rollup_profile`, `rollup_tools`, `rollup_memory`) keep it for `rollupDays`.
+- Shown by the built-in `stats` plugin: "Where the time goes" (shares, hours, the faster-CPU estimate, time per tool) and "Memory", both following its range, account and environment filters; in `devhost dash --json` as `profile`.
 
 ## A11. CLI surface
 

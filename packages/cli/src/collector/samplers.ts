@@ -136,3 +136,11 @@ export function cpuTimes(cpus: { times: { user: number; nice: number; sys: numbe
   }
   return { idle, total };
 }
+
+/** `sysctl vm.swapusage kern.memorystatus_vm_pressure_level`: swap in use (bytes) and the pressure level. */
+export function parseMemorySysctl(out: string): { swapUsed: number | null; pressure: number | null } {
+  const used = /used = ([\d.]+)([KMGT])/.exec(out);
+  const unit = { K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 } as const;
+  const level = /kern\.memorystatus_vm_pressure_level: (\d+)/.exec(out);
+  return { swapUsed: used ? Math.round(Number(used[1]) * unit[used[2] as keyof typeof unit]) : null, pressure: level ? Number(level[1]) : null };
+}
