@@ -1,6 +1,7 @@
 import type { DashData, DevhostConfig } from '@devhost/contract';
 import { accountsOf, environmentsOf } from '../config/accounts.js';
 import type { Db } from './db.js';
+import { buildProfile } from './profile.js';
 import { remoteSessionOf } from '../reattach.js';
 
 export type Range = DashData['range'];
@@ -229,6 +230,7 @@ export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now:
     usage: [...series.values()].sort((a, b) => a.ts - b.ts || a.account.localeCompare(b.account)),
     limits: KNOWN_LIMITS,
     volume: volumeOf(db, config),
+    profile: buildProfile(db, from, now, { account: opts.account, env: opts.env }),
     updates: config.claude?.update === 'off' ? null : (JSON.parse(db.kvGet('update') ?? 'null') as DashData['updates']),
   };
 }

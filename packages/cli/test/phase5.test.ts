@@ -16,7 +16,7 @@ async function converged(opts: { tailscale?: boolean; arch?: 'arm64' | 'x86_64' 
   expect(await env.run('apply')).toBe(0);
   // The collector service would have created its database by now.
   const db = new Db(dbPath(env.home));
-  db.run('INSERT INTO samples_system VALUES (?, 5, 30, 1, 2, 60, 10, 1)', env.deps.now().getTime());
+  db.run('INSERT INTO samples_system (ts, cpu_pct, mem_pct, mem_used, mem_total, disk_free_pct, disk_free_bytes, load1) VALUES (?, 5, 30, 1, 2, 60, 10, 1)', env.deps.now().getTime());
   db.close();
   env.out.length = 0;
   env.err.length = 0;

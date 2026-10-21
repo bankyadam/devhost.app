@@ -193,4 +193,58 @@ export interface DashData {
       message: string;
     };
   } | null;
+  /**
+   * Where agents spent their time in the range, and memory (spec A10.8). Null until the first tool_result event arrives.
+   */
+  profile?: {
+    /**
+     * When tool runs started to be recorded (ms since epoch); nothing before it counts.
+     */
+    since: number;
+    /**
+     * Time any agent of a session was working (API requests and tools merged per session, summed over sessions).
+     */
+    busyMs: number;
+    /**
+     * API requests: the model's time, not this host's.
+     */
+    modelMs: number;
+    /**
+     * Tools that run on this host (Bash, Read, Edit, Grep…).
+     */
+    localMs: number;
+    /**
+     * Local tool time with no API request or network tool running in the same session: what a faster host could shorten.
+     */
+    localOnlyMs: number;
+    /**
+     * Tools waiting on another service (WebFetch, WebSearch, MCP).
+     */
+    networkMs: number;
+    /**
+     * The CPU-bound part of localOnlyMs, from the session's process-tree CPU samples (null: no samples then).
+     */
+    cpuBoundMs: number | null;
+    tools: {
+      tool: string;
+      class: 'local' | 'network' | 'wait' | 'nested';
+      runs: number;
+      /**
+       * Summed run time (parallel runs each count).
+       */
+      ms: number;
+    }[];
+    memory: {
+      /**
+       * Highest process-tree memory of one session.
+       */
+      sessionPeakBytes: number | null;
+      systemPeakPercent: number | null;
+      swapPeakBytes: number | null;
+      /**
+       * Share of samples with the kernel's memory pressure at warning or critical (0–1).
+       */
+      pressureShare: number | null;
+    };
+  } | null;
 }

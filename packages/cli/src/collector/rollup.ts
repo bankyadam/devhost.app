@@ -1,4 +1,5 @@
 import type { Db } from './db.js';
+import { rollupProfile } from './profile.js';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -30,6 +31,7 @@ export function rollup(db: Db, now: number): void {
        WHERE ts >= ? AND ts < ? GROUP BY 1, account`,
       from, upTo,
     );
+    rollupProfile(db, from, upTo);
     db.kvSet('rolled_through', String(upTo), now);
   });
 }
@@ -44,7 +46,7 @@ export function retain(db: Db, now: number, r: Retention): void {
   const rolled = Number(db.kvGet('rolled_through') ?? 0);
   const rawCutoff = Math.min(now - r.rawDays * DAY, rolled);
   db.transaction(() => {
-    for (const table of ['usage', 'api_requests', 'hook_events', 'samples_system', 'samples_env', 'samples_session', 'samples_agents', 'service_events']) {
+    for (const table of ['usage', 'api_requests', 'tool_runs', 'hook_events', 'samples_system', 'samples_env', 'samples_session', 'samples_agents', 'service_events']) {
       db.run(`DELETE FROM ${table} WHERE ts < ?`, rawCutoff);
     }
     db.run("DELETE FROM sessions WHERE state = 'ended' AND ended_at < ?", rawCutoff);
@@ -52,6 +54,7 @@ export function retain(db: Db, now: number, r: Retention): void {
     db.run('DELETE FROM rollup_usage WHERE hour < ?', now - r.rollupDays * DAY);
     db.run('DELETE FROM rollup_env WHERE hour < ?', now - r.rollupDays * DAY);
     db.run('DELETE FROM rollup_agents WHERE hour < ?', now - r.rollupDays * DAY);
+    for (const table of ['rollup_profile', 'rollup_tools', 'rollup_memory']) db.run(`DELETE FROM ${table} WHERE hour < ?`, now - r.rollupDays * DAY);
     db.run('DELETE FROM agents WHERE ended_at IS NOT NULL AND ended_at < ?', rawCutoff);
   });
 }

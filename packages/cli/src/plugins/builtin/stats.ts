@@ -159,5 +159,59 @@ export const stats = definePlugin({
         };
       },
     },
+    {
+      id: 'time',
+      title: 'Where the time goes',
+      size: 'wide',
+      refreshSeconds: REFRESH,
+      async run(ctx, p) {
+        const d = await ctx.stats(query(p));
+        if (!d) return NO_DATA;
+        const t = d.profile;
+        if (!t || t.busyMs === 0) return { summary: 'No tool runs recorded yet: the time profile starts with the first tool an agent runs after this update.' };
+        const share = (ms: number): string => `${Math.round((ms / t.busyMs) * 100)}%`;
+        const faster = (k: number): string => (t.cpuBoundMs == null ? '–' : `−${Math.round(((t.cpuBoundMs * (1 - 1 / k)) / t.busyMs) * 100)}%`);
+        return {
+          summary: `${share(t.localOnlyMs)} of agent time was spent waiting on this host${t.cpuBoundMs == null ? '' : `, ${share(t.cpuBoundMs)} of it CPU-bound`}`,
+          tiles: [
+            { label: 'Agents working', value: hours(t.busyMs), sub: t.since > d.generatedAt - RANGE_MS[d.range] ? `recorded since ${new Date(t.since).toLocaleString()}` : `in the last ${d.range}` },
+            { label: 'Model (API)', value: share(t.modelMs), sub: hours(t.modelMs) },
+            { label: 'On this host only', value: share(t.localOnlyMs), sub: `${hours(t.localOnlyMs)} · local tools ${hours(t.localMs)} in all` },
+            { label: 'CPU-bound', value: t.cpuBoundMs == null ? '–' : share(t.cpuBoundMs), sub: t.cpuBoundMs == null ? 'no CPU samples then' : hours(t.cpuBoundMs) },
+            { label: 'Network tools', value: share(t.networkMs), sub: hours(t.networkMs) },
+            { label: '2× faster CPU', value: faster(2), sub: `4× faster: ${faster(4)}` },
+          ],
+          rows: t.tools.map((x) => ({ label: x.tool, value: hours(x.ms), note: `${x.runs} run${x.runs === 1 ? '' : 's'} · avg ${seconds(x.ms / Math.max(1, x.runs))} · ${x.class === 'local' ? 'this host' : x.class === 'network' ? 'network' : x.class === 'nested' ? 'subagent (its own time is counted)' : 'waits for you'}` })),
+          note: 'Per session, API requests and tool runs are merged so parallel subagents count once. "On this host only" is local tool time with nothing else running in that session: what a faster host can shorten. Its CPU-bound part comes from the session\'s CPU samples (at least half a core); the rest waits on disk, network calls inside Bash (npm, git), or sleeps. The faster-CPU figures assume only the CPU-bound part speeds up.',
+        };
+      },
+    },
+    {
+      id: 'memory',
+      title: 'Memory',
+      refreshSeconds: REFRESH,
+      async run(ctx, p) {
+        const d = await ctx.stats(query(p));
+        if (!d) return NO_DATA;
+        const m = d.profile?.memory;
+        if (!m) return { summary: 'No memory samples since the time profile started.' };
+        const pressure = m.pressureShare == null ? null : Math.round(m.pressureShare * 100);
+        return {
+          status: pressure != null && pressure >= 10 ? 'warn' : (m.swapPeakBytes ?? 0) > 1024 ** 3 ? 'warn' : 'ok',
+          summary: pressure == null ? 'No pressure readings yet.' : pressure > 0 ? `Under memory pressure ${pressure}% of the time` : 'No memory pressure in this range',
+          tiles: [
+            { label: 'Largest session', value: gib(m.sessionPeakBytes), sub: 'its process tree at peak' },
+            { label: 'System peak', value: m.systemPeakPercent == null ? '–' : `${Math.round(m.systemPeakPercent)}%`, sub: d.host.memTotalBytes ? `of ${gib(d.host.memTotalBytes)}` : '' },
+            { label: 'Swap peak', value: gib(m.swapPeakBytes) },
+            { label: 'Pressure', value: pressure == null ? '–' : `${pressure}%`, sub: 'of samples at warning or critical' },
+          ],
+          note: 'Swap in use and memory pressure mean the host is short of RAM: more memory would speed agents up even where the CPU is idle.',
+        };
+      },
+    },
   ],
 });
+
+const hours = (ms: number): string => (ms >= 3_600_000 ? `${(ms / 3_600_000).toFixed(1)} h` : ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 1000)} s`);
+const seconds = (ms: number): string => (ms >= 60_000 ? `${(ms / 60_000).toFixed(1)} min` : `${(ms / 1000).toFixed(1)} s`);
+const gib = (b: number | null | undefined): string => (b == null ? '–' : b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)} GB` : `${Math.round(b / 1024 ** 2)} MB`);

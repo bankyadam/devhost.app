@@ -198,3 +198,33 @@ export function parseLogs(body: unknown, now: number, attr: Attribution): ApiReq
   }
   return rows;
 }
+
+export interface ToolRunRow {
+  ts: number;
+  account: string;
+  env: string;
+  sessionId: string;
+  tool: string;
+  durationMs: number;
+  success: boolean | null;
+}
+
+/** `tool_result` events: the tool's name, how long it ran and whether it worked; never its input or output. */
+export function parseToolRuns(body: unknown, now: number, attr: Attribution): ToolRunRow[] {
+  const rows: ToolRunRow[] = [];
+  for (const rl of (body as LogsBody).resourceLogs ?? []) {
+    const resource = attrsOf(rl.resource?.attributes);
+    for (const sl of rl.scopeLogs ?? []) {
+      for (const rec of sl.logRecords ?? []) {
+        const a = attrsOf(rec.attributes);
+        if (str(a, 'event.name').replace(/^claude_code\./, '') !== 'tool_result') continue;
+        const duration = num(a, 'duration_ms');
+        if (duration === null) continue;
+        const { account, env } = attribute(resource, a, attr);
+        const success = str(a, 'success');
+        rows.push({ ts: nanoToMs(rec.timeUnixNano, now), account, env, sessionId: str(a, 'session.id'), tool: str(a, 'tool_name').slice(0, 120) || '?', durationMs: duration, success: success === '' ? null : success === 'true' });
+      }
+    }
+  }
+  return rows;
+}

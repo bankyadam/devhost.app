@@ -10,11 +10,13 @@ import { Db, dbPath } from '../src/collector/db.js';
 import { envLocations, parseHook } from '../src/collector/hooks.js';
 import { Ingestor } from '../src/collector/ingest.js';
 import { createNotifier, maskTopic, NtfyNotifier, type Notification, type Notifier } from '../src/collector/notify.js';
-import { CumulativeTracker, parseLogs, parseMetrics } from '../src/collector/otlp.js';
+import { CumulativeTracker, parseLogs, parseMetrics, parseToolRuns } from '../src/collector/otlp.js';
 import { buildDash } from '../src/collector/query.js';
+import { buildProfile, merge, subtract, toolClass, total } from '../src/collector/profile.js';
+import type { PluginContext, WidgetContent } from '../src/plugins/api.js';
 import { retain, rollup } from '../src/collector/rollup.js';
 import { Collector, type OsProbe } from '../src/collector/run.js';
-import { cpuPercent, memoryFromVmStat, parseDockerPs, parseDockerStats, parseDu, parseLsofCwd, parsePs, parseSize, parseVmStat, subtree, sumProcs } from '../src/collector/samplers.js';
+import { cpuPercent, memoryFromVmStat, parseMemorySysctl, parseDockerPs, parseDockerStats, parseDu, parseLsofCwd, parsePs, parseSize, parseVmStat, subtree, sumProcs } from '../src/collector/samplers.js';
 import { createCollectorServer, listen } from '../src/collector/server.js';
 import { projectSlug, sessionTitle } from '../src/collector/titles.js';
 import { renderTop } from '../src/collector/top.js';
@@ -67,7 +69,7 @@ const attribution = () => {
 describe('db', () => {
   it('migrates once and keeps the version', () => {
     const db = new Db(':memory:');
-    expect(db.schemaVersion).toBe(2);
+    expect(db.schemaVersion).toBe(3);
     db.kvSet('a', '1', 5);
     expect(db.kvGet('a')).toBe('1');
     expect(db.kvGet('missing')).toBeNull();
@@ -619,7 +621,7 @@ describe('dashboard', () => {
       { name: 'claude_code.token.usage', value: 200, attrs: { type: 'output', model: 'm1', 'session.id': 'sess-aaaa1111' } },
       { name: 'claude_code.cost.usage', value: 1.25, attrs: { model: 'm1', 'session.id': 'sess-aaaa1111' } },
     ] }));
-    db.run('INSERT INTO samples_system VALUES (?, 12.5, 41, 100, 1000, 33, 500, 1)', now - 1000);
+    db.run('INSERT INTO samples_system (ts, cpu_pct, mem_pct, mem_used, mem_total, disk_free_pct, disk_free_bytes, load1) VALUES (?, 12.5, 41, 100, 1000, 33, 500, 1)', now - 1000);
     db.run('INSERT INTO samples_env VALUES (?, ?, ?, 7, 52428800, 2, 1048576, 123)', now - 1000, 'business', 'acme-api');
     db.run('INSERT INTO samples_session VALUES (?, ?, 3, 1048576)', now - 1000, 'sess-aaaa1111');
     db.kvSet('docker', 'up', now);
@@ -641,7 +643,7 @@ describe('dashboard', () => {
     expect(data.sessions[0]).toMatchObject({ id: 'sess-aaaa1111', state: 'waiting', tokensToday: 1200, costToday: 1.25, cpuPercent: 3 });
     expect(data.usage.reduce((a, r) => a + r.input + r.output, 0)).toBe(1200);
     expect(data.limits.join(' ')).toContain('estimate');
-    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 2 });
+    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 3 });
 
     expect(buildDash(db, CONFIG, { range: '24h', account: 'personal' }, now, 'm', null).sessions).toEqual([]);
     expect(buildDash(db, CONFIG, { range: '24h', env: 'acme-api', model: 'other' }, now, 'm', null).usage).toEqual([]);
@@ -710,7 +712,7 @@ describe('commands', () => {
   it('dash --json returns a valid snapshot; --range is validated; top --once prints the table', async () => {
     const { env } = await initialized();
     const db = new Db(dbPath(env.home));
-    db.run('INSERT INTO samples_system VALUES (?, 5, 30, 1, 2, 60, 10, 1)', env.deps.now().getTime());
+    db.run('INSERT INTO samples_system (ts, cpu_pct, mem_pct, mem_used, mem_total, disk_free_pct, disk_free_bytes, load1) VALUES (?, 5, 30, 1, 2, 60, 10, 1)', env.deps.now().getTime());
     db.close();
     expect(await env.run('dash', '--json', '--range', '7d')).toBe(0);
     const e = JSON.parse(env.stdout()) as Envelope;
@@ -725,7 +727,7 @@ describe('commands', () => {
   it('dash --follow --json streams snapshot events until cancelled', async () => {
     const { env } = await initialized();
     const db = new Db(dbPath(env.home));
-    db.run('INSERT INTO samples_system VALUES (?, 5, 30, 1, 2, 60, 10, 1)', env.deps.now().getTime());
+    db.run('INSERT INTO samples_system (ts, cpu_pct, mem_pct, mem_used, mem_total, disk_free_pct, disk_free_bytes, load1) VALUES (?, 5, 30, 1, 2, 60, 10, 1)', env.deps.now().getTime());
     db.close();
     await env.run('config', 'set', '/collector/sampleIntervalSeconds', '1');
     env.out.length = 0;
@@ -850,5 +852,87 @@ describe('Collector Claude Code updates', () => {
     expect(u.calls).toEqual(['devhost update --check --json', 'devhost update --check --json']);
     expect(u.notifier.sent).toHaveLength(1);
     expect(u.notifier.sent[0]!.message).toContain('Claude Code 2.1.310 is available');
+  });
+});
+
+describe('time profile (spec A10.8)', () => {
+  const S = 1000;
+  it('merges and subtracts intervals', () => {
+    expect(merge([[5, 8], [0, 3], [2, 4], [8, 9]])).toEqual([[0, 4], [5, 9]]);
+    expect(subtract([[0, 10], [20, 30]], [[2, 4], [8, 22], [25, 26]])).toEqual([[0, 2], [4, 8], [22, 25], [26, 30]]);
+    expect(total([[0, 2], [5, 9]])).toBe(6);
+    expect(toolClass('Bash')).toBe('local');
+    expect(toolClass('mcp__github__get_pr')).toBe('network');
+    expect(toolClass('Task')).toBe('nested');
+  });
+
+  it('keeps the tool name, duration and outcome of tool_result events, never their input', () => {
+    const body = { resourceLogs: [{ resource: { attributes: [kv('devhost.account', 'business')] }, scopeLogs: [{ logRecords: [
+      { timeUnixNano: String(BigInt(T0) * 1_000_000n), attributes: [kv('event.name', 'claude_code.tool_result'), kv('tool_name', 'Bash'), kv('duration_ms', 1500), kv('success', 'true'), kv('tool_input', 'rm -rf SECRET'), kv('session.id', 's1')] },
+      { attributes: [kv('event.name', 'api_request'), kv('duration_ms', 900), kv('session.id', 's1')] },
+    ] }] }] };
+    const rows = parseToolRuns(body, T0, attribution());
+    expect(rows).toEqual([{ ts: T0, account: 'business', env: '', sessionId: 's1', tool: 'Bash', durationMs: 1500, success: true }]);
+    expect(JSON.stringify(rows)).not.toContain('SECRET');
+  });
+
+  it('reads swap and memory pressure from sysctl', () => {
+    expect(parseMemorySysctl('vm.swapusage: total = 10240.00M  used = 9427.25M  free = 812.75M  (encrypted)\nkern.memorystatus_vm_pressure_level: 2\n')).toEqual({ swapUsed: Math.round(9427.25 * 1024 ** 2), pressure: 2 });
+  });
+
+  function seeded(): Db {
+    const db = new Db(':memory:');
+    db.kvSet('profile_since', String(T0), T0);
+    const api = (end: number, d: number) => db.run("INSERT INTO api_requests (ts, account, env, session_id, model, duration_ms) VALUES (?, 'business', 'acme-api', 's1', 'm', ?)", T0 + end * S, d * S);
+    const tool = (end: number, d: number, name: string) => db.run("INSERT INTO tool_runs VALUES (?, 'business', 'acme-api', 's1', ?, ?, 1)", T0 + end * S, name, d * S);
+    api(10, 10); // model 0–10
+    tool(30, 20, 'Bash'); // local 10–30
+    tool(28, 3, 'Read'); // local 25–28, parallel
+    api(40, 12); // model 28–40
+    tool(45, 5, 'WebFetch'); // network 40–45
+    tool(45, 45, 'Task'); // the subagent's own requests count, not the Task itself
+    for (const [t, cpu] of [[12, 90], [20, 10], [35, 95]] as const) db.run("INSERT INTO samples_session VALUES (?, 's1', ?, ?)", T0 + t * S, cpu, 2 * 1024 ** 3);
+    db.run('INSERT INTO samples_system (ts, mem_pct, swap_used, mem_pressure) VALUES (?, 70, ?, 1), (?, 93, ?, 2)', T0 + 5 * S, 1024 ** 3, T0 + 15 * S, 3 * 1024 ** 3);
+    return db;
+  }
+
+  it('splits agent time into model, local-only (CPU-bound part from samples) and network, the same raw and rolled up', () => {
+    const db = seeded();
+    const want = {
+      since: T0,
+      busyMs: 45 * S,
+      modelMs: 22 * S,
+      localMs: 20 * S,
+      localOnlyMs: 18 * S, // 10–28: the Bash run while no request was in flight
+      networkMs: 5 * S,
+      cpuBoundMs: 9 * S, // one of the two samples taken then was busy
+      tools: [
+        { tool: 'Task', class: 'nested', runs: 1, ms: 45 * S },
+        { tool: 'Bash', class: 'local', runs: 1, ms: 20 * S },
+        { tool: 'WebFetch', class: 'network', runs: 1, ms: 5 * S },
+        { tool: 'Read', class: 'local', runs: 1, ms: 3 * S },
+      ],
+      memory: { sessionPeakBytes: 2 * 1024 ** 3, systemPeakPercent: 93, swapPeakBytes: 3 * 1024 ** 3, pressureShare: 0.5 },
+    };
+    expect(buildProfile(db, T0 - H, T0 + 60 * S, {})).toEqual(want);
+    rollup(db, T0 + 2 * H);
+    expect(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM rollup_profile')!.n).toBe(1);
+    expect(buildProfile(db, T0 - H, T0 + 2 * H, {})).toEqual(want);
+    expect(buildProfile(db, T0 - H, T0 + 2 * H, { account: 'personal' })).toMatchObject({ busyMs: 0, tools: [] });
+    expect(buildProfile(new Db(':memory:'), T0, T0 + H, {})).toBeNull(); // no tool runs yet
+  });
+
+  it('the stats plugin explains where the time went and how memory held up', async () => {
+    const db = seeded();
+    const dash = buildDash(db, CONFIG, { range: '24h' }, T0 + 60 * S, 'macmini', null);
+    expect(validate('result.dash', dash).ok).toBe(true);
+    const { stats: statsPlugin } = await import('../src/plugins/builtin/stats.js');
+    const ctx = { stats: async () => dash } as unknown as PluginContext;
+    const time = (await statsPlugin.widgets!.find((w) => w.id === 'time')!.run(ctx, { range: '24h' })) as WidgetContent;
+    expect(time.summary).toBe('40% of agent time was spent waiting on this host, 20% of it CPU-bound');
+    expect(time.tiles!.find((t) => t.label === '2× faster CPU')).toEqual({ label: '2× faster CPU', value: '−10%', sub: '4× faster: −15%' });
+    const mem = (await statsPlugin.widgets!.find((w) => w.id === 'memory')!.run(ctx, { range: '24h' })) as WidgetContent;
+    expect(mem).toMatchObject({ status: 'warn', summary: 'Under memory pressure 50% of the time' });
+    expect(mem.tiles!.find((t) => t.label === 'Swap peak')!.value).toBe('3.0 GB');
   });
 });

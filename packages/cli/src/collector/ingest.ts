@@ -1,6 +1,6 @@
 import type { Db } from './db.js';
 import { locate, parseHook, stateForEvent, type EnvLocation } from './hooks.js';
-import { CumulativeTracker, parseLogs, parseMetrics, type Attribution } from './otlp.js';
+import { CumulativeTracker, parseLogs, parseMetrics, parseToolRuns, type Attribution } from './otlp.js';
 
 /** Writes received telemetry to SQLite. Stateless apart from the cumulative-counter tracker. */
 export class Ingestor {
@@ -40,7 +40,13 @@ export class Ingestor {
   logs(body: unknown): number {
     const now = this.now();
     const rows = parseLogs(body, now, this.attribution);
+    const tools = parseToolRuns(body, now, this.attribution);
     this.db.transaction(() => {
+      // The time profile starts here: earlier API requests have no tool runs beside them.
+      if (tools.length > 0) this.db.run("INSERT OR IGNORE INTO kv (key, value, updated_at) VALUES ('profile_since', ?, ?)", String(Math.min(...tools.map((t) => t.ts - t.durationMs))), now);
+      for (const t of tools) {
+        this.db.run('INSERT INTO tool_runs (ts, account, env, session_id, tool, duration_ms, success) VALUES (?, ?, ?, ?, ?, ?, ?)', t.ts, t.account, t.env, t.sessionId, t.tool, t.durationMs, t.success === null ? null : t.success ? 1 : 0);
+      }
       for (const r of rows) {
         this.db.run(
           'INSERT INTO api_requests (ts, account, env, session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -49,7 +55,7 @@ export class Ingestor {
       }
     });
     this.db.kvSet('last_otel_at', String(now), now);
-    return rows.length;
+    return rows.length + tools.length;
   }
 
   /** Session lifecycle and live state; stores event type, session id, cwd and timestamps only. */
@@ -104,7 +110,7 @@ export class Ingestor {
  */
 export function moveSessionHistory(db: Db, sessionId: string, account: string): void {
   db.transaction(() => {
-    for (const table of ['sessions', 'usage', 'api_requests', 'hook_events']) {
+    for (const table of ['sessions', 'usage', 'api_requests', 'tool_runs', 'hook_events']) {
       db.run(`UPDATE ${table} SET account = ? WHERE session_id = ?`, account, sessionId);
     }
     // Rollups are keyed by account too: add into the owner's rows instead of colliding with them.

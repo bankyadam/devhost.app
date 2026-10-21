@@ -73,7 +73,7 @@ export function seedUsage(h: Harness, config: string): void {
   ingest.metrics({
     resourceMetrics: [{ resource: { attributes: [kv('devhost.account', 'business'), kv('devhost.env', 'acme-api')] }, scopeMetrics: [{ metrics: [point('input', 1200, 'sess-waiting-1'), point('output', 300, 'sess-waiting-1'), point('input', 9000, 'sess-running-2'), { name: 'claude_code.cost.usage', sum: { aggregationTemporality: 1, dataPoints: [{ asDouble: 1.5, attributes: [kv('model', 'claude-sonnet-5-5'), kv('session.id', 'sess-running-2')] }] } }] }] }],
   });
-  db.run('INSERT INTO samples_system VALUES (?, 12, 40, 1, 2, 60, 10, 1)', now);
+  db.run('INSERT INTO samples_system (ts, cpu_pct, mem_pct, mem_used, mem_total, disk_free_pct, disk_free_bytes, load1) VALUES (?, 12, 40, 1, 2, 60, 10, 1)', now);
   db.run("INSERT INTO samples_agents VALUES (?, '', 1, 1)", now);
   db.run("INSERT INTO samples_agents VALUES (?, '', 2, 3)", now - 3_600_000);
   db.run('INSERT INTO samples_env VALUES (?, ?, ?, 7, 52428800, NULL, NULL, 123)', now, 'business', 'acme-api');
