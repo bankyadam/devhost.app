@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { DashData, EnvListData, SessionReattachData } from '@devhost/contract/lite';
+import type { DashData, EnvListData, SessionReattachData, UpdateData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import { seriesSlot, seriesVar } from '../lib/colors';
 import { ago, bytes, compact, duration, pct, usd } from '../lib/format';
@@ -7,7 +7,7 @@ import { filterSessions, sortSessions, STATE_LABEL, type Session, type SortDir, 
 import { meterTone } from '../lib/usage';
 import { Legend, StackedColumns, type Series } from '../ui/chart';
 import { RunDialog } from '../ui/run-dialog';
-import { Badge, Empty, Menu, Segmented } from '../ui/primitives';
+import { Badge, ConfirmDialog, Empty, Menu, Segmented } from '../ui/primitives';
 import { useDash } from '../use-dash';
 import { PluginRunDialog } from '../ui/plugin-run';
 import { usePlugins, usePluginWidgets, type PluginActionInfo, type PluginFilter, type PluginWidget } from '../use-plugins';
@@ -27,6 +27,7 @@ export function Dashboard({ params = {}, onParams = () => undefined }: { params?
   const widgets = usePluginWidgets(params);
   const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; session?: string } | null>(null);
   const [reattach, setReattach] = useState<string | null>(null);
+  const [update, setUpdate] = useState<null | { confirm: boolean; force: boolean }>(null);
 
   // Account colors follow the account, not its rank: remember every account ever seen, in order.
   useEffect(() => {
@@ -59,7 +60,7 @@ export function Dashboard({ params = {}, onParams = () => undefined }: { params?
         {error && <span className="note" role="alert">{error}</span>}
       </div>
 
-      <Health dash={dash} now={now} />
+      <Health dash={dash} now={now} onUpdate={() => setUpdate({ confirm: true, force: false })} />
 
       <PluginWidgets
         filters={widgets.filters}
@@ -140,6 +141,29 @@ export function Dashboard({ params = {}, onParams = () => undefined }: { params?
           after={(r) => r.data && <p>Back on Remote Control: <button className="btn sm" onClick={() => void openClaude(transport, webApps.appFor(r.data!.account), r.data!.url)}>Open in Claude</button></p>}
         >
           <p className="sec">Runs the session's Remote Control again in its worktree, once (after a reboot the environment's service starts a new one, and the old session is left without a machine).</p>
+        </RunDialog>
+      )}
+      {update?.confirm && (
+        <ConfirmDialog title="Update Claude Code" confirmLabel="Update" onConfirm={() => setUpdate({ confirm: false, force: false })} onCancel={() => setUpdate(null)}>
+          <p>Updates Claude Code on {hostLabel} to {dash.updates?.claude.latest ?? 'the latest version'}, restarts every Remote Control service onto it, and reattaches the sessions they had open.</p>
+          <p className="note">If a session is in the middle of a turn, the update waits; you can then choose to interrupt it.</p>
+        </ConfirmDialog>
+      )}
+      {update && !update.confirm && (
+        <RunDialog<UpdateData>
+          key={String(update.force)}
+          title="Update Claude Code"
+          begin={(h) => client.update({ force: update.force }, h)}
+          terminal={{ kind: 'devhost', args: ['update', ...(update.force ? ['--force'] : [])] }}
+          onClose={() => setUpdate(null)}
+          after={(r) => r.data?.busy?.length ? (
+            <div className="notice warn">
+              <p>{r.data.busy.length} session(s) are in the middle of a turn: {r.data.busy.join(', ')}.</p>
+              <button className="btn danger" onClick={() => setUpdate({ confirm: false, force: true })}>Interrupt them and update</button>
+            </div>
+          ) : r.data?.reattached?.length ? <ul className="note">{r.data.reattached.map((x) => <li key={x.remoteSession}>{x.ok ? '✅' : '❌'} {x.account}/{x.env} · {x.remoteSession}{x.error ? `: ${x.error}` : ''}</li>)}</ul> : null}
+        >
+          <p className="sec">Claude Code is upgraded, then the Remote Control services restart onto it and their open sessions are reattached.</p>
         </RunDialog>
       )}
       {pluginRun && <PluginRunDialog action={pluginRun.action} target={pluginRun.session ? { session: pluginRun.session } : {}} onClose={() => { setPluginRun(null); if (!pluginRun.session) void widgets.refresh(); }} />}
@@ -301,7 +325,8 @@ function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onA
   );
 }
 
-function Health({ dash, now }: { dash: DashData; now: number }) {
+function Health({ dash, now, onUpdate }: { dash: DashData; now: number; onUpdate: () => void }) {
+  const u = dash.updates;
   const h = dash.host;
   const ts = h.tailscale;
   return (
@@ -319,6 +344,17 @@ function Health({ dash, now }: { dash: DashData; now: number }) {
         <div className="tile"><span className="label">Docker</span><span className="value">{h.docker === 'up' ? <Badge tone="good">up</Badge> : h.docker === 'down' ? <Badge tone="bad">down</Badge> : <Badge>unknown</Badge>}</span></div>
         {dash.volume && (
           <div className="tile" aria-label="Work volume"><span className="label">Work volume</span><span className="value">{dash.volume.ready ? <Badge tone="good">{dash.volume.label}</Badge> : <Badge tone="bad">{dash.volume.mounted ? 'not the configured volume' : 'not mounted'}</Badge>}</span><span className="sub">{dash.volume.freePct == null ? '' : `${dash.volume.freePct.toFixed(0)}% free · ${bytes(dash.volume.freeBytes)}`}{dash.volume.encrypted ? ' · encrypted' : ''}</span></div>
+        )}
+        {u && (
+          <div className="tile" aria-label="Claude Code">
+            <span className="label">Claude Code</span>
+            <span className="value">{u.claude.installed ?? '–'} {u.claude.outdated ? <Badge tone="warn">{u.claude.latest} available</Badge> : u.lastUpdate && !u.lastUpdate.ok ? <Badge tone="bad">update failed</Badge> : <Badge tone="good">current</Badge>}</span>
+            <span className="sub">
+              {u.claude.outdated ? (u.mode === 'auto' ? `automatic update${u.waiting ? ` waits: ${u.waiting}` : ' soon'}` : 'automatic update is off') : u.lastUpdate ? `${u.lastUpdate.message} (${ago(u.lastUpdate.at, now)})` : `checked ${ago(u.checkedAt, now)}`}
+              {u.packages > 0 ? ` · ${u.packages} other package(s) outdated` : ''}
+            </span>
+            {(u.claude.outdated || (u.lastUpdate && !u.lastUpdate.ok)) && <button className="btn sm" onClick={onUpdate}>Update now…</button>}
+          </div>
         )}
         <div className="tile"><span className="label">Tailscale</span><span className="value">{ts ? (ts.state === 'Running' ? <Badge tone="good">running</Badge> : <Badge tone="warn">{ts.state}</Badge>) : <Badge>unknown</Badge>}</span><span className="sub">{ts?.dnsName ?? ''}</span></div>
       </div>

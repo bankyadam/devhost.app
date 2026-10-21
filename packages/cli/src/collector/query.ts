@@ -229,6 +229,7 @@ export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now:
     usage: [...series.values()].sort((a, b) => a.ts - b.ts || a.account.localeCompare(b.account)),
     limits: KNOWN_LIMITS,
     volume: volumeOf(db, config),
+    updates: config.claude?.update === 'off' ? null : (JSON.parse(db.kvGet('update') ?? 'null') as DashData['updates']),
   };
 }
 

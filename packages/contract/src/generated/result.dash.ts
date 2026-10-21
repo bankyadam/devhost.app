@@ -167,4 +167,30 @@ export interface DashData {
     strayDirectory?: boolean;
     sampledAt?: number;
   } | null;
+  /**
+   * The collector's daily update check (null before the first one).
+   */
+  updates?: {
+    checkedAt: number;
+    claude: {
+      installed: string | null;
+      latest: string | null;
+      outdated: boolean;
+      shadowed?: string[];
+    };
+    /**
+     * Outdated Brewfile packages besides Claude Code.
+     */
+    packages: number;
+    mode?: 'auto' | 'notify' | 'off';
+    /**
+     * Why an automatic update has not run yet (busy sessions, outside the window).
+     */
+    waiting?: string;
+    lastUpdate?: {
+      at: number;
+      ok: boolean;
+      message: string;
+    };
+  } | null;
 }

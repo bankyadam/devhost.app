@@ -147,8 +147,16 @@ export interface FakeState {
   pmsetIgnores: string[];
   /** `sudo -n` fails because a password is needed (no cached sudo, no terminal). */
   sudoNeedsPassword: boolean;
-  /** `claude --version`; `brew upgrade --cask claude-code` moves it to 2.1.300. */
+  /** `claude --version`; `brew upgrade --cask claude-code` moves it to claudeLatest. */
   claudeVersion: string;
+  /** The cask's version in `brew info` (default 2.1.300). */
+  claudeLatest?: string;
+  /** `brew outdated --json=v2` output. */
+  outdated?: { formulae: unknown[]; casks: unknown[] };
+  /** `ps -axo …` lines (pid ppid pcpu rss command); a `launchctl kickstart -k` ends the children of pid 4242. */
+  procs?: string[];
+  /** Commands `brew upgrade` ran with (formulae and casks). */
+  upgraded?: string[];
   /** The fake claude acknowledges the trust question but does not record it (it stopped, or lost the write). */
   claudeForgetsTrust: boolean;
 }
@@ -277,7 +285,10 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       if (m[1] === 'com.devhost.colima') state.colimaRunning = false;
       return {};
     }
-    if (line.startsWith('launchctl kickstart')) return {};
+    if (line.startsWith('launchctl kickstart')) {
+      if (line.includes(' -k ')) state.procs = (state.procs ?? []).filter((p) => !/^\s*\d+\s+4242\s/.test(p));
+      return {};
+    }
     if ((m = /^install -m 644 -o root -g wheel (\S+) (\S+)$/.exec(line))) {
       mkdirSync(dirname(m[2]!), { recursive: true });
       copyFileSync(m[1]!, m[2]!);
@@ -345,9 +356,18 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     if (line.startsWith('docker info')) return state.colimaRunning ? { stdout: '27.0\n' } : { code: 1 };
     if (line === `${brewBin()}/claude --version`) return { stdout: `${state.claudeVersion} (Claude Code)\n` };
     if (line === 'brew upgrade --cask claude-code') {
-      state.claudeVersion = '2.1.300';
+      state.claudeVersion = state.claudeLatest ?? '2.1.300';
       return {};
     }
+    if (line === 'brew update --quiet') return {};
+    if (line === 'brew info --json=v2 --cask claude-code') return { stdout: JSON.stringify({ formulae: [], casks: [{ token: 'claude-code', version: state.claudeLatest ?? '2.1.300' }] }) };
+    if (line === 'brew outdated --json=v2') return { stdout: JSON.stringify(state.outdated ?? { formulae: [], casks: [] }) };
+    if (line.startsWith('brew upgrade ')) {
+      (state.upgraded ??= []).push(line.slice('brew upgrade '.length));
+      return {};
+    }
+    if (line === 'ps -axo pid=,ppid=,pcpu=,rss=,command=') return { stdout: (state.procs ?? []).join('\n') };
+    if (line === 'ps -axo command=') return { stdout: (state.procs ?? []).map((p) => p.replace(/^\s*\d+\s+\d+\s+\S+\s+\d+\s+/, '')).join('\n') };
     if (line === `${brewBin()}/claude doctor`) return { stdout: 'Remote Control: available\n' };
     if (line.startsWith('curl -s -m 2 http://127.0.0.1:')) return state.loaded.has('com.devhost.collector') ? { stdout: '{"ok":true}' } : { code: 7 };
     if (line.startsWith('du -sk')) return { stdout: '64\t/x\n' };

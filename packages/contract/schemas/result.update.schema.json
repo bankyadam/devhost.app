@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.update.schema.json",
+  "title": "UpdateData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "claude",
+    "packages"
+  ],
+  "properties": {
+    "claude": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installed",
+        "latest",
+        "outdated",
+        "install"
+      ],
+      "properties": {
+        "install": {
+          "type": "string",
+          "enum": [
+            "brew",
+            "native"
+          ]
+        },
+        "installed": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "latest": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Null when it could not be found out (native installs report it only by updating)."
+        },
+        "outdated": {
+          "type": "boolean"
+        },
+        "updated": {
+          "type": "boolean",
+          "description": "This run updated it."
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "shadowed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Other claude binaries before the recorded one on the services' PATH (they would run instead when called by name)."
+        }
+      }
+    },
+    "packages": {
+      "type": "array",
+      "description": "Outdated Brewfile packages (Claude Code not among them).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "installed",
+          "latest",
+          "cask"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "string"
+          },
+          "latest": {
+            "type": "string"
+          },
+          "cask": {
+            "type": "boolean"
+          },
+          "updated": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "busy": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Sessions running a turn (account/env \u00b7 id): why the Claude update waited."
+    },
+    "restarted": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Services restarted onto the new Claude Code."
+    },
+    "reattached": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "remoteSession",
+          "account",
+          "env",
+          "ok"
+        ],
+        "properties": {
+          "remoteSession": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "checkedAt": {
+      "type": "number",
+      "description": "ms since epoch"
+    },
+    "dryRun": {
+      "type": "boolean"
+    }
+  }
+}

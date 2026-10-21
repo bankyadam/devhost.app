@@ -200,6 +200,7 @@ function demoDash(at: number, range: DashData['range']): DashData {
       'CPU and memory per session is best effort; per-environment numbers are reliable.',
       'Only this host is covered: cloud sessions and sessions on other machines are not included.',
     ],
+    updates: { checkedAt: at - 2 * 3_600_000, claude: { installed: '2.1.287', latest: '2.1.304', outdated: true }, packages: 2, mode: 'auto', waiting: 'updates run between 02:00 and 06:00' },
   };
 }
 

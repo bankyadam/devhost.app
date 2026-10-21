@@ -450,7 +450,7 @@
               "string",
               "null"
             ],
-            "description": "The Remote Control session (session_…) of a session a Remote Control service started in its own worktree; `devhost session reattach` can bring it back after it ended."
+            "description": "The Remote Control session (session_\u2026) of a session a Remote Control service started in its own worktree; `devhost session reattach` can bring it back after it ended."
           }
         }
       }
@@ -663,6 +663,92 @@
         },
         "sampledAt": {
           "type": "number"
+        }
+      }
+    },
+    "updates": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "checkedAt",
+        "claude",
+        "packages"
+      ],
+      "description": "The collector's daily update check (null before the first one).",
+      "properties": {
+        "checkedAt": {
+          "type": "number"
+        },
+        "claude": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "installed",
+            "latest",
+            "outdated"
+          ],
+          "properties": {
+            "installed": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "latest": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "outdated": {
+              "type": "boolean"
+            },
+            "shadowed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "packages": {
+          "type": "integer",
+          "description": "Outdated Brewfile packages besides Claude Code."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "notify",
+            "off"
+          ]
+        },
+        "waiting": {
+          "type": "string",
+          "description": "Why an automatic update has not run yet (busy sessions, outside the window)."
+        },
+        "lastUpdate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "at",
+            "ok",
+            "message"
+          ],
+          "properties": {
+            "at": {
+              "type": "number"
+            },
+            "ok": {
+              "type": "boolean"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
         }
       }
     }

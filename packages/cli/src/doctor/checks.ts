@@ -1,6 +1,7 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import type { DevhostConfig } from '@devhost/contract';
+import type { DashData, DevhostConfig } from '@devhost/contract';
+import { shadowedClaudes } from '../update.js';
 import { MIN_REMOTE_CONTROL_VERSION, parseVersion, versionAtLeast } from '../claude-version.js';
 import { Db, dbPath } from '../collector/db.js';
 import { managedSettings, parseSettings } from '../claude-settings.js';
@@ -195,7 +196,36 @@ async function toolChecks(c: DoctorContext): Promise<Check[]> {
     : version && !versionAtLeast(version, MIN_REMOTE_CONTROL_VERSION) ? fail('tools.claude', `Claude Code ${version.join('.')} is too old for Remote Control (${MIN_REMOTE_CONTROL_VERSION} or newer)`, 'devhost apply --only claude.binary')
     : ok('tools.claude', `Claude Code ${claude.stdout.trim()}`),
   );
+  const claudePath = await claudeBinary({ exec, deps });
+  const shadowed = claudePath.startsWith('/') ? shadowedClaudes(deps.home, claudePath) : [];
+  if (shadowed.length > 0) {
+    const native = shadowed.includes(join(deps.home, '.local', 'bin', 'claude')) && config.claude?.install !== 'native';
+    out.push(warn('tools.claude.path', `${shadowed.join(', ')} comes before ${claudePath} on the services' PATH: whatever calls \`claude\` by name runs that one`, native ? 'rm ~/.local/bin/claude && rm -rf ~/.local/share/claude  (a leftover native install; devhost uses the Homebrew one)' : `rm ${shadowed.join(' ')}`));
+  }
+  const update = lastUpdateCheck(deps.home);
+  if (update && config.claude?.update !== 'off') {
+    out.push(
+      update.claude.outdated
+        ? warn('tools.claude.update', `Claude Code ${update.claude.latest} is available (${update.claude.installed} installed)${update.waiting ? `; the automatic update waits: ${update.waiting}` : ''}`, 'devhost update')
+        : update.lastUpdate && !update.lastUpdate.ok
+          ? warn('tools.claude.update', `the last automatic update failed: ${update.lastUpdate.message}`, 'devhost update')
+          : ok('tools.claude.update', `Claude Code is current (checked ${new Date(update.checkedAt).toLocaleString()})`),
+    );
+  }
   return out;
+}
+
+/** The collector's last update check (kv `update`), or null. */
+function lastUpdateCheck(home: string): NonNullable<DashData['updates']> | null {
+  if (!existsSync(dbPath(home))) return null;
+  const db = new Db(dbPath(home), { readonly: true });
+  try {
+    return JSON.parse(db.kvGet('update') ?? 'null') as NonNullable<DashData['updates']> | null;
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
 }
 
 async function accountChecks(c: DoctorContext): Promise<Check[]> {

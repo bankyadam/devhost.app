@@ -27,4 +27,5 @@ export type { StatusData } from './result.status.js';
 export type { StorageChangeData } from './result.storage-change.js';
 export type { StorageListData } from './result.storage-list.js';
 export type { StorageStatusData } from './result.storage-status.js';
+export type { UpdateData } from './result.update.js';
 export type { VersionData } from './result.version.js';

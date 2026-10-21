@@ -556,6 +556,13 @@ describe('doctor and logs (spec B3.5)', () => {
     expect(item).toHaveTextContent('devhost login business');
     expect(within(item).getByRole('button', { name: 'Copy fix' })).toBeInTheDocument();
     expect(screen.getByText(/\d+ failed/)).toBeInTheDocument();
+    // Problems only by default, grouped by the id's first part, groups in alphabetical order.
+    expect(screen.queryByText('✅')).toBeNull();
+    const groupNames = () => screen.getAllByRole('group', { name: / checks$/ }).map((g) => g.getAttribute('aria-label'));
+    expect(groupNames()).toEqual([...groupNames()].sort());
+    await h.user.click(screen.getByRole('button', { name: 'All checks' }));
+    expect(screen.getAllByLabelText('ok').length).toBeGreaterThan(0);
+    expect(groupNames()).toEqual([...groupNames()].sort());
     const { mkdir, writeFile } = await import('node:fs/promises');
     await mkdir(join(h.env.home, 'Library', 'Logs', 'devhost'), { recursive: true });
     await writeFile(join(h.env.home, 'Library', 'Logs', 'devhost', 'collector.log'), 'collector listening on 127.0.0.1:4318\n');

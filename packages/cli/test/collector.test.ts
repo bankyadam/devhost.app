@@ -794,3 +794,61 @@ describe('service log retention', () => {
     expect(gunzipSync(await readFile(join(dir, 'rc-a.log.3.gz'))).toString()).toBe('day2\n');
   });
 });
+
+describe('Collector Claude Code updates', () => {
+  const result = (data: unknown, ok = true) => ({ stdout: `{"type":"step","id":"update.check","status":"start"}\n${JSON.stringify({ type: 'result', ok, data })}\n` });
+  const claude = (installed: string, latest: string) => ({ install: 'brew', path: '/opt/homebrew/bin/claude', installed, latest, outdated: installed !== latest });
+
+  function updating(mode?: 'auto' | 'notify', answers: Record<string, unknown>[] = []) {
+    const calls: string[] = [];
+    const runner = new MockRunner().on(/^devhost update/, (call) => {
+      const line = [call.command, ...call.args].join(' ');
+      calls.push(line);
+      if (line.includes('--check')) return result({ claude: claude('2.1.300', '2.1.310'), packages: [{ name: 'gh', installed: '1', latest: '2', cask: false }], checkedAt: 0 });
+      return result(answers.shift() ?? {}, true);
+    });
+    const db = new Db(':memory:');
+    const notifier = new Recorder();
+    const clock = { now: T0 };
+    const config = mode ? parseConfig(`machine: { hostname: macmini }\nnotify: { topic: devhost-abcdefgh }\nclaude: { update: ${mode} }\n`, '/c') : CONFIG;
+    const collector = new Collector({ db, config: () => config, deps: { home: HOME, user: 'op', brewPrefix: '/opt/homebrew', runner }, notifier, now: () => clock.now, os: fakeOs().os, selfCommand: ['devhost'] });
+    const state = () => JSON.parse(db.kvGet('update') ?? 'null') as NonNullable<DashData['updates']>;
+    return { calls, notifier, clock, collector, state, db };
+  }
+
+  it('checks once a day, updates only inside the window, waits for busy sessions, then reports the update', async () => {
+    const u = updating(undefined, [
+      { claude: claude('2.1.300', '2.1.310'), packages: [], checkedAt: 0, busy: ['business/acme-api · 5e000000'] },
+      { claude: { ...claude('2.1.310', '2.1.310'), updated: true }, packages: [], checkedAt: 0, restarted: ['com.devhost.rc.business.acme-api'], reattached: [{ remoteSession: 'session_01', account: 'business', env: 'acme-api', ok: true }] },
+    ]);
+    await u.collector.updateTick(); // noon: outside 02:00-06:00
+    expect(u.calls).toEqual(['devhost update --check --json']);
+    expect(u.state()).toMatchObject({ claude: { installed: '2.1.300', latest: '2.1.310', outdated: true }, packages: 1, mode: 'auto', waiting: 'updates run between 02:00 and 06:00' });
+    await u.collector.updateTick(); // no new check within the day
+    expect(u.calls).toHaveLength(1);
+
+    u.clock.now = T0 + 15 * 3_600_000; // 03:00 the next day (the check from noon still counts)
+    await u.collector.updateTick();
+    expect(u.calls.slice(1)).toEqual(['devhost update --json']);
+    expect(u.state().waiting).toBe('1 session(s) in the middle of a turn');
+    expect(u.notifier.sent).toEqual([]);
+
+    u.clock.now += 3_600_000;
+    await u.collector.updateTick();
+    expect(u.state()).toMatchObject({ claude: { installed: '2.1.310', outdated: false }, lastUpdate: { ok: true } });
+    expect(u.state().waiting).toBeUndefined();
+    expect(u.notifier.sent.map((n) => n.message)).toEqual(['Claude Code 2.1.300 → 2.1.310; 1 service(s) restarted, 1 of 1 session(s) reattached.']);
+    const dash = buildDash(u.db, CONFIG, { range: '24h' }, u.clock.now, 'macmini', null);
+    expect(dash.updates?.claude.outdated).toBe(false);
+  });
+
+  it('notify mode only tells, once per version', async () => {
+    const u = updating('notify');
+    await u.collector.updateTick();
+    u.clock.now += 21 * 3_600_000;
+    await u.collector.updateTick();
+    expect(u.calls).toEqual(['devhost update --check --json', 'devhost update --check --json']);
+    expect(u.notifier.sent).toHaveLength(1);
+    expect(u.notifier.sent[0]!.message).toContain('Claude Code 2.1.310 is available');
+  });
+});

@@ -43,7 +43,7 @@ export async function collectorRunCommand(deps: Deps, g: GlobalOptions): Promise
   try {
     const { config } = await loadConfig(g.configPath);
     db = new Db(dbPath(deps.home));
-    collector = new Collector({ db, config: watchConfig(g.configPath, config, log), deps, notifier: createNotifier(config), now: () => deps.now().getTime(), log });
+    collector = new Collector({ db, config: watchConfig(g.configPath, config, log), deps, notifier: createNotifier(config), now: () => deps.now().getTime(), log, selfCommand: [process.execPath, '--disable-warning=ExperimentalWarning', process.argv[1]!, '--config', g.configPath] });
     await collector.start();
     while (!deps.cancel.cancelled) await new Promise((r) => setTimeout(r, 200));
     log('stopping');
