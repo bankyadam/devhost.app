@@ -590,10 +590,11 @@ One view across all accounts and environments, from `devhost dash --follow --jso
 - Form editor generated from the config JSON Schema, plus a raw YAML tab with live validation.
 - **Apply flow:** save → `devhost apply --dry-run --json` → show the plan as a diff (what changes, which steps need sudo) → confirm → `devhost apply --json` with live progress. Steps needing sudo show a notice that the password is entered in a Terminal window opened by the app (the app never handles the sudo password); with the root helper they need none.
 
-### B3.5 Doctor and logs
+### B3.5 Doctor and Logs
 
-- `devhost doctor --json` as a checklist with fix hints; copy-to-clipboard for fix commands; plugin advice under its check, with its action as a button.
-- Log viewer for collector and Remote Control services.
+Two screens:
+- **Doctor:** `devhost doctor --json` as a checklist with fix hints; copy-to-clipboard for fix commands; plugin advice under its check, with its action as a button.
+- **Logs:** the collector and every Remote Control service, grouped by account, on the left; the selected log on the right, following every 3 s.
 
 ### B3.6 Menu bar
 

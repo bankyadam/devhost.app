@@ -236,7 +236,7 @@ describe('dashboard (spec B3.1, B6)', () => {
     await h.user.click(await dlg.findByRole('button', { name: 'Close' }, { timeout: 8000 }));
     await waitFor(() => expect(widgetCalls()).toBeGreaterThan(before)); // the card is refreshed
 
-    await h.user.click(screen.getByRole('button', { name: 'Doctor and logs' }));
+    await h.user.click(screen.getByRole('button', { name: 'Doctor' }));
     const advice = within(await screen.findByLabelText('Advice from tidy', undefined, { timeout: 8000 }));
     expect(advice.getByText(/1 GB in caches/)).toBeInTheDocument();
     expect(advice.getByRole('button', { name: 'Free disk space…' })).toBeInTheDocument();

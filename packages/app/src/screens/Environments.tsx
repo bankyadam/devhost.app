@@ -196,7 +196,8 @@ function DeleteFlow({ env, onClose }: { env: Env; onClose: () => void }) {
   );
 }
 
-export function LogViewer({ title, load, onClose }: { title: string; load: () => Promise<string[]>; onClose: () => void }) {
+/** A log's last lines, refreshed every 3 s unless turned off: inline on the Logs screen, in a dialog elsewhere. */
+export function LogPane({ load }: { load: () => Promise<string[]> }) {
   const [lines, setLines] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
@@ -204,19 +205,28 @@ export function LogViewer({ title, load, onClose }: { title: string; load: () =>
     load().then((l) => { setLines(l); setError(null); }, (e) => setError(errorMessage(e)));
   }, [load]);
   useEffect(() => {
+    setLines(null);
     refresh();
     if (!follow) return;
     const t = setInterval(refresh, 3000);
     return () => clearInterval(t);
   }, [refresh, follow]);
   return (
-    <Dialog title={title} wide onClose={onClose} footer={<button className="btn primary" onClick={onClose}>Close</button>}>
+    <>
       <div className="row">
         <button className="btn sm" onClick={refresh}>Refresh</button>
         <label className="check small"><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Update every 3 s</label>
       </div>
       {error && <div className="notice bad" role="alert">{error}</div>}
       <pre className="logview" aria-label="Log">{lines === null ? 'Loading…' : lines.length === 0 ? '(empty)' : lines.join('\n')}</pre>
+    </>
+  );
+}
+
+export function LogViewer({ title, load, onClose }: { title: string; load: () => Promise<string[]>; onClose: () => void }) {
+  return (
+    <Dialog title={title} wide onClose={onClose} footer={<button className="btn primary" onClick={onClose}>Close</button>}>
+      <LogPane load={load} />
     </Dialog>
   );
 }
