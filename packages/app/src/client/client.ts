@@ -18,6 +18,7 @@ import {
   type PluginRunData,
   type PluginWidgetsData,
   type SessionReattachData,
+  type UpdateData,
   type StorageChangeData,
   type StorageListData,
   type StorageStatusData,
@@ -201,6 +202,8 @@ export class DevhostClient {
 
   /** Bring an ended Remote Control session back (a one-shot service in its worktree). */
   sessionReattach = (id: string, h?: LongHandlers): LongRun<SessionReattachData> => this.run<SessionReattachData>(['session', 'reattach', id], h);
+  /** Update Claude Code (restarts the Remote Control services, reattaches their sessions); `all` also upgrades the Brewfile packages. */
+  update = (o: { all?: boolean; force?: boolean }, h?: LongHandlers): LongRun<UpdateData> => this.run<UpdateData>(['update', ...(o.all ? ['--all'] : []), ...(o.force ? ['--force'] : [])], h);
 
   /** The work volume (spec A7.12). No `storage prepare` here: erasing a disk is CLI only (B3.8). */
   storageStatus = async (): Promise<StorageStatusData> => {

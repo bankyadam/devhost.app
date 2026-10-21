@@ -190,6 +190,7 @@ tr.waiting:hover td { background: color-mix(in srgb, var(--warn) 24%, var(--surf
 .oplog .line .msg { color: var(--ink-3); }
 .notice { border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent); background: color-mix(in srgb, var(--warn) 14%, var(--surface)); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .notice.bad { border-color: color-mix(in srgb, var(--bad) 50%, transparent); background: color-mix(in srgb, var(--bad) 10%, var(--surface)); }
+.notice.warn { border-color: color-mix(in srgb, var(--warn) 50%, transparent); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
 .prompt { border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 pre.logview { margin: 0; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; font: 12px/1.5 var(--mono); max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
 .plan { font: 12px/1.6 var(--mono); }
@@ -223,3 +224,7 @@ legend { font-weight: 600; padding: 0 6px; font-size: 13px; }
 .log-sources .nav[aria-current="true"] { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
 .log-main pre.logview { max-height: calc(100vh - 260px); min-height: 320px; }
 @media (max-width: 760px) { .logs-layout { grid-template-columns: 1fr; } }
+
+/* Doctor: checks grouped by the first part of their id */
+.check-group h3 { margin: 14px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-2); }
+.check-group:first-of-type h3 { margin-top: 6px; }

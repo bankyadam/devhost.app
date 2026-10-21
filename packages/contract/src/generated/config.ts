@@ -109,6 +109,14 @@ export interface DevhostConfig {
     settings?: {
       [k: string]: unknown;
     };
+    /**
+     * Keeping Claude Code current. auto: the collector checks once a day and, inside updateWindow while no session is running a turn, updates it, restarts the Remote Control services and reattaches their open sessions. notify: only tells you an update is there (devhost update does it). off: neither.
+     */
+    update?: 'auto' | 'notify' | 'off';
+    /**
+     * Local time range (HH:MM-HH:MM, may wrap midnight) in which the automatic update may run.
+     */
+    updateWindow?: string;
   };
   collector?: {
     port?: number;

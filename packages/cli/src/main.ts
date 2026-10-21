@@ -18,6 +18,7 @@ import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, env
 import { collectorLogsCommand, collectorRunCommand, dashCommand, notifyCommand, topCommand } from './commands-collector.js';
 import { doctorCommand, statusCommand, uninstallCommand } from './commands-doctor.js';
 import { sessionReattachCommand } from './reattach.js';
+import { updateCommand } from './update.js';
 import { storageAdoptCommand, storageListCommand, storageMigrateCommand, storagePrepareCommand, storageSetPassphraseCommand, storageStatusCommand, storageWaitCommand } from './commands-storage.js';
 import { pluginInstallCommand, pluginListCommand, pluginRunCommand, pluginToggleCommand, pluginUninstallCommand, pluginWidgetsCommand } from './commands-plugins.js';
 import { closeInput } from './prompter.js';
@@ -241,6 +242,15 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .description('Notifications')
     .option('--test', 'send a test notification')
     .action(run(() => notifyCommand(deps, globals(), { test: program.commands.find((c) => c.name() === 'notify')!.opts<{ test?: boolean }>().test === true })));
+
+  program
+    .command('update')
+    .description('Update Claude Code: upgrade it, restart the Remote Control services onto it, reattach their open sessions')
+    .option('--check', 'only report what is outdated')
+    .option('--all', 'also upgrade the other Brewfile packages')
+    .option('--force', 'do not wait for sessions in the middle of a turn (they are interrupted, then reattached)')
+    .option('--dry-run', 'only print the plan')
+    .action((o: { check?: boolean; all?: boolean; force?: boolean; dryRun?: boolean }) => run(() => updateCommand(deps, globals(), { check: o.check === true, all: o.all === true, force: o.force === true, dryRun: o.dryRun === true }))());
 
   const session = program.command('session').description('Claude Code sessions on this host');
   session

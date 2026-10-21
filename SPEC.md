@@ -187,6 +187,21 @@ Each item is a **step** with `check()`, `apply()`, and a description. Steps run 
   - Add the telemetry and hook settings from A10.2 to the same file.
   - Install the shared user-level `CLAUDE.md` (A8) as a managed block in the account's `CLAUDE.md`, keeping the rest of the file.
 
+**Keeping it current (`devhost update`, `claude.update`).** `apply` only installs Claude Code (and updates it when too old for Remote Control); `brew bundle` never upgrades. Updating is its own flow because a Remote Control service starts its sessions from the versioned path (`…/Caskroom/claude-code/<version>/claude`) that `brew upgrade` deletes: until it restarts, a service cannot start new sessions.
+
+1. `brew update`, then the installed version (`claude --version` of the recorded path) against the cask's (`brew info --json=v2 --cask claude-code`). Native installs learn of a new version only by running `claude update`.
+2. Sessions in the middle of a turn (collector state `running`, active in the last day): the update **waits** and says which ones, unless `--force`.
+3. Before upgrading, note each Remote Control service's open sessions (its child processes started with `--session-id cse_…`, with their worktree, or their working directory without one), and running reattach jobs.
+4. `brew upgrade --cask claude-code` (native: `claude update`).
+5. If the version changed: `launchctl kickstart -k` every Remote Control service and running reattach job, then reattach each noted session (A7.9: a one-shot `remote-control --session-id` job in its directory). A session that cannot be reattached is reported, not fatal.
+6. Refuses to run from inside a session of a service it would restart (it would end itself half way): run it from the app, a terminal, or let the collector do it.
+
+`--check` only reports; `--all` also upgrades the outdated Brewfile packages (`brew outdated --json=v2`, limited to the Brewfile); `--dry-run` prints the plan.
+
+**Automatically** (`claude.update`, default `auto`): the collector runs `devhost update --check` once a day and keeps the result for the dashboard and doctor. With `auto`, inside `claude.updateWindow` (local time, default `02:00-06:00`) it runs `devhost update` hourly until it succeeds: busy sessions make it wait an hour; a failed update is not retried until the next day's check. Each update and each failure sends a notification. `notify` only notifies, once per new version; `off` does neither.
+
+Doctor warns when another `claude` comes before the recorded one on the services' `PATH` (e.g. a leftover native install in `~/.local/bin`): whatever calls `claude` by name would run that one.
+
 ### A7.6 Account routing (direnv)
 
 - Create account roots (never under `/Volumes` unless the work volume is mounted and verified, A7.12).
@@ -419,6 +434,7 @@ Notify (ntfy in v1, provider behind a small interface) when: memory above `alert
 | `devhost login <account> [--switch-login]` | A7.10. |
 | `devhost env list \| create \| delete \| start \| stop \| restart \| logs` | A7.9. `create` flags: `--account`, `--name`, `--repo`, `--no-rc`, `--permission-mode`, `--compose auto\|off`. |
 | `devhost session reattach <id> [--dry-run]` | A7.9. |
+| `devhost update [--check] [--all] [--force] [--dry-run]` | A7.5: update Claude Code, restart the Remote Control services onto it, reattach their open sessions; `--all` also upgrades the Brewfile packages. |
 | `devhost storage list \| adopt \| prepare \| status \| wait \| set-passphrase \| migrate` | A7.12. `prepare` and `migrate --cleanup` are the only destructive paths; never run by `apply` or the app (`prepare`). |
 | `devhost plugin list \| run \| widgets \| install \| uninstall \| enable \| disable` | A18. |
 | `devhost config get \| set \| validate \| edit \| raw \| put` | Read and change config with schema validation; `set` takes a JSON pointer and value; `raw`/`put` for the app (comments kept, `put` only if valid). Changing config does not apply it; run `apply`. |
@@ -432,7 +448,7 @@ Global flags: `--json`, `--verbose`, `--yes`, `--config <path>`.
 
 ## A12. `doctor` checks (minimum)
 
-macOS version, architecture (Apple Silicon or Intel; not Rosetta), FileVault, hostname · power settings · SSH · root helper (when configured) · Homebrew + `brew bundle check` · runtimes · Docker running · Tailscale running, authenticated, its hostname/IP · Claude Code version · per account: config dir, required settings keys, logged in, **who it is signed in as** (the services' `.credentials.json` login via claude.ai's profile endpoint; fails if it differs from `claudeLogin` or from what `auth status` shows, or if two accounts share a login), credential store, Remote Control eligibility (`claude doctor`) · per environment: directory is a git repo, trusted, launchd job loaded and running, the Remote Control log since its last start without errors (a sign-in error, expired token or 401, fails with `devhost login <account>`), port block free of conflicts, compose services up, git `includeIf` returns the right email · collector running, receiving OTel data in the last hour, database size · direnv: `CLAUDE_CONFIG_DIR` resolves correctly in each account root and environment · free internal disk · plugins: each enabled plugin's checks (`plugin.<name>.<check>`; one that does not load is a warning) and their advice under other checks.
+macOS version, architecture (Apple Silicon or Intel; not Rosetta), FileVault, hostname · power settings · SSH · root helper (when configured) · Homebrew + `brew bundle check` · runtimes · Docker running · Tailscale running, authenticated, its hostname/IP · Claude Code version, a newer one available (from the collector's daily check), another `claude` shadowing it on the services' `PATH` · per account: config dir, required settings keys, logged in, **who it is signed in as** (the services' `.credentials.json` login via claude.ai's profile endpoint; fails if it differs from `claudeLogin` or from what `auth status` shows, or if two accounts share a login), credential store, Remote Control eligibility (`claude doctor`) · per environment: directory is a git repo, trusted, launchd job loaded and running, the Remote Control log since its last start without errors (a sign-in error, expired token or 401, fails with `devhost login <account>`), port block free of conflicts, compose services up, git `includeIf` returns the right email · collector running, receiving OTel data in the last hour, database size · direnv: `CLAUDE_CONFIG_DIR` resolves correctly in each account root and environment · free internal disk · plugins: each enabled plugin's checks (`plugin.<name>.<check>`; one that does not load is a warning) and their advice under other checks.
 
 **Work volume** (when configured): volume present and mounted, uuid and marker match, APFS, encryption matches the config, ownership enabled, Spotlight state, `AutomountDisksWithoutUserLogin` set, unlock daemon loaded and keychain item present (if encrypted; existence only, never read in doctor), no stray non-mount directory at `/Volumes/<label>`, no double mount, Colima mounts the volume's root and `docker run --rm -v <root>:/x alpine ls /x` sees real files, every account root and environment resolves (realpath) inside the volume, free space, `docker.diskGiB` ≤ 40 % of internal free space.
 
@@ -563,7 +579,7 @@ A macOS app on the MacBook to configure and control the Mac mini, create environ
 
 One view across all accounts and environments, from `devhost dash --follow --json` and `devhost plugin widgets --json`:
 
-- **Header:** the host's health, titled with its name (online, uptime, CPU, RAM, internal disk free, Docker, Tailscale), with a work volume its state (mounted, free space, encrypted), collector status, alert badges.
+- **Header:** the host's health, titled with its name (online, uptime, CPU, RAM, internal disk free, Docker, Tailscale), with a work volume its state (mounted, free space, encrypted), Claude Code's version (current, a newer one with why the automatic update waits, the last update's outcome, outdated packages, and "Update now…": confirm → `devhost update`; when sessions are busy, "Interrupt them and update" runs it with `--force`), collector status, alert badges.
 - **Plugin cards:** each enabled plugin's filters and cards (A18). The usage statistics are the built-in `stats` plugin's: filters (time range 1h / 24h / 7d / 30d, account, environment, model, tokens or cost, stacked by account or token type), a card per account (today / this week, login state, daily cost alert meter), tokens or estimated cost over time, and agents at work (now, most at once, over time). Charts have a table view.
 - **Environments panel:** per environment: Remote Control service state, CPU/RAM (process tree + its containers), port block, disk size.
 - **Sessions table:** every Claude Code session on the Mac mini, all accounts together. Columns: account, environment, session title (or last prompt) and id, subagents, state (running / waiting for input / idle / ended), started, last activity, tokens today, estimated cost today, CPU, RAM. Sort by any column. Sessions waiting for input are highlighted.
@@ -593,7 +609,7 @@ One view across all accounts and environments, from `devhost dash --follow --jso
 ### B3.5 Doctor and Logs
 
 Two screens:
-- **Doctor:** `devhost doctor --json` as a checklist with fix hints; copy-to-clipboard for fix commands; plugin advice under its check, with its action as a button.
+- **Doctor:** `devhost doctor --json` as a checklist with fix hints, problems only by default ("All checks" shows the OK ones too), grouped by the first part of the check id, groups and checks in alphabetical order; copy-to-clipboard for fix commands; plugin advice under its check, with its action as a button.
 - **Logs:** the collector and every Remote Control service, grouped by account, on the left; the selected log on the right, following every 3 s.
 
 ### B3.6 Menu bar

@@ -399,6 +399,22 @@
               ]
             }
           }
+        },
+        "update": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "notify",
+            "off"
+          ],
+          "default": "auto",
+          "description": "Keeping Claude Code current. auto: the collector checks once a day and, inside updateWindow while no session is running a turn, updates it, restarts the Remote Control services and reattaches their open sessions. notify: only tells you an update is there (devhost update does it). off: neither."
+        },
+        "updateWindow": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d-([01]\\d|2[0-3]):[0-5]\\d$",
+          "default": "02:00-06:00",
+          "description": "Local time range (HH:MM-HH:MM, may wrap midnight) in which the automatic update may run."
         }
       }
     },

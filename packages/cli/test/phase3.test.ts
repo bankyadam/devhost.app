@@ -4,7 +4,7 @@ import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { keychainService } from '../src/credentials.js';
 import { validate } from '@devhost/contract';
-import type { ApplyData, Envelope } from '@devhost/contract';
+import type { ApplyData, Envelope, UpdateData } from '@devhost/contract';
 import { Db, dbPath } from '../src/collector/db.js';
 import { fakeMac, makeEnv, ndjson, type TestEnv } from './helpers.js';
 
@@ -370,6 +370,76 @@ describe('environments', () => {
     await env.run('dash', '--json');
     const sessions = (lastEnvelope(env).data as { sessions: { id: string; remoteSession: string | null }[] }).sessions;
     expect(Object.fromEntries(sessions.map((x) => [x.id, x.remoteSession]))).toEqual({ '6a7802e0-1111': 'session_01Abc', '7b000000-2222': 'session_01Abc', '8c000000-3333': null });
+  });
+
+  it('update --check names a newer Claude Code and the outdated Brewfile packages, and changes nothing', async () => {
+    const { env, mac } = await created();
+    mac.state.binaries.add('claude');
+    mac.state.claudeLatest = '2.1.310';
+    mac.state.outdated = { formulae: [{ name: 'git', installed_versions: ['2.50.0'], current_version: '2.51.0' }, { name: 'ffmpeg', installed_versions: ['7.0'], current_version: '7.1' }], casks: [{ name: 'claude-code', installed_versions: '2.1.300', current_version: '2.1.310' }] };
+    expect(await env.run('update', '--check', '--json')).toBe(0);
+    const data = lastResult(env).data as unknown as UpdateData;
+    expect(validate('result.update', data).ok).toBe(true);
+    expect(data.claude).toMatchObject({ install: 'brew', installed: '2.1.300', latest: '2.1.310', outdated: true });
+    expect(data.packages).toEqual([{ name: 'git', installed: '2.50.0', latest: '2.51.0', cask: false }]); // ffmpeg is not in the Brewfile
+    expect(mac.runner.lines().filter((l) => /brew upgrade|kickstart/.test(l))).toEqual([]);
+  });
+
+  it('update waits while a session is in the middle of a turn', async () => {
+    const { env, mac, dir } = await created();
+    mac.state.binaries.add('claude');
+    mac.state.claudeLatest = '2.1.310';
+    const now = env.deps.now().getTime();
+    const db = new Db(dbPath(env.home));
+    db.run("INSERT INTO sessions VALUES ('5e000000-1111', 'business', 'acme-api', ?, 'running', ?, ?, NULL)", dir, now - 60_000, now - 30_000);
+    db.close();
+    expect(await env.run('update', '--json')).toBe(0);
+    const data = lastResult(env).data as unknown as UpdateData;
+    expect(data.busy).toEqual(['business/acme-api · 5e000000']);
+    expect(data.claude.updated).toBeUndefined();
+    expect(mac.runner.lines().filter((l) => /brew upgrade|kickstart/.test(l))).toEqual([]);
+  });
+
+  it('update upgrades Claude Code, restarts the services onto it and reattaches their open sessions', async () => {
+    const { env, mac, dir } = await created();
+    mac.state.binaries.add('claude');
+    mac.state.claudeLatest = '2.1.310';
+    const wt = join(dir, '.claude', 'worktrees', 'bridge-cse_01Live');
+    await mkdir(wt, { recursive: true });
+    mac.state.procs = [
+      ' 4242 1 1.0 1000 /opt/homebrew/bin/claude remote-control --name business-acme-api',
+      ' 4300 4242 1.0 1000 /opt/homebrew/Caskroom/claude-code/2.1.300/claude --print --sdk-url https://api.anthropic.com/v1/code/sessions/cse_01Live --session-id cse_01Live',
+    ];
+    const log = join(env.home, 'Library', 'Logs', 'devhost', 'rc-business-acme-api-cse_01Live.log');
+    mac.state.onBootstrap = (label) => {
+      if (label === 'com.devhost.reattach.cse_01Live') void appendFile(log, 'Connected\n');
+    };
+    expect(await env.run('update', '--json')).toBe(0);
+    const data = lastResult(env).data as unknown as UpdateData;
+    expect(validate('result.update', data).ok).toBe(true);
+    expect(data.claude).toMatchObject({ installed: '2.1.310', outdated: false, updated: true });
+    expect(data.restarted).toEqual(['com.devhost.rc.business.acme-api']);
+    expect(data.reattached).toEqual([{ remoteSession: 'session_01Live', account: 'business', env: 'acme-api', ok: true }]);
+    const lines = mac.runner.lines();
+    const upgrade = lines.indexOf('brew upgrade --cask claude-code');
+    const restart = lines.indexOf('sudo -n -- launchctl kickstart -k system/com.devhost.rc.business.acme-api');
+    expect(upgrade).toBeGreaterThan(-1);
+    expect(restart).toBeGreaterThan(upgrade);
+    expect(mac.state.loaded.has('com.devhost.reattach.cse_01Live')).toBe(true);
+
+    // Current now: nothing more to do.
+    mac.runner.calls.length = 0;
+    expect(await env.run('update', '--json')).toBe(0);
+    expect(mac.runner.lines().filter((l) => /brew upgrade|kickstart/.test(l))).toEqual([]);
+  });
+
+  it('update --all also upgrades the outdated Brewfile packages', async () => {
+    const { env, mac } = await created();
+    mac.state.binaries.add('claude');
+    mac.state.outdated = { formulae: [{ name: 'git', installed_versions: ['2.50.0'], current_version: '2.51.0' }], casks: [] };
+    expect(await env.run('update', '--all', '--json')).toBe(0);
+    expect(mac.state.upgraded).toEqual(['git']);
+    expect((lastResult(env).data as unknown as UpdateData).packages).toEqual([{ name: 'git', installed: '2.50.0', latest: '2.51.0', cask: false, updated: true }]);
   });
 
   it('session reattach that cannot connect (the session is gone on claude.ai) fails and leaves no job behind', async () => {

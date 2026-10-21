@@ -4,13 +4,15 @@ import { join } from 'node:path';
 import type { SessionReattachData } from '@devhost/contract';
 import { Db, dbPath } from './collector/db.js';
 import { long, newExecutor, newStepContext, type GlobalOptions } from './command-support.js';
-import { environmentsOf, findAccount, logsDir } from './config/accounts.js';
+import { environmentsOf, findAccount, logsDir, type Account, type Environment } from './config/accounts.js';
 import { loadConfig } from './config/load.js';
 import type { Deps } from './deps.js';
 import { DevhostError, UsageError } from './errors.js';
 import { stripAnsi } from './login.js';
 import { applyDaemon, daemonState, launchDaemonsDir, removeDaemon, type DaemonSpec } from './launchd.js';
 import { rcSpec } from './steps/env.js';
+import type { StepContext } from './steps/types.js';
+import type { Reporter } from './reporter.js';
 
 export const REATTACH_PREFIX = 'com.devhost.reattach.';
 
@@ -69,49 +71,67 @@ export function sessionReattachCommand(deps: Deps, g: GlobalOptions, id: string,
 
     const exec = newExecutor(deps, g, reporter, dryRun);
     const ctx = newStepContext(deps, g, config, exec);
-    const rc = await rcSpec(ctx, account, env);
-    const permissionMode = rc.args[rc.args.indexOf('--permission-mode') + 1]!;
-    const spec: DaemonSpec = {
-      ...rc,
-      label: `${REATTACH_PREFIX}${remote.key}`,
-      args: [rc.args[0]!, 'remote-control', '--session-id', remote.id, '--permission-mode', permissionMode],
-      workingDirectory: remote.dir,
-      logPath: join(logsDir(deps.home), `rc-${s.account}-${s.env}-${remote.key}.log`),
-      keepAlive: false,
-    };
-
-    const step = `session.reattach.${remote.key}`;
-    exec.beginStep(step);
-    reporter.step(step, 'start', `reattach ${s.session_id.slice(0, 8)} (${remote.id}) in ${s.env}`);
-    if ((await daemonState(exec, spec.label)).running) throw new UsageError(`${remote.id} is attached already (${spec.label} is running)`, 'Open it on claude.ai.');
-
-    // The log is appended to: only what this run writes counts.
-    const logFrom = ((await exec.readText(spec.logPath)) ?? '').length;
-    const newLog = async (): Promise<string> => stripAnsi(((await exec.readText(spec.logPath)) ?? '').slice(logFrom));
-    const removed: string[] = [];
-    for (const label of await reattachLabels()) {
-      if (label === spec.label || (await daemonState(exec, label)).running) continue;
-      await removeDaemon(ctx, label);
-      removed.push(label);
-    }
-    await applyDaemon(ctx, spec);
-
-    if (!dryRun) {
-      // Connected, or it gave up (nothing to reattach to): its log says which.
-      const running = async (): Promise<boolean> => (await daemonState(exec, spec.label)).running;
-      await exec.waitFor(async () => /Connected/.test(await newLog()) || ((await newLog()).trim() !== '' && !(await running())), 30, 1000);
-      if (!/Connected/.test(await newLog()) || !(await running())) {
-        const tail = (await newLog()).split('\n').filter((l) => l.trim()).slice(-3).join(' / ');
-        reporter.step(step, 'failed', tail || 'it did not connect');
-        // Nothing to keep: left installed, it would only fail again at the next boot.
-        await removeDaemon(ctx, spec.label);
-        throw new DevhostError(`${remote.id} could not be reattached${tail ? `: ${tail}` : ''}`, 'reattach-failed', 1, `Log: ${spec.logPath}`);
-      }
-    }
-    reporter.step(step, dryRun ? 'ok' : 'changed', dryRun ? 'planned' : 'connected');
+    const { label, logPath, removed } = await reattachInWorktree(ctx, reporter, account, env, remote, dryRun);
     const url = `https://claude.ai/code/${remote.id}`;
-    const data: SessionReattachData = { session: s.session_id, remoteSession: remote.id, account: s.account, env: s.env, url, label: spec.label, logPath: spec.logPath, ...(removed.length ? { removed } : {}), ...(dryRun ? { dryRun: true } : {}) };
+    const data: SessionReattachData = { session: s.session_id, remoteSession: remote.id, account: s.account, env: s.env, url, label, logPath, ...(removed.length ? { removed } : {}), ...(dryRun ? { dryRun: true } : {}) };
     const plan = dryRun && exec.plan.length > 0 ? ['', 'Dry run plan (nothing was changed):', ...exec.plan.map((p) => `  ${p.sudo ? '[sudo] ' : ''}${p.action}${p.reason ? `  — ${p.reason}` : ''}`)] : [];
     return { ok: true, data, human: [dryRun ? `Would reattach ${remote.id}.` : `✅ Reattached: ${url}`, ...plan] };
   });
+}
+
+/**
+ * Run `claude remote-control --session-id session_…` in the session's worktree as a one-shot
+ * LaunchDaemon and wait until it connects (or remove it again and throw). Also used by
+ * `devhost update` after the services restarted onto a new Claude Code.
+ */
+export async function reattachInWorktree(
+  ctx: StepContext,
+  reporter: Reporter,
+  account: Account,
+  env: Environment,
+  remote: { id: string; key: string; dir: string },
+  dryRun: boolean,
+): Promise<{ label: string; logPath: string; removed: string[] }> {
+  const { exec, home } = ctx;
+  const rc = await rcSpec(ctx, account, env);
+  const permissionMode = rc.args[rc.args.indexOf('--permission-mode') + 1]!;
+  const spec: DaemonSpec = {
+    ...rc,
+    label: `${REATTACH_PREFIX}${remote.key}`,
+    args: [rc.args[0]!, 'remote-control', '--session-id', remote.id, '--permission-mode', permissionMode],
+    workingDirectory: remote.dir,
+    logPath: join(logsDir(home), `rc-${account.name}-${env.name}-${remote.key}.log`),
+    keepAlive: false,
+  };
+
+  const step = `session.reattach.${remote.key}`;
+  exec.beginStep(step);
+  reporter.step(step, 'start', `reattach ${remote.id} in ${env.name}`);
+  if ((await daemonState(exec, spec.label)).running) throw new UsageError(`${remote.id} is attached already (${spec.label} is running)`, 'Open it on claude.ai.');
+
+  // The log is appended to: only what this run writes counts.
+  const logFrom = ((await exec.readText(spec.logPath)) ?? '').length;
+  const newLog = async (): Promise<string> => stripAnsi(((await exec.readText(spec.logPath)) ?? '').slice(logFrom));
+  const removed: string[] = [];
+  for (const label of await reattachLabels()) {
+    if (label === spec.label || (await daemonState(exec, label)).running) continue;
+    await removeDaemon(ctx, label);
+    removed.push(label);
+  }
+  await applyDaemon(ctx, spec);
+
+  if (!dryRun) {
+    // Connected, or it gave up (nothing to reattach to): its log says which.
+    const running = async (): Promise<boolean> => (await daemonState(exec, spec.label)).running;
+    await exec.waitFor(async () => /Connected/.test(await newLog()) || ((await newLog()).trim() !== '' && !(await running())), 30, 1000);
+    if (!/Connected/.test(await newLog()) || !(await running())) {
+      const tail = (await newLog()).split('\n').filter((l) => l.trim()).slice(-3).join(' / ');
+      reporter.step(step, 'failed', tail || 'it did not connect');
+      // Nothing to keep: left installed, it would only fail again at the next boot.
+      await removeDaemon(ctx, spec.label);
+      throw new DevhostError(`${remote.id} could not be reattached${tail ? `: ${tail}` : ''}`, 'reattach-failed', 1, `Log: ${spec.logPath}`);
+    }
+  }
+  reporter.step(step, dryRun ? 'ok' : 'changed', dryRun ? 'planned' : 'connected');
+  return { label: spec.label, logPath: spec.logPath, removed };
 }

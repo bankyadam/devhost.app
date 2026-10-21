@@ -1,7 +1,8 @@
 import { cpus, loadavg, totalmem, freemem, platform as osPlatform, uptime } from 'node:os';
 import { statfs } from 'node:fs/promises';
 import type { Server } from 'node:http';
-import type { DevhostConfig } from '@devhost/contract';
+import type { DashData, DevhostConfig, UpdateData } from '@devhost/contract';
+import { inWindow } from '../update.js';
 import { accountsOf, environmentsOf, logsDir, rcLabel, composeProject, type Account } from '../config/accounts.js';
 import type { Deps } from '../deps.js';
 import { daemonState } from '../launchd.js';
@@ -57,7 +58,12 @@ export interface CollectorOptions {
   now?: () => number;
   os?: OsProbe;
   log?: (msg: string) => void;
+  /** How to run this devhost (for `devhost update`): node, the CLI script and `--config <path>`. */
+  selfCommand?: string[];
 }
+
+/** What the dashboard shows of updates (kv `update`). */
+type UpdateState = NonNullable<DashData['updates']>;
 
 const midnight = (now: number): number => {
   const d = new Date(now);
@@ -301,6 +307,72 @@ export class Collector {
     });
   }
 
+  /** Runs `devhost update <args> --json` and returns its result event's data (null when it gave none). */
+  private async runSelf(args: string[]): Promise<{ ok: boolean; data: UpdateData | null; message: string }> {
+    const [cmd, ...pre] = this.opts.selfCommand ?? [process.execPath, '--disable-warning=ExperimentalWarning', process.argv[1]!];
+    const r = await this.exec.query(cmd!, [...pre, 'update', ...args, '--json']);
+    const last = r.stdout.trim().split('\n').reverse().find((l) => l.startsWith('{"type":"result"'));
+    if (!last) return { ok: false, data: null, message: r.stderr.trim().split('\n').pop() || `devhost update exited ${r.code}` };
+    const e = JSON.parse(last) as { ok: boolean; data: UpdateData | null; errors?: { message: string }[] };
+    return { ok: e.ok, data: e.data, message: e.errors?.map((x) => x.message).join('; ') ?? '' };
+  }
+
+  /**
+   * Hourly: the daily update check, and with claude.update auto, inside claude.updateWindow, the
+   * Claude Code update itself. `devhost update` waits while a session is in the middle of a turn,
+   * so this tries again the next hour. A failed update is not retried until the next day's check.
+   */
+  async updateTick(): Promise<void> {
+    await this.safe('update', async () => {
+      const mode = this.config.claude?.update ?? 'auto';
+      if (mode === 'off') return;
+      const now = this.now();
+      const old = JSON.parse(this.db.kvGet('update') ?? 'null') as UpdateState | null;
+      let state = old;
+      if (!state || now - state.checkedAt > 20 * 3_600_000) {
+        const r = await this.runSelf(['--check']);
+        if (!r.data) {
+          this.log(`update check failed: ${r.message}`);
+          return;
+        }
+        const c = r.data.claude;
+        state = { checkedAt: now, claude: { installed: c.installed, latest: c.latest, outdated: c.outdated, ...(c.shadowed?.length ? { shadowed: c.shadowed } : {}) }, packages: r.data.packages.length, ...(old?.lastUpdate ? { lastUpdate: old.lastUpdate } : {}) };
+      }
+      state.mode = mode;
+      delete state.waiting;
+      const latest = state.claude.latest;
+      if (state.claude.outdated && latest) {
+        const window = this.config.claude?.updateWindow ?? '02:00-06:00';
+        const failedToday = state.lastUpdate && !state.lastUpdate.ok && now - state.lastUpdate.at < 20 * 3_600_000;
+        if (mode === 'notify') {
+          if (this.db.kvGet('update_notified') !== latest) {
+            this.db.kvSet('update_notified', latest, now);
+            await this.opts.notifier.send({ title: 'devhost: Claude Code update', message: `Claude Code ${latest} is available (${state.claude.installed} installed). Update from the app or with \`devhost update\`.`, tags: ['arrow_up'] });
+          }
+        } else if (failedToday) {
+          state.waiting = 'the last attempt failed; trying again after the next daily check';
+        } else if (!inWindow(window, new Date(now))) {
+          state.waiting = `updates run between ${window.replace('-', ' and ')}`;
+        } else {
+          const r = await this.runSelf([]);
+          if (r.data?.busy?.length) {
+            state.waiting = `${r.data.busy.length} session(s) in the middle of a turn`;
+          } else if (r.data?.claude.updated) {
+            const re = r.data.reattached ?? [];
+            const message = `Claude Code ${state.claude.installed} → ${r.data.claude.installed}; ${r.data.restarted?.length ?? 0} service(s) restarted${re.length ? `, ${re.filter((x) => x.ok).length} of ${re.length} session(s) reattached` : ''}.`;
+            state.claude = { ...state.claude, installed: r.data.claude.installed, outdated: false };
+            state.lastUpdate = { at: now, ok: r.ok, message: r.ok ? message : `${message} ${r.message}` };
+            await this.opts.notifier.send({ title: 'devhost: Claude Code updated', message: state.lastUpdate.message, tags: [r.ok ? 'white_check_mark' : 'warning'] });
+          } else {
+            state.lastUpdate = { at: now, ok: false, message: r.message || 'Claude Code did not change' };
+            await this.opts.notifier.send({ title: 'devhost: Claude Code update failed', message: state.lastUpdate.message, priority: 'high', tags: ['warning'] });
+          }
+        }
+      }
+      this.db.kvSet('update', JSON.stringify(state), now);
+    });
+  }
+
   async maintenanceTick(): Promise<void> {
     await this.safe('rollup', async () => {
       const now = this.now();
@@ -364,8 +436,9 @@ export class Collector {
     every(Math.max(1, this.config.collector?.authCheckMinutes ?? 60) * 60_000, () => this.authTick());
     every(10 * 60_000, () => this.maintenanceTick());
     every(24 * 3_600_000, () => this.diskUsageTick());
+    every(3_600_000, () => this.updateTick());
     // First readings shortly after start so the dashboard is not empty.
-    for (const [delay, fn] of [[500, () => this.sampleTick()], [1500, () => this.dockerTick()], [2000, () => this.tailscaleTick()], [10_000, () => this.authTick()], [30_000, () => this.diskUsageTick()], [60_000, () => this.maintenanceTick()]] as const) {
+    for (const [delay, fn] of [[500, () => this.sampleTick()], [1500, () => this.dockerTick()], [2000, () => this.tailscaleTick()], [10_000, () => this.authTick()], [30_000, () => this.diskUsageTick()], [60_000, () => this.maintenanceTick()], [120_000, () => this.updateTick()]] as const) {
       const t = setTimeout(() => void fn(), delay);
       this.timers.push(t);
     }

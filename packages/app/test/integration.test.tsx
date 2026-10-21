@@ -237,6 +237,8 @@ describe('dashboard (spec B3.1, B6)', () => {
     await waitFor(() => expect(widgetCalls()).toBeGreaterThan(before)); // the card is refreshed
 
     await h.user.click(screen.getByRole('button', { name: 'Doctor' }));
+    // The disk check is OK: its advice shows with all checks, not only problems.
+    await h.user.click(await screen.findByRole('button', { name: 'All checks' }, { timeout: 8000 }));
     const advice = within(await screen.findByLabelText('Advice from tidy', undefined, { timeout: 8000 }));
     expect(advice.getByText(/1 GB in caches/)).toBeInTheDocument();
     expect(advice.getByRole('button', { name: 'Free disk space…' })).toBeInTheDocument();
