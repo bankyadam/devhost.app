@@ -170,7 +170,11 @@ export const stats = definePlugin({
         const t = d.profile;
         if (!t || t.busyMs === 0) return { summary: 'No tool runs recorded yet: the time profile starts with the first tool an agent runs after this update.' };
         const share = (ms: number): string => `${Math.round((ms / t.busyMs) * 100)}%`;
-        const faster = (k: number): string => (t.cpuBoundMs == null ? '–' : `−${Math.round(((t.cpuBoundMs * (1 - 1 / k)) / t.busyMs) * 100)}%`);
+        const faster = (k: number): string => {
+          if (t.cpuBoundMs == null) return '–';
+          const saved = Math.round(((t.cpuBoundMs * (1 - 1 / k)) / t.busyMs) * 100);
+          return saved > 0 ? `−${saved}%` : '0%';
+        };
         return {
           summary: `${share(t.localOnlyMs)} of agent time was spent waiting on this host${t.cpuBoundMs == null ? '' : `, ${share(t.cpuBoundMs)} of it CPU-bound`}`,
           tiles: [
