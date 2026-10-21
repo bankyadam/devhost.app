@@ -122,6 +122,31 @@ describe('dashboard (spec B3.1, B6)', () => {
     return h;
   }
 
+  it('offers Update now when Claude Code is outdated, waits for a busy session, and updates when told to interrupt it', async () => {
+    const h = await dashboard();
+    h.mac.state.binaries.add('claude');
+    h.mac.state.claudeLatest = '2.1.310';
+    const { Db, dbPath } = await import('../../cli/src/collector/db.js');
+    const db = new Db(dbPath(h.env.home));
+    const now = h.env.deps.now().getTime();
+    db.kvSet('update', JSON.stringify({ checkedAt: now, claude: { installed: '2.1.300', latest: '2.1.310', outdated: true }, packages: 0, mode: 'auto', waiting: 'updates run between 02:00 and 06:00' }), now);
+    db.close();
+    const tile = within(await screen.findByRole('generic', { name: 'Claude Code' }, { timeout: 8000 }));
+    expect(tile.getByText('2.1.310 available')).toBeInTheDocument();
+    expect(tile.getByText(/waits: updates run between 02:00 and 06:00/)).toBeInTheDocument();
+
+    await h.user.click(tile.getByRole('button', { name: 'Update now…' }));
+    await h.user.click(within(await screen.findByRole('dialog', { name: 'Update Claude Code' })).getByRole('button', { name: 'Update' }));
+    // sess-running-2 is in the middle of a turn: the update waits and offers to interrupt it.
+    const busy = await screen.findByRole('button', { name: 'Interrupt them and update' }, { timeout: 8000 });
+    expect(h.mac.state.claudeVersion).toBe('2.1.300');
+    await h.user.click(busy);
+    const dlg = within(await screen.findByRole('dialog', { name: 'Update Claude Code' }));
+    await dlg.findByRole('button', { name: 'Close' }, { timeout: 8000 });
+    expect(h.mac.state.claudeVersion).toBe('2.1.310');
+    expect(h.mac.runner.lines()).toContain('brew upgrade --cask claude-code');
+  });
+
   it('shows sessions of all accounts, highlights the one waiting, and the tray follows', async () => {
     const h = await dashboard();
     const sessions = within(await screen.findByLabelText('Sessions'));

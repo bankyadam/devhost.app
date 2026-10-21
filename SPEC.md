@@ -609,7 +609,7 @@ One view across all accounts and environments, from `devhost dash --follow --jso
 ### B3.5 Doctor and Logs
 
 Two screens:
-- **Doctor:** `devhost doctor --json` as a checklist with fix hints, problems only by default ("All checks" shows the OK ones too), grouped by the first part of the check id, groups and checks in alphabetical order; copy-to-clipboard for fix commands; plugin advice under its check, with its action as a button.
+- **Doctor:** `devhost doctor --json` as a checklist with fix hints (a newer Claude Code has "Update now…", the same flow as on the dashboard), problems only by default ("All checks" shows the OK ones too), grouped by the first part of the check id, groups and checks in alphabetical order; copy-to-clipboard for fix commands; plugin advice under its check, with its action as a button.
 - **Logs:** the collector and every Remote Control service, grouped by account, on the left; the selected log on the right, following every 3 s.
 
 ### B3.6 Menu bar
