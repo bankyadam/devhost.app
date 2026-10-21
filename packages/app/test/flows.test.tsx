@@ -549,7 +549,7 @@ describe('doctor and logs (spec B3.5)', () => {
     const h = await makeHarness();
     await withBusiness(h, false); // not logged in → a failing check with a fix
     mount(h);
-    await goto(h, 'Doctor and logs');
+    await goto(h, 'Doctor');
     expect(await screen.findByText('account.business.login', undefined, { timeout: 8000 })).toBeInTheDocument();
     const item = screen.getByText('account.business.login').closest('.item') as HTMLElement;
     expect(item).toHaveTextContent('not logged in');
@@ -559,7 +559,8 @@ describe('doctor and logs (spec B3.5)', () => {
     const { mkdir, writeFile } = await import('node:fs/promises');
     await mkdir(join(h.env.home, 'Library', 'Logs', 'devhost'), { recursive: true });
     await writeFile(join(h.env.home, 'Library', 'Logs', 'devhost', 'collector.log'), 'collector listening on 127.0.0.1:4318\n');
-    await h.user.click(screen.getByRole('button', { name: 'Collector' }));
+    await goto(h, 'Logs');
+    await h.user.click(await screen.findByRole('button', { name: 'Collector' }));
     await waitFor(() => expect(screen.getByLabelText('Log')).toHaveTextContent('collector listening'));
   });
 });

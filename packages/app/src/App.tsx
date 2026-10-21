@@ -6,6 +6,7 @@ import { Configuration } from './screens/Configuration';
 import { Dashboard } from './screens/Dashboard';
 import { Doctor } from './screens/Doctor';
 import { Environments } from './screens/Environments';
+import { Logs } from './screens/Logs';
 import type { Transport } from './transport/types';
 import { Badge, ConfirmDialog, Field } from './ui/primitives';
 import { Plugins } from './screens/Plugins';
@@ -19,7 +20,8 @@ const NAV: { id: Screen; label: string }[] = [
   { id: 'storage', label: 'Storage' },
   { id: 'plugins', label: 'Plugins' },
   { id: 'configuration', label: 'Configuration' },
-  { id: 'doctor', label: 'Doctor and logs' },
+  { id: 'doctor', label: 'Doctor' },
+  { id: 'logs', label: 'Logs' },
 ];
 
 export interface AppProps {
@@ -147,6 +149,8 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
           <Plugins />
         ) : screen === 'configuration' ? (
           <Configuration />
+        ) : screen === 'logs' ? (
+          <Logs />
         ) : (
           <Doctor />
         )}

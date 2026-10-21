@@ -1,22 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { DoctorData, EnvListData } from '@devhost/contract/lite';
+import type { DoctorData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import { errorMessage } from '../client/errors';
 import { Badge, CopyButton } from '../ui/primitives';
 import { PluginRunDialog } from '../ui/plugin-run';
 import { usePlugins, type PluginActionInfo } from '../use-plugins';
-import { LogViewer } from './Environments';
 
 const SYMBOL = { ok: '✅', warn: '⚠️', fail: '❌' } as const;
 
-/** Doctor as a checklist with fix hints (copy-to-clipboard), plus the log viewer (spec B3.5). */
+/** Doctor as a checklist with fix hints (copy-to-clipboard), (spec B3.5); the logs have their own screen. */
 export function Doctor() {
   const { client, connection, reportUnreachable, hostName } = useApp();
   const [data, setData] = useState<DoctorData | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [envs, setEnvs] = useState<EnvListData['environments']>([]);
-  const [log, setLog] = useState<null | { title: string; load: () => Promise<string[]> }>(null);
   const plugins = usePlugins();
   const [pluginRun, setPluginRun] = useState<PluginActionInfo | null>(null);
 
@@ -36,13 +33,12 @@ export function Doctor() {
   useEffect(() => {
     if (connection.kind !== 'connected') return;
     void run();
-    void client.envs().then((e) => setEnvs(e.environments)).catch(() => undefined);
-  }, [client, connection.kind, run]);
+  }, [connection.kind, run]);
 
   return (
     <div className="content">
       <div className="row">
-        <h1>Doctor and logs</h1>
+        <h1>Doctor</h1>
         <span style={{ marginLeft: 'auto' }}><button className="btn" disabled={running} onClick={() => void run()}>{running ? 'Checking…' : 'Run checks again'}</button></span>
       </div>
       {error && <div className="notice bad" role="alert">{error}</div>}
@@ -78,16 +74,6 @@ export function Doctor() {
           </div>
         )}
       </section>
-      <section className="card" aria-label="Logs">
-        <header><h2>Logs</h2></header>
-        <div className="row">
-          <button className="btn" onClick={() => setLog({ title: 'Collector log', load: () => client.collectorLogs(300).then((l) => l.lines) })}>Collector</button>
-          {envs.filter((e) => e.remoteControl.enabled).map((e) => (
-            <button key={e.name} className="btn" onClick={() => setLog({ title: `${e.name} · Remote Control log`, load: () => client.envLogs(e.name, 300).then((l) => l.lines) })}>{e.account}/{e.name}</button>
-          ))}
-        </div>
-      </section>
-      {log && <LogViewer title={log.title} load={log.load} onClose={() => setLog(null)} />}
       {pluginRun && <PluginRunDialog action={pluginRun} target={{}} onClose={() => { setPluginRun(null); void run(); }} />}
     </div>
   );

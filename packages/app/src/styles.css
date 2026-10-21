@@ -215,3 +215,11 @@ legend { font-weight: 600; padding: 0 6px; font-size: 13px; }
 @media (max-width: 760px) { .app { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); } .sidebar { flex-direction: row; overflow-x: auto; } }
 @media (forced-colors: active) { .chart rect.seg { stroke: CanvasText; } }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Logs: sources on the left, the selected log on the right */
+.logs-layout { display: grid; grid-template-columns: minmax(180px, 220px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.log-sources { display: flex; flex-direction: column; gap: 2px; }
+.log-sources .label { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-2); padding: 10px 10px 4px; gap: 6px; }
+.log-sources .nav[aria-current="true"] { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+.log-main pre.logview { max-height: calc(100vh - 260px); min-height: 320px; }
+@media (max-width: 760px) { .logs-layout { grid-template-columns: 1fr; } }
