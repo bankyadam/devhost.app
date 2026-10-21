@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { DashData, EnvListData, SessionReattachData, UpdateData } from '@devhost/contract/lite';
+import type { DashData, EnvListData, SessionReattachData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import { seriesSlot, seriesVar } from '../lib/colors';
 import { ago, bytes, compact, duration, pct, usd } from '../lib/format';
@@ -7,7 +7,8 @@ import { filterSessions, sortSessions, STATE_LABEL, type Session, type SortDir, 
 import { meterTone } from '../lib/usage';
 import { Legend, StackedColumns, type Series } from '../ui/chart';
 import { RunDialog } from '../ui/run-dialog';
-import { Badge, ConfirmDialog, Empty, Menu, Segmented } from '../ui/primitives';
+import { Badge, Empty, Menu, Segmented } from '../ui/primitives';
+import { UpdateClaude } from '../ui/update-claude';
 import { useDash } from '../use-dash';
 import { PluginRunDialog } from '../ui/plugin-run';
 import { usePlugins, usePluginWidgets, type PluginActionInfo, type PluginFilter, type PluginWidget } from '../use-plugins';
@@ -27,7 +28,7 @@ export function Dashboard({ params = {}, onParams = () => undefined }: { params?
   const widgets = usePluginWidgets(params);
   const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; session?: string } | null>(null);
   const [reattach, setReattach] = useState<string | null>(null);
-  const [update, setUpdate] = useState<null | { confirm: boolean; force: boolean }>(null);
+  const [update, setUpdate] = useState(false);
 
   // Account colors follow the account, not its rank: remember every account ever seen, in order.
   useEffect(() => {
@@ -60,7 +61,7 @@ export function Dashboard({ params = {}, onParams = () => undefined }: { params?
         {error && <span className="note" role="alert">{error}</span>}
       </div>
 
-      <Health dash={dash} now={now} onUpdate={() => setUpdate({ confirm: true, force: false })} />
+      <Health dash={dash} now={now} onUpdate={() => setUpdate(true)} />
 
       <PluginWidgets
         filters={widgets.filters}
@@ -143,29 +144,7 @@ export function Dashboard({ params = {}, onParams = () => undefined }: { params?
           <p className="sec">Runs the session's Remote Control again in its worktree, once (after a reboot the environment's service starts a new one, and the old session is left without a machine).</p>
         </RunDialog>
       )}
-      {update?.confirm && (
-        <ConfirmDialog title="Update Claude Code" confirmLabel="Update" onConfirm={() => setUpdate({ confirm: false, force: false })} onCancel={() => setUpdate(null)}>
-          <p>Updates Claude Code on {hostLabel} to {dash.updates?.claude.latest ?? 'the latest version'}, restarts every Remote Control service onto it, and reattaches the sessions they had open.</p>
-          <p className="note">If a session is in the middle of a turn, the update waits; you can then choose to interrupt it.</p>
-        </ConfirmDialog>
-      )}
-      {update && !update.confirm && (
-        <RunDialog<UpdateData>
-          key={String(update.force)}
-          title="Update Claude Code"
-          begin={(h) => client.update({ force: update.force }, h)}
-          terminal={{ kind: 'devhost', args: ['update', ...(update.force ? ['--force'] : [])] }}
-          onClose={() => setUpdate(null)}
-          after={(r) => r.data?.busy?.length ? (
-            <div className="notice warn">
-              <p>{r.data.busy.length} session(s) are in the middle of a turn: {r.data.busy.join(', ')}.</p>
-              <button className="btn danger" onClick={() => setUpdate({ confirm: false, force: true })}>Interrupt them and update</button>
-            </div>
-          ) : r.data?.reattached?.length ? <ul className="note">{r.data.reattached.map((x) => <li key={x.remoteSession}>{x.ok ? '✅' : '❌'} {x.account}/{x.env} · {x.remoteSession}{x.error ? `: ${x.error}` : ''}</li>)}</ul> : null}
-        >
-          <p className="sec">Claude Code is upgraded, then the Remote Control services restart onto it and their open sessions are reattached.</p>
-        </RunDialog>
-      )}
+      {update && <UpdateClaude latest={dash.updates?.claude.latest ?? null} onClose={() => setUpdate(false)} />}
       {pluginRun && <PluginRunDialog action={pluginRun.action} target={pluginRun.session ? { session: pluginRun.session } : {}} onClose={() => { setPluginRun(null); if (!pluginRun.session) void widgets.refresh(); }} />}
     </div>
   );

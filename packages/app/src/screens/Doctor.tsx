@@ -4,6 +4,7 @@ import { useApp } from '../app-context';
 import { errorMessage } from '../client/errors';
 import { Badge, CopyButton, Segmented } from '../ui/primitives';
 import { PluginRunDialog } from '../ui/plugin-run';
+import { UpdateClaude } from '../ui/update-claude';
 import { usePlugins, type PluginActionInfo } from '../use-plugins';
 
 const SYMBOL = { ok: '✅', warn: '⚠️', fail: '❌' } as const;
@@ -16,6 +17,7 @@ export function Doctor() {
   const [error, setError] = useState<string | null>(null);
   const plugins = usePlugins();
   const [pluginRun, setPluginRun] = useState<PluginActionInfo | null>(null);
+  const [updating, setUpdating] = useState(false);
   // Problems only by default; grouped by the first part of the id, groups and checks alphabetical.
   const [filter, setFilter] = useState<'problems' | 'all'>('problems');
   const shown = (data?.checks ?? []).filter((c) => filter === 'all' || c.status !== 'ok');
@@ -80,7 +82,7 @@ export function Doctor() {
                         );
                       })}
                     </div>
-                    {c.fix && c.status !== 'ok' && <CopyButton text={c.fix} label="Copy fix" />}
+                    {c.id === 'tools.claude.update' && c.status !== 'ok' ? <button className="btn sm" onClick={() => setUpdating(true)}>Update now…</button> : c.fix && c.status !== 'ok' && <CopyButton text={c.fix} label="Copy fix" />}
                   </div>
                 ))}
               </div>
@@ -88,6 +90,7 @@ export function Doctor() {
           ))
         )}
       </section>
+      {updating && <UpdateClaude latest={null} onClose={() => { setUpdating(false); void run(); }} />}
       {pluginRun && <PluginRunDialog action={pluginRun} target={{}} onClose={() => { setPluginRun(null); void run(); }} />}
     </div>
   );
