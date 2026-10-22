@@ -13,7 +13,7 @@ import { authStatus } from './login.js';
 import { makePrompter } from './prompter.js';
 import { runDoctor, type Check } from './doctor/checks.js';
 import { COLLECTOR_LABEL } from './steps/collector.js';
-import { parseTailscale } from './steps/tailscale.js';
+import { tailscaleNow } from './tailscale-status.js';
 import { keptByUninstall, uninstallSteps, type UninstallOptions } from './steps/uninstall.js';
 import { requiredPackages } from './steps/packages.js';
 
@@ -54,9 +54,8 @@ export function statusCommand(deps: Deps, g: GlobalOptions): Promise<number> {
 
     let tailscale: StatusData['host']['tailscale'] = null;
     if (config.network?.tailscale) {
-      const r = await exec.query('tailscale', ['status', '--json']);
-      const st = r.code === 0 ? parseTailscale(r.stdout) : null;
-      if (st?.BackendState) tailscale = { state: st.BackendState, dnsName: st.Self?.DNSName?.replace(/\.$/, '') ?? null, ips: st.Self?.TailscaleIPs ?? [] };
+      const st = await tailscaleNow(exec, deps.home, deps.now().getTime());
+      if (st) tailscale = st;
     }
     const accounts: StatusData['accounts'] = [];
     for (const a of accountsOf(config)) accounts.push({ name: a.name, default: a.default === true, loggedIn: (await authStatus({ exec, deps }, a)).loggedIn });

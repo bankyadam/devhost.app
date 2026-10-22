@@ -69,7 +69,7 @@ const attribution = () => {
 describe('db', () => {
   it('migrates once and keeps the version', () => {
     const db = new Db(':memory:');
-    expect(db.schemaVersion).toBe(3);
+    expect(db.schemaVersion).toBe(4);
     db.kvSet('a', '1', 5);
     expect(db.kvGet('a')).toBe('1');
     expect(db.kvGet('missing')).toBeNull();
@@ -326,13 +326,12 @@ function setup(over: { runner?: MockRunner; config?: typeof CONFIG } = {}) {
 }
 
 describe('Collector sampling', () => {
-  it('samples the system, the Remote Control process tree and attributes processes to sessions', async () => {
+  it('samples the system and the Remote Control process tree, and attributes a worktree session by its process, never with lsof', async () => {
     const runner = new MockRunner()
       .on('launchctl print system/com.devhost.rc.business.acme-api', { stdout: 'state = running\n\tpid = 100\n' })
-      .on('ps', { stdout: ` 100 1 2.0 10240 /opt/homebrew/bin/claude remote-control --name business-acme-api\n 101 100 8.0 20480 /opt/homebrew/bin/claude --worktree x\n 102 101 1.0 1024 node dev-server\n 300 1 50.0 99999 unrelated\n` })
-      .on('lsof', { stdout: `p100\nn${HOME}/work/business/acme-api\np101\nn${HOME}/work/business/acme-api/.claude/worktrees/x\n` });
+      .on('ps', { stdout: ` 100 1 2.0 10240 /opt/homebrew/bin/claude remote-control --name business-acme-api\n 101 100 8.0 20480 /opt/homebrew/Caskroom/claude-code/2.1.300/claude --print --session-id cse_01X\n 102 101 1.0 1024 node dev-server\n 300 1 50.0 99999 unrelated\n` });
     const { db, collector, clock } = setup({ runner });
-    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 'sess-1', cwd: `${HOME}/work/business/acme-api/.claude/worktrees/x` }, 'business');
+    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 'sess-1', cwd: `${HOME}/work/business/acme-api/.claude/worktrees/bridge-cse_01X` }, 'business');
 
     await collector.sampleTick();
     clock.now += 5000;
@@ -344,8 +343,11 @@ describe('Collector sampling', () => {
     expect(env.service_pid).toBe(100);
     expect(env.cpu_pct).toBe(11);
     expect(env.rss_bytes).toBe((10240 + 20480 + 1024) * 1024);
-    // Session attribution is by working directory: the worktree process and its child.
+    // The session is the service's child started with its id, and that child's subtree.
     expect(db.get('SELECT cpu_pct, rss_bytes FROM samples_session ORDER BY ts DESC LIMIT 1')).toMatchObject({ cpu_pct: 9, rss_bytes: (20480 + 1024) * 1024 });
+    expect(runner.calls.filter((c) => c.command === 'lsof')).toEqual([]);
+    // launchd is asked once; in between, ps still shows the service under its pid.
+    expect(runner.calls.filter((c) => c.command === 'launchctl')).toHaveLength(1);
   });
 
   it('records subagents from their hooks (id and type only), ends them with their session, and counts agents at work', async () => {
@@ -381,25 +383,29 @@ describe('Collector sampling', () => {
     expect(db.get("SELECT sessions_max, subagents_max, total_max, total_avg, samples FROM rollup_agents WHERE account = ''")).toEqual({ sessions_max: 2, subagents_max: 3, total_max: 4, total_avg: 2, samples: 3 });
   });
 
-  it('a session nothing works in any more, quiet for 10 min, is ended (no SessionEnd came)', async () => {
+  it('a worktree session whose process is gone, quiet for 10 min, is ended; others only after a day without hooks', async () => {
     const runner = new MockRunner()
       .on('launchctl print system/com.devhost.rc.business.acme-api', { stdout: 'state = running\n\tpid = 100\n' })
-      .on('ps', { stdout: ` 100 1 2.0 10240 /opt/homebrew/bin/claude remote-control --name business-acme-api\n 101 100 8.0 20480 /opt/homebrew/bin/claude --worktree x\n` })
-      .on('lsof', { stdout: `p100\nn${HOME}/work/business/acme-api\np101\nn${HOME}/work/business/acme-api/.claude/worktrees/x\n` });
+      .on('ps', { stdout: ` 100 1 2.0 10240 /opt/homebrew/bin/claude remote-control --name business-acme-api\n 101 100 8.0 20480 /opt/homebrew/bin/claude --print --session-id cse_01Alive\n` });
     const { db, collector, clock } = setup({ runner });
-    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 'alive', cwd: `${HOME}/work/business/acme-api/.claude/worktrees/x` }, 'business');
-    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 'gone', cwd: `${HOME}/work/business/acme-api/.claude/worktrees/y` }, 'business');
+    const wt = (key: string) => `${HOME}/work/business/acme-api/.claude/worktrees/bridge-${key}`;
+    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 'alive', cwd: wt('cse_01Alive') }, 'business');
+    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 'gone', cwd: wt('cse_01Gone') }, 'business');
+    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 'terminal', cwd: `${HOME}/work/business/acme-api` }, 'business');
     await collector.sampleTick();
     expect(db.get("SELECT state FROM sessions WHERE session_id = 'gone'")).toMatchObject({ state: 'idle' }); // just started
     clock.now += 11 * 60_000;
     await collector.sampleTick();
-    expect(db.all('SELECT session_id, state FROM sessions ORDER BY session_id')).toEqual([{ session_id: 'alive', state: 'idle' }, { session_id: 'gone', state: 'ended' }]);
+    expect(db.all('SELECT session_id, state FROM sessions ORDER BY session_id')).toEqual([{ session_id: 'alive', state: 'idle' }, { session_id: 'gone', state: 'ended' }, { session_id: 'terminal', state: 'idle' }]);
+    clock.now += 25 * 3_600_000;
+    await collector.sampleTick();
+    expect(db.get("SELECT state FROM sessions WHERE session_id = 'terminal'")).toMatchObject({ state: 'ended' });
   });
 
-  it('nothing is ended when ps or lsof gave no answer', async () => {
-    const runner = new MockRunner().on('ps', { stdout: ' 101 1 8.0 20480 /opt/homebrew/bin/claude --worktree x\n' }).on('lsof', { code: 1 });
+  it('nothing is ended when ps gave no answer', async () => {
+    const runner = new MockRunner().on('ps', { code: 1 });
     const { db, collector, clock } = setup({ runner });
-    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 's', cwd: `${HOME}/somewhere` }, 'business');
+    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 's', cwd: `${HOME}/work/business/acme-api/.claude/worktrees/bridge-cse_01S` }, 'business');
     clock.now += 60 * 60_000;
     await collector.sampleTick();
     expect(db.get("SELECT state FROM sessions WHERE session_id = 's'")).toMatchObject({ state: 'idle' });
@@ -643,7 +649,7 @@ describe('dashboard', () => {
     expect(data.sessions[0]).toMatchObject({ id: 'sess-aaaa1111', state: 'waiting', tokensToday: 1200, costToday: 1.25, cpuPercent: 3 });
     expect(data.usage.reduce((a, r) => a + r.input + r.output, 0)).toBe(1200);
     expect(data.limits.join(' ')).toContain('estimate');
-    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 3 });
+    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 4 });
 
     expect(buildDash(db, CONFIG, { range: '24h', account: 'personal' }, now, 'm', null).sessions).toEqual([]);
     expect(buildDash(db, CONFIG, { range: '24h', env: 'acme-api', model: 'other' }, now, 'm', null).usage).toEqual([]);

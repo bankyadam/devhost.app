@@ -46,7 +46,7 @@ export function retain(db: Db, now: number, r: Retention): void {
   const rolled = Number(db.kvGet('rolled_through') ?? 0);
   const rawCutoff = Math.min(now - r.rawDays * DAY, rolled);
   db.transaction(() => {
-    for (const table of ['usage', 'api_requests', 'tool_runs', 'hook_events', 'samples_system', 'samples_env', 'samples_session', 'samples_agents', 'service_events']) {
+    for (const table of ['usage', 'api_requests', 'tool_runs', 'hook_events', 'samples_system', 'samples_env', 'samples_session', 'samples_agents', 'samples_collector', 'service_events']) {
       db.run(`DELETE FROM ${table} WHERE ts < ?`, rawCutoff);
     }
     db.run("DELETE FROM sessions WHERE state = 'ended' AND ended_at < ?", rawCutoff);

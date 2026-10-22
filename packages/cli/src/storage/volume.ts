@@ -76,7 +76,7 @@ export interface VolumeInfo {
 
 /** `diskutil info -plist <id>` (a device, a mount point or a volume UUID); null when diskutil does not know it. */
 export async function volumeInfo(exec: Executor, id: string): Promise<VolumeInfo | null> {
-  const r = await exec.query('diskutil', ['info', '-plist', id]);
+  const r = await exec.query('diskutil', ['info', '-plist', id], { timeoutMs: 10_000 });
   if (r.code !== 0 || !r.stdout.includes('<plist')) return null;
   const d = obj(parsePlist(r.stdout));
   return {

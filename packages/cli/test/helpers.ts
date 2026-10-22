@@ -252,7 +252,7 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       state.tailscale = 'NeedsLogin';
       return {};
     }
-    if (line === 'tailscale status --json') {
+    if (line === 'tailscale status --json --peers=false') {
       return state.tailscale === null ? { code: 1, stderr: 'failed to connect to local tailscaled' } : { stdout: JSON.stringify({ BackendState: state.tailscale }) };
     }
     if (line === 'mise ls --global --json') {

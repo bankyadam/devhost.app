@@ -1,3 +1,4 @@
+import { createServer } from 'node:net';
 import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DashData, DevhostConfig } from '@devhost/contract';
@@ -15,7 +16,7 @@ import { brewfilePath, renderBrewfile, BUNDLE_CHECK_ENV, bundleCheckArgs } from 
 import { COMPOSE_FILES, envrcFor, hasCommit, workspaceTrusted } from '../steps/env.js';
 import { COLIMA_LABEL } from '../steps/docker.js';
 import { COLLECTOR_LABEL } from '../steps/collector.js';
-import { parseTailscale } from '../steps/tailscale.js';
+import { tailscaleNow, tailscaleVariant } from '../tailscale-status.js';
 import { powerState, unsupportedPowerNote } from '../steps/system.js';
 import { parsePs, subtree } from '../collector/samplers.js';
 import type { DevhostPlugin, PluginContext } from '../plugins/api.js';
@@ -182,11 +183,14 @@ async function toolChecks(c: DoctorContext): Promise<Check[]> {
   }
 
   if (config.network?.tailscale) {
-    const r = await exec.query('tailscale', ['status', '--json']);
-    const st = r.code === 0 ? parseTailscale(r.stdout) : null;
-    if (!st?.BackendState) out.push(fail('tools.tailscale', 'the Tailscale daemon is not running', 'devhost apply --only tailscale'));
-    else if (st.BackendState !== 'Running') out.push(warn('tools.tailscale', `Tailscale is ${st.BackendState}: not logged in`, 'sudo tailscale up'));
-    else out.push(ok('tools.tailscale', `Tailscale is running as ${st.Self?.DNSName?.replace(/\.$/, '') ?? 'this machine'} (${(st.Self?.TailscaleIPs ?? []).join(', ') || 'no IP yet'})`));
+    const st = await tailscaleNow(exec, deps.home, deps.now().getTime());
+    if (!st) out.push(fail('tools.tailscale', 'the Tailscale daemon is not running', 'devhost apply --only tailscale'));
+    else if (st.state !== 'Running') out.push(warn('tools.tailscale', `Tailscale is ${st.state}: not logged in`, 'sudo tailscale up'));
+    else out.push(ok('tools.tailscale', `Tailscale is running as ${st.dnsName ?? 'this machine'} (${st.ips.join(', ') || 'no IP yet'})`));
+    // The GUI variants have no unix socket: their CLI runs lsof on every call to find the app.
+    if (tailscaleVariant() === 'gui') {
+      out.push(warn('tools.tailscale.variant', 'the Tailscale app (GUI variant) runs here: its CLI starts lsof on every call, which is heavy on a server', 'Use the open source tailscaled instead: quit and remove Tailscale.app, then `devhost apply --only packages tailscale` (Homebrew tailscale, a system daemon on /var/run/tailscaled.socket)'));
+    }
   }
 
   const claude = await exec.query(await claudeBinary({ exec, deps }), ['--version']);
@@ -389,26 +393,56 @@ async function oneEnv(c: DoctorContext, a: Account, e: Environment): Promise<Che
   return out;
 }
 
+/** Can this host bind 0.0.0.0:<port> and 127.0.0.1:<port> right now (nothing listens there)? */
+export async function portFree(port: number): Promise<boolean> {
+  const tryHost = (host: string): Promise<boolean> =>
+    new Promise((resolve) => {
+      const srv = createServer();
+      srv.once('error', () => resolve(false));
+      srv.listen({ port, host, exclusive: true }, () => srv.close(() => resolve(true)));
+    });
+  return (await tryHost('0.0.0.0')) && (await tryHost('127.0.0.1'));
+}
+
+/**
+ * Listeners in the environment's port block that are not its own: a bind test per port, then
+ * `lsof` scoped to each busy port only, to name the owner (doctor and `env create`, never periodic).
+ */
 async function portConflicts(c: DoctorContext, e: Environment, id: string, base: number): Promise<Check[]> {
   const { exec } = c;
-  const lsof = await exec.query('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-Fpn']);
-  if (lsof.code !== 0 && lsof.stdout === '') return [ok(`${id}.ports`, `block ${base}-${base + 99} (listeners could not be inspected)`)];
+  const busy: number[] = [];
+  for (let port = base; port < base + 100; port++) if (!(await portFree(port))) busy.push(port);
+  if (busy.length === 0) return [ok(`${id}.ports`, `block ${base}-${base + 99} is free of conflicts`)];
   const ps = parsePs((await exec.query('ps', ['-axo', 'pid=,ppid=,pcpu=,rss=,command='])).stdout);
   const svc = await daemonState(exec, rcLabel(e.account, e.name));
   const mine = new Set(svc.pid ? subtree(ps, svc.pid).map((p) => p.pid) : []);
   const conflicts: string[] = [];
-  let pid = 0;
-  for (const line of lsof.stdout.split('\n')) {
-    if (line.startsWith('p')) pid = Number(line.slice(1));
-    else if (line.startsWith('n')) {
-      const port = Number(/:(\d+)$/.exec(line)?.[1]);
-      if (port >= base && port < base + 100 && !mine.has(pid)) {
-        const cmd = ps.find((p) => p.pid === pid)?.command ?? '';
-        if (!/colima|lima|docker|vz|com\.apple/i.test(cmd)) conflicts.push(`${port} (${cmd.split(' ')[0]?.split('/').pop() || `pid ${pid}`})`);
-      }
-    }
+  for (const port of busy) {
+    const r = await exec.query('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fp'], { timeoutMs: 5000 });
+    const pids = [...r.stdout.matchAll(/^p(\d+)$/gm)].map((m) => Number(m[1]));
+    const others = pids.filter((pid) => !mine.has(pid));
+    if (pids.length > 0 && others.length === 0) continue; // this environment's own dev server
+    const cmd = others.length ? (ps.find((p) => p.pid === others[0])?.command ?? '') : '';
+    if (/colima|lima|docker|vz|com\.apple/i.test(cmd)) continue;
+    conflicts.push(`${port} (${cmd.split(' ')[0]?.split('/').pop() || (others[0] ? `pid ${others[0]}` : 'unknown')})`);
   }
   return conflicts.length === 0 ? [ok(`${id}.ports`, `block ${base}-${base + 99} is free of conflicts`)] : [warn(`${id}.ports`, `ports in ${base}-${base + 99} are used by other processes: ${conflicts.join(', ')}`, 'Stop them or move this environment to another block')];
+}
+
+/**
+ * The collector's own load (spec A10.9): CPU averaged over the last 5 minutes must stay under 3 %,
+ * and no command it runs may overlap itself.
+ */
+function collectorSelfCheck(db: Db, now: number): Check {
+  const r = db.get<{ cpu: number | null; rss: number | null; children: number | null; overlaps: number | null; n: number }>(
+    'SELECT AVG(cpu_pct) AS cpu, MAX(rss_bytes) AS rss, MAX(children) AS children, SUM(overlaps) AS overlaps, COUNT(*) AS n FROM samples_collector WHERE ts >= ?', now - 5 * 60_000,
+  );
+  if (!r || r.n === 0 || r.cpu === null) return warn('collector.load', 'no self-samples in the last 5 minutes', 'devhost apply --only collector');
+  const mb = Math.round((r.rss ?? 0) / 1024 ** 2);
+  const what = `CPU ${r.cpu.toFixed(1)}% over 5 min, ${mb} MB, at most ${r.children ?? 0} child process(es) at once`;
+  if ((r.overlaps ?? 0) > 0) return fail('collector.load', `a command the collector runs overlapped itself (${r.overlaps} sample(s)); ${what}`, 'devhost collector logs');
+  if (r.cpu > 3) return fail('collector.load', `the collector uses too much CPU: ${what}`, 'devhost collector logs');
+  return ok('collector.load', what);
 }
 
 async function collectorChecks(c: DoctorContext): Promise<Check[]> {
@@ -434,6 +468,13 @@ async function collectorChecks(c: DoctorContext): Promise<Check[]> {
     if (accountsOf(config).length === 0) out.push(ok('collector.data', 'no accounts, so no telemetry is expected'));
     else if (c.now - last <= 3_600_000 && last > 0) out.push(ok('collector.data', 'received telemetry in the last hour'));
     else out.push(warn('collector.data', 'no telemetry received in the last hour (fine if no session was used)', 'Start a session; check ~/.claude*/settings.json has the OTEL_* env keys.'));
+    if (d.running) {
+      try {
+        out.push(collectorSelfCheck(db, c.now));
+      } catch {
+        out.push(warn('collector.load', 'the collector is older than this devhost (no self-samples)', 'devhost apply --only collector'));
+      }
+    }
   } finally {
     db.close();
   }

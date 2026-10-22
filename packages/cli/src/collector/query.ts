@@ -88,8 +88,76 @@ const totals = (rows: UsageAgg[], pick: (r: UsageAgg) => boolean = () => true): 
 
 const recent = (ts: number | null | undefined, now: number, windowMs = MIN): boolean => ts != null && now - ts <= windowMs;
 
-/** Snapshot for `devhost dash` and the desktop app (spec A10.6). */
+/** What depends on the time range: usage over time, agents at work, models, the time profile. */
+export type RangeParts = Pick<DashData, 'range' | 'usage' | 'agents' | 'models' | 'profile'>;
+/** Everything else: the state now, what the collector precomputes every tick (kv `snapshot`). */
+export type LiveParts = Omit<DashData, keyof RangeParts>;
+
+/**
+ * The range-dependent parts: rollups for completed hours plus the raw rows since the last rollup
+ * (under an hour, read through the ts indexes): never a scan of the raw tables.
+ */
+export function buildRange(db: Db, opts: DashOptions, now: number): RangeParts {
+  const bucketMs = BUCKET_MS[opts.range];
+  const from = Math.floor((now - RANGE_MS[opts.range]) / bucketMs) * bucketMs;
+  const rolled = Number(db.kvGet('rolled_through') ?? 0);
+  const series = new Map<string, DashData['usage'][number]>();
+  for (const r of usage(db, from, bucketMs, { account: opts.account, env: opts.env, model: opts.model })) {
+    const key = `${r.t}|${r.account}`;
+    const row = series.get(key) ?? { ts: r.t, account: r.account, input: 0, output: 0, cacheRead: 0, cacheCreation: 0, costUsd: 0 };
+    if (r.kind === 'input') row.input += r.v;
+    else if (r.kind === 'output') row.output += r.v;
+    else if (r.kind === 'cacheRead') row.cacheRead += r.v;
+    else if (r.kind === 'cacheCreation') row.cacheCreation += r.v;
+    else if (r.kind === 'cost') row.costUsd += r.v;
+    series.set(key, row);
+  }
+  return {
+    range: opts.range,
+    usage: [...series.values()].sort((a, b) => a.ts - b.ts || a.account.localeCompare(b.account)),
+    agents: agentConcurrency(db, opts.account ?? '', from, bucketMs, now),
+    models: db.all<{ model: string }>(
+      `SELECT DISTINCT model FROM (SELECT model FROM usage WHERE ts >= ? AND ts >= ? UNION ALL SELECT model FROM rollup_usage WHERE hour >= ? AND hour < ?) WHERE model <> '' ORDER BY model`,
+      from, rolled, from, rolled,
+    ).map((r) => r.model),
+    profile: buildProfile(db, from, now, { account: opts.account, env: opts.env }),
+  };
+}
+
+/** A full snapshot for `devhost dash` and the desktop app (spec A10.6), computed now. */
 export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now: number, hostName: string, dbSizeBytes: number | null): DashData {
+  return { ...buildLive(db, config, opts, now, hostName, dbSizeBytes), ...buildRange(db, opts, now) };
+}
+
+/**
+ * The collector's precomputed snapshot (kv `snapshot`), or null without one. One the collector
+ * stopped writing says the host is not online, as a computed one would.
+ */
+export function readSnapshot(db: Db, config: DevhostConfig, now: number): DashData | null {
+  const v = db.kvGet('snapshot');
+  if (!v) return null;
+  try {
+    const snap = JSON.parse(v) as DashData;
+    const stale = now - snap.generatedAt > Math.max(MIN, (config.collector?.sampleIntervalSeconds ?? 5) * 3000);
+    return stale ? { ...snap, host: { ...snap.host, online: false } } : snap;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What `dash` and the plugins read: the collector's snapshot for the state now, and the range parts
+ * from rollups. Filters (account, environment, model) and a missing snapshot (no collector yet, or
+ * an older one) compute the whole snapshot instead.
+ */
+export function readDash(db: Db, config: DevhostConfig, opts: DashOptions, now: number, hostName: string, dbSizeBytes: number | null): DashData {
+  const snap = opts.account || opts.env || opts.model ? null : readSnapshot(db, config, now);
+  if (!snap) return buildDash(db, config, opts, now, hostName, dbSizeBytes);
+  return { ...snap, ...(snap.range === opts.range ? {} : buildRange(db, opts, now)) };
+}
+
+/** The state now: host, collector, alerts, accounts, environments, sessions, volume, updates. */
+export function buildLive(db: Db, config: DevhostConfig, opts: DashOptions, now: number, hostName: string, dbSizeBytes: number | null): LiveParts {
   const midnight = localMidnight(now);
   const sys = db.get<{ ts: number; cpu_pct: number | null; mem_pct: number | null; mem_total: number | null; disk_free_pct: number | null; disk_free_bytes: number | null }>('SELECT ts, cpu_pct, mem_pct, mem_total, disk_free_pct, disk_free_bytes FROM samples_system ORDER BY ts DESC LIMIT 1');
   const kvNum = (k: string): number | null => {
@@ -101,7 +169,8 @@ export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now:
   const ts = db.kvGet('tailscale');
   if (ts && ts !== 'unavailable') {
     try {
-      tailscale = JSON.parse(ts) as NonNullable<DashData['host']['tailscale']>;
+      const t = JSON.parse(ts) as { state: string; dnsName: string | null };
+      tailscale = { state: t.state, dnsName: t.dnsName ?? null };
     } catch {
       /* leave null */
     }
@@ -154,23 +223,8 @@ export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now:
       };
     });
 
-  const bucketMs = BUCKET_MS[opts.range];
-  const from = Math.floor((now - RANGE_MS[opts.range]) / bucketMs) * bucketMs;
-  const series = new Map<string, DashData['usage'][number]>();
-  for (const r of usage(db, from, bucketMs, { account: opts.account, env: opts.env, model: opts.model })) {
-    const key = `${r.t}|${r.account}`;
-    const row = series.get(key) ?? { ts: r.t, account: r.account, input: 0, output: 0, cacheRead: 0, cacheCreation: 0, costUsd: 0 };
-    if (r.kind === 'input') row.input += r.v;
-    else if (r.kind === 'output') row.output += r.v;
-    else if (r.kind === 'cacheRead') row.cacheRead += r.v;
-    else if (r.kind === 'cacheCreation') row.cacheCreation += r.v;
-    else if (r.kind === 'cost') row.costUsd += r.v;
-    series.set(key, row);
-  }
-
   return {
     generatedAt: now,
-    range: opts.range,
     host: {
       name: hostName,
       online: recent(sys?.ts, now, Math.max(MIN, (config.collector?.sampleIntervalSeconds ?? 5) * 3000)),
@@ -222,15 +276,8 @@ export function buildDash(db: Db, config: DevhostConfig, opts: DashOptions, now:
         remoteSession: remoteSessionOf(s.cwd)?.id ?? null,
       };
     }),
-    agents: agentConcurrency(db, opts.account ?? '', from, bucketMs, now),
-    models: db.all<{ model: string }>(
-      `SELECT DISTINCT model FROM (SELECT model, ts AS t FROM usage WHERE ts >= ? UNION ALL SELECT model, hour AS t FROM rollup_usage WHERE hour >= ?) WHERE model <> '' ORDER BY model`,
-      from, from,
-    ).map((r) => r.model),
-    usage: [...series.values()].sort((a, b) => a.ts - b.ts || a.account.localeCompare(b.account)),
     limits: KNOWN_LIMITS,
     volume: volumeOf(db, config),
-    profile: buildProfile(db, from, now, { account: opts.account, env: opts.env }),
     updates: config.claude?.update === 'off' ? null : (JSON.parse(db.kvGet('update') ?? 'null') as DashData['updates']),
   };
 }
@@ -263,15 +310,16 @@ function subagentsOf(db: Db, sessionId: string): NonNullable<DashData['sessions'
  * for what retention already dropped). `account` '' is all accounts together.
  */
 function agentConcurrency(db: Db, account: string, from: number, bucketMs: number, now: number): NonNullable<DashData['agents']> {
+  const rolled = Number(db.kvGet('rolled_through') ?? 0);
   const buckets = db
     .all<{ ts: number; sessions: number; subagents: number; total: number }>(
       `SELECT (t / ${bucketMs}) * ${bucketMs} AS ts, MAX(s) AS sessions, MAX(a) AS subagents, MAX(n) AS total FROM (
          SELECT ts AS t, sessions AS s, subagents AS a, sessions + subagents AS n FROM samples_agents WHERE account = ? AND ts >= ?
          UNION ALL
          SELECT hour AS t, sessions_max AS s, subagents_max AS a, total_max AS n FROM rollup_agents WHERE account = ? AND hour >= ?
-           AND hour < (SELECT COALESCE(MIN(ts), ?) FROM samples_agents WHERE account = ?)
+           AND hour < ?
        ) GROUP BY 1 ORDER BY 1`,
-      account, from, account, from, now, account,
+      account, Math.max(from, rolled), account, from, rolled,
     )
     .map((r) => ({ ts: Number(r.ts), sessions: Number(r.sessions), subagents: Number(r.subagents), total: Number(r.total) }));
   const latest = db.get<{ ts: number; sessions: number; subagents: number }>('SELECT ts, sessions, subagents FROM samples_agents WHERE account = ? ORDER BY ts DESC LIMIT 1', account);

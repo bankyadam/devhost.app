@@ -83,6 +83,14 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (hour, account, env, tool));
   CREATE TABLE rollup_memory (hour INTEGER PRIMARY KEY, mem_pct_max REAL, mem_pct_avg REAL, swap_max INTEGER, pressure_samples INTEGER NOT NULL, samples INTEGER NOT NULL);
   `,
+  // Indexes for the latest sample per environment and account, and the collector's own load (spec A10.9).
+  `
+  CREATE INDEX samples_env_key ON samples_env (account, env, ts);
+  CREATE INDEX samples_agents_key ON samples_agents (account, ts);
+  CREATE INDEX sessions_state ON sessions (state, last_activity_at);
+  CREATE TABLE samples_collector (ts INTEGER NOT NULL, cpu_pct REAL NOT NULL, rss_bytes INTEGER NOT NULL, children INTEGER NOT NULL, overlaps INTEGER NOT NULL, skipped INTEGER NOT NULL);
+  CREATE INDEX samples_collector_ts ON samples_collector (ts);
+  `,
 ];
 
 export class Db {

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { hostname } from 'node:os';
 import type { DashData, DevhostConfig } from '@devhost/contract';
-import { buildDash } from '../collector/query.js';
+import { readDash } from '../collector/query.js';
 import { Db, dbPath } from '../collector/db.js';
 import { accountsOf, effectiveClaudeDir, envDir, environmentsOf, findAccount, rcLabel } from '../config/accounts.js';
 import { daemonState } from '../launchd.js';
@@ -43,7 +43,7 @@ export function pluginContext(c: { config: DevhostConfig; name: string; home: st
       if (!existsSync(path)) return null;
       const db = new Db(path, { readonly: true });
       try {
-        return buildDash(db, c.config, q, (c.now ?? Date.now)(), hostname(), null);
+        return readDash(db, c.config, q, (c.now ?? Date.now)(), hostname(), null);
       } finally {
         db.close();
       }
