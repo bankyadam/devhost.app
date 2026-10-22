@@ -8,7 +8,7 @@ import { readTextIfExists } from './fsutil.js';
 import { Collector } from './collector/run.js';
 import { Db, dbPath } from './collector/db.js';
 import { createNotifier, maskTopic } from './collector/notify.js';
-import { buildDash, RANGES, type Range } from './collector/query.js';
+import { buildDash, buildRange, RANGES, readSnapshot, type Range, type RangeParts } from './collector/query.js';
 import { sessionTitle } from './collector/titles.js';
 import { renderTop } from './collector/top.js';
 import { long, short, type GlobalOptions } from './command-support.js';
@@ -80,14 +80,32 @@ export interface DashOptions {
   follow: boolean;
 }
 
-async function snapshot(deps: Deps, g: GlobalOptions, config: DevhostConfig, o: DashOptions): Promise<DashData> {
+/**
+ * The dashboard: the collector's precomputed snapshot plus the range parts (spec A10.6). Without a
+ * snapshot (no collector running, or an older one) it is computed here, titles included.
+ */
+async function snapshot(deps: Deps, config: DevhostConfig, o: DashOptions, cache?: { range: { at: number; key: string; parts: RangeParts } | null }): Promise<DashData> {
   const path = dbPath(deps.home);
   if (!existsSync(path)) throw new DevhostError('no data yet: the collector has not run', 'no-data', 1, 'Run `devhost apply` to install the collector service, or `devhost collector run` to start it by hand.');
   if (!RANGES.includes(o.range as Range)) throw new UsageError(`--range must be one of ${RANGES.join(', ')}`);
+  const opts = { range: o.range as Range, account: o.account, env: o.env, model: o.model };
+  const now = deps.now().getTime();
   const db = new Db(path, { readonly: true });
   try {
+    const snap = opts.account || opts.env || opts.model ? null : readSnapshot(db, config, now);
+    if (snap) {
+      if (snap.range === opts.range) return snap;
+      // --follow: the range parts change slowly; once a minute is enough.
+      const key = opts.range;
+      if (!cache?.range || cache.range.key !== key || now - cache.range.at >= 60_000) {
+        const parts = buildRange(db, opts, now);
+        if (cache) cache.range = { at: now, key, parts };
+        return { ...snap, ...parts };
+      }
+      return { ...snap, ...cache.range.parts };
+    }
     const size = (await stat(path)).size + (await stat(`${path}-wal`).then((s) => s.size, () => 0));
-    const dash = buildDash(db, config, { range: o.range as Range, account: o.account, env: o.env, model: o.model }, deps.now().getTime(), hostname(), size);
+    const dash = buildDash(db, config, opts, now, hostname(), size);
     const dirs = [...new Set(accountsOf(config).map((a) => effectiveClaudeDir(a, deps.home)))];
     const cwd = (id: string): string => db.get<{ cwd: string }>('SELECT cwd FROM sessions WHERE session_id = ?', id)?.cwd ?? '';
     const sessions = await Promise.all(
@@ -106,18 +124,25 @@ export async function dashCommand(deps: Deps, g: GlobalOptions, o: DashOptions):
   if (!o.follow) {
     return short<DashData>(deps, g, async () => {
       const { config } = await loadConfig(g.configPath);
-      const data = await snapshot(deps, g, config, o);
+      const data = await snapshot(deps, config, o);
       return { data, human: renderTop(data) };
     });
   }
-  // --follow: NDJSON snapshot events every sampleIntervalSeconds until cancelled.
+  // --follow: a snapshot event whenever the collector wrote a new one (checked every
+  // sampleIntervalSeconds), until cancelled. Nothing is recomputed while the collector runs.
   return long(deps, g, async () => {
     const { config } = await loadConfig(g.configPath);
     const every = (config.collector?.sampleIntervalSeconds ?? 5) * 1000;
+    const cache: { range: { at: number; key: string; parts: RangeParts } | null } = { range: null };
+    let last: string | null = null;
     while (!deps.cancel.cancelled) {
-      const data = await snapshot(deps, g, config, o);
-      if (g.json) deps.stdout.write(`${JSON.stringify({ type: 'snapshot', data })}\n`);
-      else deps.stdout.write(`${deps.stdoutIsTTY ? '\u001b[2J\u001b[H' : ''}${renderTop(data)}\n`);
+      const data = await snapshot(deps, config, o, cache);
+      const stamp = `${data.generatedAt}|${cache.range?.at ?? ''}`;
+      if (stamp !== last) {
+        last = stamp;
+        if (g.json) deps.stdout.write(`${JSON.stringify({ type: 'snapshot', data })}\n`);
+        else deps.stdout.write(`${deps.stdoutIsTTY ? '\u001b[2J\u001b[H' : ''}${renderTop(data)}\n`);
+      }
       for (let waited = 0; waited < every && !deps.cancel.cancelled; waited += 200) await new Promise((r) => setTimeout(r, 200));
     }
     return { ok: true, data: null };

@@ -92,13 +92,15 @@ Also available for the desktop app (same contract): `config raw` (the file with 
 
 The collector is the one long-running process: it receives Claude Code OpenTelemetry (OTLP/HTTP **JSON**) and hook calls on `127.0.0.1:4318`, samples CPU/RAM (system, per environment, best effort per session), Docker, disk, Tailscale and each account's login, and stores everything in SQLite (`~/.local/share/devhost/devhost.db`) with hourly rollups (`retention.rawDays`/`rollupDays`). Usage and sessions belong to the account whose login sent them: the collector records each account's organization id and email from `claude auth status`, and a session whose telemetry carries a known one is that account's, even when the process read another account's config directory (the Claude app's own Claude Code always reads `~/.claude`). Otherwise the account comes from the environment directory, then from the config directory's hook URL. Subagents come from the `SubagentStart`/`SubagentStop` hooks (their id and type only, never prompt or answer); every sample also counts the agents at work (sessions running a turn plus running subagents) per account and in total, rolled up hourly as peak and average. **Where the time goes:** from Claude Code's `api_request` and `tool_result` events (tool name and duration only), per session merged so parallel work counts once: the model's share, the time spent only on this host's tools (Bash, Read, Edit…), its CPU-bound part (from the session's CPU samples), network tools, the time per tool, and what a 2× or 4× faster CPU would save; plus memory: the largest session, system peak, swap and time under memory pressure (dashboard cards "Where the time goes" and "Memory", `dash --json` → `profile`). It starts with the first tool run recorded. Remote access is only via SSH (`devhost top`, `devhost dash --json`).
 
+**Keeping the collector light** (spec A10.9): one `ps` per 5 s tick, attributed by process tree (never `lsof`); every external source single-flight with a timeout, a still-running source skips its tick; Tailscale every 60 s straight from tailscaled's LocalAPI on its unix socket (macOS's `tailscale` CLI runs `lsof` on every call; with the GUI Tailscale app `doctor` recommends the open source tailscaled); the dashboard snapshot precomputed each tick, so `dash --follow` and the plugins only read it. The collector records its own CPU, memory and child processes; `doctor` fails above 3 % CPU over 5 minutes or on overlapping commands. `npm run soak` checks all of this for 10 minutes against a copy of this host's data.
+
 Alerts (ntfy, one notification per state change): memory above the limit for 5 min, low free disk, an account's estimated daily cost above its limit, a Remote Control service restarting more than 3 times in 10 min, a login that stopped being valid (reminder every 24 h).
 
 Known limits (also shown next to the numbers):
 
 - Cost is an estimate from Claude Code; on a subscription it is API-equivalent value, not billed money.
 - Subscription plan limits (session/weekly usage) are not in the telemetry and are not shown.
-- Per-session CPU/RAM is best effort; per-environment numbers are reliable.
+- Per-session CPU/RAM only for Remote Control worktree sessions; per-environment numbers are reliable.
 - Cloud sessions and sessions on other machines are out of scope: the Mac mini only.
 
 ## JSON contract

@@ -1,15 +1,20 @@
-import { cpus, loadavg, totalmem, freemem, platform as osPlatform, uptime } from 'node:os';
-import { statfs } from 'node:fs/promises';
+import { cpus, loadavg, totalmem, freemem, hostname, platform as osPlatform, uptime } from 'node:os';
+import { stat, statfs } from 'node:fs/promises';
 import type { Server } from 'node:http';
 import type { DashData, DevhostConfig, UpdateData } from '@devhost/contract';
 import { inWindow } from '../update.js';
-import { accountsOf, environmentsOf, logsDir, rcLabel, composeProject, type Account } from '../config/accounts.js';
+import { accountsOf, effectiveClaudeDir, environmentsOf, logsDir, rcLabel, composeProject, type Account } from '../config/accounts.js';
+import { remoteSessionOf } from '../reattach.js';
+import { tailscaleStatus, toSample } from '../tailscale-status.js';
 import type { Deps } from '../deps.js';
 import { daemonState } from '../launchd.js';
 import { Executor } from '../runner/executor.js';
 import { AlertEngine, RESTART_WINDOW_MS, type AlertThresholds } from './alerts.js';
 import { checkAuth } from './auth.js';
-import type { Db } from './db.js';
+import { dbPath, type Db } from './db.js';
+import { buildLive, buildRange, type RangeParts } from './query.js';
+import { Sources, TIMEOUT } from './sources.js';
+import { TitleCache } from './titles.js';
 import { envLocations, type EnvLocation } from './hooks.js';
 import { Ingestor } from './ingest.js';
 import type { Notifier } from './notify.js';
@@ -17,12 +22,18 @@ import { retain, rollup } from './rollup.js';
 import { volumeStatus, workVolumeOf } from '../storage/volume.js';
 import { rotateLogs } from './logs.js';
 import {
-  cpuPercent, cpuTimes, memoryFromVmStat, parseMemorySysctl, parseDockerPs, parseDockerStats, parseDu, parseLsofCwd, parsePs, parseVmStat,
+  cpuPercent, cpuTimes, memoryFromVmStat, parseMemorySysctl, parseDockerPs, parseDockerStats, parseDu, parsePs, parseVmStat,
   subtree, sumProcs, type Proc,
 } from './samplers.js';
 
-/** A session quiet this long with no `claude` in its directory has ended (see sampleSessions). */
+/** A Remote Control session quiet this long whose process is gone has ended (see sampleSessions). */
 const SESSION_GONE_MS = 10 * 60_000;
+/** Any other session without a hook this long has ended (its SessionEnd never came). */
+const SESSION_STALE_MS = 24 * 3_600_000;
+/** How often the slower parts run: the services' pids from launchd, the work volume, the snapshot's range parts. */
+const SERVICE_PIDS_MS = 60_000;
+const VOLUME_MS = 60_000;
+const RANGE_MS = 60_000;
 import { createCollectorServer, listen } from './server.js';
 
 export interface OsProbe {
@@ -83,6 +94,13 @@ export class Collector {
   private prevCpu: { idle: number; total: number } | null = null;
   private docker = new Map<string, { cpu: number; memBytes: number }>();
   private lastPid = new Map<string, number>();
+  private servicePids = new Map<string, { pid: number | null; at: number }>();
+  private lastVolumeAt = 0;
+  private range: { at: number; parts: RangeParts } | null = null;
+  private procs: Proc[] = [];
+  private self: { cpu: NodeJS.CpuUsage; at: number } | null = null;
+  private readonly titles = new TitleCache();
+  readonly sources: Sources;
   private timers: NodeJS.Timeout[] = [];
   private server: Server | null = null;
 
@@ -98,6 +116,7 @@ export class Collector {
     );
     this.ingest = new Ingestor(opts.db, this.now, () => this.locations());
     this.alerts = new AlertEngine(opts.db, opts.notifier, this.now, opts.log);
+    this.sources = new Sources((m) => this.log(m));
   }
 
   private get config(): DevhostConfig {
@@ -119,11 +138,65 @@ export class Collector {
 
   // ---- sampling (every sampleIntervalSeconds) ----
 
+  /**
+   * Every sampleIntervalSeconds: system, processes (one `ps`), the work volume (every minute),
+   * alerts, then the precomputed dashboard snapshot and the collector's own load.
+   */
   async sampleTick(): Promise<void> {
-    await this.safe('system sample', () => this.sampleSystem());
-    await this.safe('process sample', () => this.sampleProcesses());
-    await this.safe('volume sample', () => this.sampleVolume());
-    await this.safe('alerts', () => this.evaluateAlerts());
+    await this.sources.run('sample', async () => {
+      await this.safe('system sample', () => this.sampleSystem());
+      await this.safe('process sample', () => this.sampleProcesses());
+      if (this.now() - this.lastVolumeAt >= VOLUME_MS) {
+        this.lastVolumeAt = this.now();
+        await this.safe('volume sample', () => this.sampleVolume());
+      }
+      await this.safe('alerts', () => this.evaluateAlerts());
+      await this.safe('snapshot', () => this.writeSnapshot());
+      this.safeSync('self sample', () => this.sampleSelf());
+    });
+  }
+
+  private safeSync(name: string, fn: () => void): void {
+    try {
+      fn();
+    } catch (err) {
+      this.log(`${name} failed: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * The dashboard's state now (kv `snapshot`), so `dash` and the plugins only read it: the live
+   * parts every tick, the 24 h range parts every minute, session titles from transcripts that changed.
+   */
+  async writeSnapshot(): Promise<void> {
+    const now = this.now();
+    const path = dbPath(this.opts.deps.home);
+    const size = await stat(path).then((s) => s.size, () => null);
+    const wal = await stat(`${path}-wal`).then((s) => s.size, () => 0);
+    const live = buildLive(this.db, this.config, { range: '24h' }, now, hostname(), size === null ? null : size + wal);
+    if (!this.range || now - this.range.at >= RANGE_MS) this.range = { at: now, parts: buildRange(this.db, { range: '24h' }, now) };
+    const dirs = [...new Set(accountsOf(this.config).map((a) => effectiveClaudeDir(a, this.opts.deps.home)))];
+    const cwds = new Map(this.db.all<{ session_id: string; cwd: string }>("SELECT session_id, cwd FROM sessions WHERE state <> 'ended' OR ended_at >= ?", now - 2 * 86_400_000).map((r) => [r.session_id, r.cwd]));
+    const sessions = [];
+    for (const s of live.sessions) {
+      const t = await this.titles.get(dirs, cwds.get(s.id) ?? '', s.id);
+      sessions.push(t ? { ...s, title: t.title, ...(t.fromPrompt ? { titleFromPrompt: true } : {}) } : s);
+    }
+    this.titles.retain(new Set(live.sessions.map((s) => s.id)));
+    this.db.kvSet('snapshot', JSON.stringify({ ...live, sessions, ...this.range.parts }), now);
+  }
+
+  /** The collector's own CPU, memory, child processes (overlapping ones too) and skipped ticks. */
+  sampleSelf(): void {
+    const now = this.now();
+    const cpu = process.cpuUsage();
+    const pct = this.self ? ((cpu.user - this.self.cpu.user + cpu.system - this.self.cpu.system) / 1000 / Math.max(1, now - this.self.at)) * 100 : 0;
+    this.self = { cpu, at: now };
+    const children = this.procs.filter((p) => p.ppid === process.pid && !/^(\/bin\/)?ps -axo/.test(p.command));
+    const names = children.map((p) => p.command.split(' ')[0]!.split('/').pop()!);
+    const overlaps = names.length - new Set(names).size;
+    const skipped = [...this.sources.skipped.values()].reduce((a, b) => a + b, 0);
+    this.db.run('INSERT INTO samples_collector (ts, cpu_pct, rss_bytes, children, overlaps, skipped) VALUES (?, ?, ?, ?, ?, ?)', now, pct, process.memoryUsage().rss, children.length, overlaps, skipped);
   }
 
   private async sampleSystem(): Promise<void> {
@@ -132,21 +205,18 @@ export class Collector {
     const cpu = cpuPercent(this.prevCpu, times);
     this.prevCpu = times;
 
-    let memTotal = this.os.totalmem();
+    const memTotal = this.os.totalmem();
     let memUsed = memTotal - this.os.freemem();
     if (this.os.platform === 'darwin') {
-      const vm = await this.exec.query('vm_stat', []);
-      const total = await this.exec.query('sysctl', ['-n', 'hw.memsize']);
-      if (vm.code === 0 && total.code === 0 && Number(total.stdout) > 0) {
-        memTotal = Number(total.stdout);
-        memUsed = memoryFromVmStat(parseVmStat(vm.stdout), memTotal).used;
-      }
+      // os.totalmem() is hw.memsize; vm_stat gives what Activity Monitor calls used.
+      const vm = await this.exec.query('vm_stat', [], { timeoutMs: TIMEOUT.fast });
+      if (vm.code === 0) memUsed = memoryFromVmStat(parseVmStat(vm.stdout), memTotal).used;
     }
     // Swap in use and the kernel's memory pressure level (1 normal, 2 warning, 4 critical).
     let swapUsed: number | null = null;
     let pressure: number | null = null;
     if (this.os.platform === 'darwin') {
-      const r = await this.exec.query('sysctl', ['vm.swapusage', 'kern.memorystatus_vm_pressure_level']);
+      const r = await this.exec.query('sysctl', ['vm.swapusage', 'kern.memorystatus_vm_pressure_level'], { timeoutMs: TIMEOUT.fast });
       if (r.code === 0) ({ swapUsed, pressure } = parseMemorySysctl(r.stdout));
     }
     const disk = await this.os.disk();
@@ -172,16 +242,16 @@ export class Collector {
 
   private async sampleProcesses(): Promise<void> {
     const now = this.now();
-    const ps = await this.exec.query('ps', ['-axo', 'pid=,ppid=,pcpu=,rss=,command=']);
+    const ps = await this.exec.query('ps', ['-axo', 'pid=,ppid=,pcpu=,rss=,command='], { timeoutMs: TIMEOUT.ps });
     if (ps.code !== 0) return;
     const procs = parsePs(ps.stdout);
+    this.procs = procs;
 
     for (const e of environmentsOf(this.config)) {
       if (e.remoteControl?.enabled === false) continue;
       const label = rcLabel(e.account, e.name);
       const key = `${e.account}/${e.name}`;
-      const state = await daemonState(this.exec, label);
-      const pid = state.running ? state.pid : null;
+      const pid = await this.servicePid(label, procs, now);
       const known = this.lastPid.get(key);
       if (pid !== null && known !== undefined && pid !== known) {
         this.db.run('INSERT INTO service_events (ts, account, env, kind, pid) VALUES (?, ?, ?, ?, ?)', now, e.account, e.name, 'restart', pid);
@@ -196,6 +266,20 @@ export class Collector {
     }
     await this.sampleSessions(procs, now);
     this.sampleAgents(now);
+  }
+
+  /**
+   * A Remote Control service's pid: from launchd once a minute, in between the last one while `ps`
+   * still shows it as a `claude remote-control` process (a restart changes it, so launchd is asked again).
+   */
+  private async servicePid(label: string, procs: Proc[], now: number): Promise<number | null> {
+    const cached = this.servicePids.get(label);
+    const alive = (pid: number | null): boolean => pid !== null && procs.some((p) => p.pid === pid && /remote-control/.test(p.command));
+    if (cached && now - cached.at < SERVICE_PIDS_MS && (cached.pid === null || alive(cached.pid))) return cached.pid;
+    const state = await daemonState(this.exec, label, TIMEOUT.fast);
+    const pid = state.running ? state.pid : null;
+    this.servicePids.set(label, { pid, at: now });
+    return pid;
   }
 
   /**
@@ -224,35 +308,36 @@ export class Collector {
   }
 
   /**
-   * Best effort (spec A10.7): match `claude` processes to sessions by working directory. A session
-   * no `claude` works in any more, quiet for SESSION_GONE_MS, ended without a SessionEnd hook (its
-   * process went down with a service restart, or was stopped): it is marked ended, so the
-   * dashboard and the plugins do not take it for alive.
+   * Per session, from the process tree only (spec A10.7; never lsof): a Remote Control session in its
+   * worktree (`bridge-cse_<id>`) is the service's child started with `--session-id cse_<id>`; its
+   * subtree's CPU and memory are sampled. Gone and quiet for SESSION_GONE_MS: ended (its process
+   * went down with a service restart, or was stopped). Other sessions cannot be told apart by
+   * process: they end with their SessionEnd hook, or after SESSION_STALE_MS without hooks.
    */
   private async sampleSessions(procs: Proc[], now: number): Promise<void> {
-    const open = this.db.all<{ session_id: string; cwd: string; last_activity_at: number }>("SELECT session_id, cwd, last_activity_at FROM sessions WHERE state <> 'ended' AND cwd <> ''");
-    if (open.length === 0 || procs.length === 0) return; // no ps output: nothing is known
-    const candidates = procs.filter((p) => /(^|\/)claude(\s|$)/.test(p.command));
-    let cwds = new Map<number, string>();
-    if (candidates.length > 0) {
-      const lsof = await this.exec.query('lsof', ['-a', '-d', 'cwd', '-Fpn', '-p', candidates.map((p) => p.pid).join(',')]);
-      cwds = parseLsofCwd(lsof.stdout);
-      if (cwds.size === 0) return; // lsof said nothing: do not conclude anything ended
+    if (procs.length === 0) return; // no ps output: nothing is known
+    const open = this.db.all<{ session_id: string; cwd: string; last_activity_at: number }>("SELECT session_id, cwd, last_activity_at FROM sessions WHERE state <> 'ended'");
+    const byKey = new Map<string, Proc>();
+    for (const p of procs) {
+      const key = /--session-id (cse_[A-Za-z0-9]+)/.exec(p.command)?.[1];
+      if (key && !/remote-control/.test(p.command)) byKey.set(key, p);
     }
+    const end = (id: string): void => {
+      this.db.run("UPDATE sessions SET state = 'ended', ended_at = ? WHERE session_id = ?", now, id);
+      this.db.run('UPDATE agents SET ended_at = ? WHERE session_id = ? AND ended_at IS NULL', now, id);
+    };
     for (const s of open) {
-      const mine = candidates.filter((p) => {
-        const cwd = cwds.get(p.pid);
-        return cwd !== undefined && (cwd === s.cwd || cwd.startsWith(`${s.cwd}/`));
-      });
-      if (mine.length === 0) {
-        if (now - s.last_activity_at > SESSION_GONE_MS) {
-          this.db.run("UPDATE sessions SET state = 'ended', ended_at = ? WHERE session_id = ?", now, s.session_id);
-          this.db.run('UPDATE agents SET ended_at = ? WHERE session_id = ? AND ended_at IS NULL', now, s.session_id);
-        }
+      const remote = remoteSessionOf(s.cwd);
+      if (!remote) {
+        if (now - s.last_activity_at > SESSION_STALE_MS) end(s.session_id);
         continue;
       }
-      if (s.last_activity_at <= now - 24 * 3_600_000) continue;
-      const sum = sumProcs(mine.flatMap((p) => subtree(procs, p.pid)));
+      const proc = byKey.get(remote.key);
+      if (!proc) {
+        if (now - s.last_activity_at > SESSION_GONE_MS) end(s.session_id);
+        continue;
+      }
+      const sum = sumProcs(subtree(procs, proc.pid));
       this.db.run('INSERT INTO samples_session (ts, session_id, cpu_pct, rss_bytes) VALUES (?, ?, ?, ?)', now, s.session_id, sum.cpu, sum.rssBytes);
     }
   }
@@ -260,16 +345,16 @@ export class Collector {
   // ---- slower samplers ----
 
   async dockerTick(): Promise<void> {
-    await this.safe('docker sample', async () => {
+    await this.sources.run('docker', async () => {
       const now = this.now();
-      const info = await this.exec.query('docker', ['info', '--format', '{{.ServerVersion}}']);
+      const info = await this.exec.query('docker', ['info', '--format', '{{.ServerVersion}}'], { timeoutMs: TIMEOUT.docker });
       this.db.kvSet('docker', info.code === 0 ? 'up' : 'down', now);
       if (info.code !== 0) {
         this.docker.clear();
         return;
       }
-      const stats = parseDockerStats((await this.exec.query('docker', ['stats', '--no-stream', '--format', '{{json .}}'])).stdout);
-      const projects = parseDockerPs((await this.exec.query('docker', ['ps', '--format', '{{.Names}}\t{{.Label "com.docker.compose.project"}}'])).stdout);
+      const stats = parseDockerStats((await this.exec.query('docker', ['stats', '--no-stream', '--format', '{{json .}}'], { timeoutMs: TIMEOUT.docker })).stdout);
+      const projects = parseDockerPs((await this.exec.query('docker', ['ps', '--format', '{{.Names}}\t{{.Label "com.docker.compose.project"}}'], { timeoutMs: TIMEOUT.docker })).stdout);
       const next = new Map<string, { cpu: number; memBytes: number }>();
       for (const s of stats) {
         const project = projects.get(s.name);
@@ -281,27 +366,22 @@ export class Collector {
     });
   }
 
+  /**
+   * Every minute: Tailscale's state, without peers. tailscaled answers on its unix socket (no child
+   * process); `dash`, `doctor` and `status` read this sample instead of asking themselves.
+   */
   async tailscaleTick(): Promise<void> {
-    await this.safe('tailscale sample', async () => {
-      const r = await this.exec.query('tailscale', ['status', '--json']);
-      let value = 'unavailable';
-      if (r.code === 0) {
-        try {
-          const j = JSON.parse(r.stdout) as { BackendState?: string; Self?: { DNSName?: string } };
-          value = JSON.stringify({ state: j.BackendState ?? 'unknown', dnsName: j.Self?.DNSName?.replace(/\.$/, '') ?? null });
-        } catch {
-          /* keep unavailable */
-        }
-      }
-      this.db.kvSet('tailscale', value, this.now());
+    await this.sources.run('tailscale', async () => {
+      const st = await tailscaleStatus(this.exec, TIMEOUT.tailscale);
+      this.db.kvSet('tailscale', st?.BackendState ? JSON.stringify(toSample(st)) : 'unavailable', this.now());
     });
   }
 
   /** Daily: size per environment (worktrees, node_modules). */
   async diskUsageTick(): Promise<void> {
-    await this.safe('disk usage', async () => {
+    await this.sources.run('disk usage', async () => {
       for (const l of this.locations()) {
-        const r = await this.exec.query('du', ['-sk', l.dir]);
+        const r = await this.exec.query('du', ['-sk', l.dir], { timeoutMs: TIMEOUT.du });
         const bytes = r.code === 0 ? parseDu(r.stdout) : null;
         if (bytes !== null) this.db.run('INSERT OR REPLACE INTO env_disk (account, env, bytes, ts) VALUES (?, ?, ?, ?)', l.account, l.env, bytes, this.now());
       }
@@ -309,7 +389,7 @@ export class Collector {
   }
 
   async authTick(): Promise<void> {
-    await this.safe('auth check', async () => {
+    await this.sources.run('auth check', async () => {
       await checkAuth(this.db, this.exec, this.opts.deps, this.config, this.now());
     });
   }
@@ -330,7 +410,7 @@ export class Collector {
    * so this tries again the next hour. A failed update is not retried until the next day's check.
    */
   async updateTick(): Promise<void> {
-    await this.safe('update', async () => {
+    await this.sources.run('update', async () => {
       const mode = this.config.claude?.update ?? 'auto';
       if (mode === 'off') return;
       const now = this.now();
@@ -381,6 +461,10 @@ export class Collector {
   }
 
   async maintenanceTick(): Promise<void> {
+    await this.sources.run('maintenance', () => this.maintain());
+  }
+
+  private async maintain(): Promise<void> {
     await this.safe('rollup', async () => {
       const now = this.now();
       rollup(this.db, now);

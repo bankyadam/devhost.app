@@ -1,4 +1,4 @@
-import { open } from 'node:fs/promises';
+import { open, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /** Claude Code's project directory name for a working directory: every non-alphanumeric is `-`. */
@@ -79,4 +79,36 @@ export async function sessionTitle(configDirs: readonly string[], cwd: string, s
     }
   }
   return undefined;
+}
+
+/**
+ * Titles for the collector's snapshot: a transcript is read again only when its size or mtime
+ * changed (a stat per session per tick otherwise). Entries of sessions no longer asked for go.
+ */
+export class TitleCache {
+  private readonly cache = new Map<string, { path: string; size: number; mtimeMs: number; title: SessionTitle | undefined }>();
+
+  async get(configDirs: readonly string[], cwd: string, sessionId: string): Promise<SessionTitle | undefined> {
+    if (!cwd || !/^[A-Za-z0-9-]+$/.test(sessionId)) return undefined;
+    for (const dir of configDirs) {
+      const path = join(dir, 'projects', projectSlug(cwd), `${sessionId}.jsonl`);
+      let st;
+      try {
+        st = await stat(path);
+      } catch {
+        continue;
+      }
+      const hit = this.cache.get(sessionId);
+      if (hit && hit.path === path && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.title;
+      const title = await sessionTitle([dir], cwd, sessionId);
+      this.cache.set(sessionId, { path, size: st.size, mtimeMs: st.mtimeMs, title });
+      return title;
+    }
+    return undefined;
+  }
+
+  /** Forget sessions not in `keep`. */
+  retain(keep: Set<string>): void {
+    for (const id of this.cache.keys()) if (!keep.has(id)) this.cache.delete(id);
+  }
 }

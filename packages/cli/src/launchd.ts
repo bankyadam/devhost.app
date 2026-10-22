@@ -90,8 +90,8 @@ export function serviceEnv(home: string, extra: Record<string, string> = {}): Re
   return { HOME: home, PATH: `${join(home, '.local', 'bin')}:${SERVICE_PATH}`, ...extra };
 }
 
-export async function daemonState(exec: Executor, label: string): Promise<DaemonState> {
-  const r = await exec.query('launchctl', ['print', `system/${label}`]);
+export async function daemonState(exec: Executor, label: string, timeoutMs?: number): Promise<DaemonState> {
+  const r = await exec.query('launchctl', ['print', `system/${label}`], timeoutMs ? { timeoutMs } : {});
   if (r.code !== 0) return { loaded: false, running: false, pid: null };
   const pid = /\bpid = (\d+)/.exec(r.stdout);
   const running = /\bstate = running\b/.test(r.stdout) || pid !== null;

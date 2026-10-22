@@ -17,6 +17,7 @@ async function converged(opts: { tailscale?: boolean; arch?: 'arm64' | 'x86_64' 
   // The collector service would have created its database by now.
   const db = new Db(dbPath(env.home));
   db.run('INSERT INTO samples_system (ts, cpu_pct, mem_pct, mem_used, mem_total, disk_free_pct, disk_free_bytes, load1) VALUES (?, 5, 30, 1, 2, 60, 10, 1)', env.deps.now().getTime());
+  db.run('INSERT INTO samples_collector VALUES (?, 0.4, 60000000, 1, 0, 0)', env.deps.now().getTime());
   db.close();
   env.out.length = 0;
   env.err.length = 0;
@@ -33,6 +34,24 @@ const doctor = async (env: TestEnv): Promise<{ code: number; data: DoctorData; e
 const problems = (d: DoctorData) => d.checks.filter((c) => c.status !== 'ok').map((c) => `${c.status}:${c.id}`);
 
 describe('doctor', () => {
+  it('fails when the collector averages over 3 % CPU over 5 minutes, or a command it runs overlapped itself', async () => {
+    const { env } = await converged();
+    const now = env.deps.now().getTime();
+    const db = new Db(dbPath(env.home));
+    db.run('INSERT INTO samples_collector VALUES (?, 9.0, 60000000, 2, 0, 0)', now - 60_000);
+    db.close();
+    let check = (await doctor(env)).data.checks.find((c) => c.id === 'collector.load')!;
+    expect(check).toMatchObject({ status: 'fail' });
+    expect(check.message).toContain('too much CPU');
+    const db2 = new Db(dbPath(env.home));
+    db2.run('DELETE FROM samples_collector');
+    db2.run('INSERT INTO samples_collector VALUES (?, 0.5, 60000000, 2, 1, 0)', now - 60_000);
+    db2.close();
+    check = (await doctor(env)).data.checks.find((c) => c.id === 'collector.load')!;
+    expect(check).toMatchObject({ status: 'fail' });
+    expect(check.message).toContain('overlapped itself');
+  });
+
   it('after init + apply with zero accounts everything is green except "no accounts exist" (A16)', async () => {
     const { env } = await converged();
     const { code, data, envelope } = await doctor(env);
