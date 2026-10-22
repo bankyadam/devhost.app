@@ -6,6 +6,7 @@
  */
 export class Sources {
   private readonly running = new Set<string>();
+  private readonly inFlight = new Set<Promise<void>>();
   private readonly skipping = new Set<string>();
   /** Skipped ticks since start, per source (self-monitoring). */
   readonly skipped = new Map<string, number>();
@@ -31,14 +32,29 @@ export class Sources {
       return;
     }
     this.running.add(name);
+    const run = (async () => {
+      try {
+        await fn();
+      } catch (err) {
+        this.log(`${name} failed: ${(err as Error).message}`);
+      } finally {
+        this.running.delete(name);
+        if (this.skipping.delete(name)) this.log(`${name}: running again`);
+      }
+    })();
+    this.inFlight.add(run);
     try {
-      await fn();
-    } catch (err) {
-      this.log(`${name} failed: ${(err as Error).message}`);
+      await run;
     } finally {
-      this.running.delete(name);
-      if (this.skipping.delete(name)) this.log(`${name}: running again`);
+      this.inFlight.delete(run);
     }
+  }
+
+  /** Wait for the running sources to finish (on stop, before the database closes), at most `ms`. */
+  async drain(ms: number): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([Promise.all([...this.inFlight]), new Promise((r) => (timer = setTimeout(r, ms)))]);
+    clearTimeout(timer);
   }
 }
 

@@ -541,5 +541,7 @@ export class Collector {
     this.timers = [];
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
     this.server = null;
+    // A run still going would write into a closed database.
+    await this.sources.drain(5000);
   }
 }

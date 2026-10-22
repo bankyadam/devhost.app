@@ -13,6 +13,11 @@ export default tseslint.config(
     },
   },
   {
+    // Node scripts outside the packages (npm run soak).
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { globals: { process: 'readonly', console: 'readonly', URL: 'readonly', setTimeout: 'readonly' } },
+  },
+  {
     files: ['packages/app/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
     rules: { ...reactHooks.configs.recommended.rules },
