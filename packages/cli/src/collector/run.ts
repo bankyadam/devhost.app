@@ -365,8 +365,8 @@ export class Collector {
           if (r.data?.busy?.length) {
             state.waiting = `${r.data.busy.length} session(s) in the middle of a turn`;
           } else if (r.data?.claude.updated) {
-            const re = r.data.reattached ?? [];
-            const message = `Claude Code ${state.claude.installed} → ${r.data.claude.installed}; ${r.data.restarted?.length ?? 0} service(s) restarted${re.length ? `, ${re.filter((x) => x.ok).length} of ${re.length} session(s) reattached` : ''}.`;
+            const detached = r.data.detached?.length ?? 0;
+            const message = `Claude Code ${state.claude.installed} → ${r.data.claude.installed}; ${r.data.restarted?.length ?? 0} service(s) restarted${detached ? `; ${detached} open session(s) continue on claude.ai when you write in them` : ''}.`;
             state.claude = { ...state.claude, installed: r.data.claude.installed, outdated: false };
             state.lastUpdate = { at: now, ok: r.ok, message: r.ok ? message : `${message} ${r.message}` };
             await this.opts.notifier.send({ title: 'devhost: Claude Code updated', message: state.lastUpdate.message, tags: [r.ok ? 'white_check_mark' : 'warning'] });

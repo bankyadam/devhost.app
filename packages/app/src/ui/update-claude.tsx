@@ -6,10 +6,10 @@ import { RunDialog } from './run-dialog';
 
 /**
  * Update Claude Code on the host from the app (`devhost update`): confirm, run it live, and when
- * sessions are in the middle of a turn offer to interrupt them (`--force`; they are reattached).
+ * sessions are in the middle of a turn offer to interrupt them (`--force`; they continue on claude.ai afterwards).
  */
 export function UpdateClaude({ latest, onClose }: { latest: string | null; onClose: () => void }) {
-  const { client, hostName } = useApp();
+  const { client, hostName, transport } = useApp();
   const [step, setStep] = useState<'confirm' | 'run' | 'force'>('confirm');
   if (step === 'confirm') {
     return (
@@ -32,9 +32,14 @@ export function UpdateClaude({ latest, onClose }: { latest: string | null; onClo
           <p>{r.data.busy.length} session(s) are in the middle of a turn: {r.data.busy.join(', ')}.</p>
           <button className="btn danger" onClick={() => setStep('force')}>Interrupt them and update</button>
         </div>
-      ) : r.data?.reattached?.length ? <ul className="note">{r.data.reattached.map((x) => <li key={x.remoteSession}>{x.ok ? '✅' : '❌'} {x.account}/{x.env} · {x.remoteSession}{x.error ? `: ${x.error}` : ''}</li>)}</ul> : null}
+      ) : r.data?.detached?.length ? (
+        <div className="note">
+          <p>These sessions continue under their environment as soon as you write in them:</p>
+          <ul>{r.data.detached.map((x) => <li key={x.remoteSession}>{x.account}/{x.env} · <a href={x.url} onClick={(e) => { e.preventDefault(); void transport.openUrl(x.url); }}>{x.remoteSession}</a></li>)}</ul>
+        </div>
+      ) : null}
     >
-      <p className="sec">Claude Code is upgraded, then the Remote Control services restart onto it and their open sessions are reattached.</p>
+      <p className="sec">Claude Code is upgraded, then the Remote Control services restart onto it and their open sessions continue there when you write in them on claude.ai.</p>
     </RunDialog>
   );
 }

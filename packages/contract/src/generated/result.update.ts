@@ -37,16 +37,22 @@ export interface UpdateData {
    * Services restarted onto the new Claude Code.
    */
   restarted?: string[];
-  reattached?: {
-    remoteSession: string;
-    account: string;
-    env: string;
-    ok: boolean;
-    error?: string;
-  }[];
   /**
    * ms since epoch
    */
   checkedAt?: number;
   dryRun?: boolean;
+  /**
+   * Remote Control sessions the restart detached; each continues under its environment as soon as someone writes in it on claude.ai.
+   */
+  detached?: {
+    remoteSession: string;
+    account: string;
+    env: string;
+    url: string;
+  }[];
+  /**
+   * Running reattach jobs removed (their single-session environment hid the environment on claude.ai).
+   */
+  removed?: string[];
 }

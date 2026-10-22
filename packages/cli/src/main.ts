@@ -248,7 +248,7 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .description('Update Claude Code: upgrade it, restart the Remote Control services onto it, reattach their open sessions')
     .option('--check', 'only report what is outdated')
     .option('--all', 'also upgrade the other Brewfile packages')
-    .option('--force', 'do not wait for sessions in the middle of a turn (they are interrupted, then reattached)')
+    .option('--force', 'do not wait for sessions in the middle of a turn (they are interrupted, then continue on claude.ai)')
     .option('--dry-run', 'only print the plan')
     .action((o: { check?: boolean; all?: boolean; force?: boolean; dryRun?: boolean }) => run(() => updateCommand(deps, globals(), { check: o.check === true, all: o.all === true, force: o.force === true, dryRun: o.dryRun === true }))());
 

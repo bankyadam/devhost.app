@@ -3485,8 +3485,16 @@ export const schemas = {
         },
         "description": "Services restarted onto the new Claude Code."
       },
-      "reattached": {
+      "checkedAt": {
+        "type": "number",
+        "description": "ms since epoch"
+      },
+      "dryRun": {
+        "type": "boolean"
+      },
+      "detached": {
         "type": "array",
+        "description": "Remote Control sessions the restart detached; each continues under its environment as soon as someone writes in it on claude.ai.",
         "items": {
           "type": "object",
           "additionalProperties": false,
@@ -3494,7 +3502,7 @@ export const schemas = {
             "remoteSession",
             "account",
             "env",
-            "ok"
+            "url"
           ],
           "properties": {
             "remoteSession": {
@@ -3506,21 +3514,18 @@ export const schemas = {
             "env": {
               "type": "string"
             },
-            "ok": {
-              "type": "boolean"
-            },
-            "error": {
+            "url": {
               "type": "string"
             }
           }
         }
       },
-      "checkedAt": {
-        "type": "number",
-        "description": "ms since epoch"
-      },
-      "dryRun": {
-        "type": "boolean"
+      "removed": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Running reattach jobs removed (their single-session environment hid the environment on claude.ai)."
       }
     }
   },

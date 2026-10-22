@@ -191,9 +191,9 @@ Each item is a **step** with `check()`, `apply()`, and a description. Steps run 
 
 1. `brew update`, then the installed version (`claude --version` of the recorded path) against the cask's (`brew info --json=v2 --cask claude-code`). Native installs learn of a new version only by running `claude update`.
 2. Sessions in the middle of a turn (collector state `running`, active in the last day): the update **waits** and says which ones, unless `--force`.
-3. Before upgrading, note each Remote Control service's open sessions (its child processes started with `--session-id cse_…`, with their worktree, or their working directory without one), and running reattach jobs.
+3. Before upgrading, note each Remote Control service's open sessions (its child processes started with `--session-id cse_…`) and running reattach jobs (one session each).
 4. `brew upgrade --cask claude-code` (native: `claude update`).
-5. If the version changed: `launchctl kickstart -k` every Remote Control service and running reattach job, then reattach each noted session (A7.9: a one-shot `remote-control --session-id` job in its directory). A session that cannot be reattached is reported, not fatal.
+5. If the version changed: `launchctl kickstart -k` every Remote Control service, and remove running reattach jobs. The noted sessions are listed with their claude.ai link: a detached session continues under its environment's (restarted) service as soon as someone writes in it on claude.ai (verified October 2026), so nothing is reattached. A reattach job would register its own single-session environment named after the worktree ("bridge-cse_…", "Full · 1 running"), and claude.ai then lists it instead of the environment of the same repository on this machine.
 6. Refuses to run from inside a session of a service it would restart (it would end itself half way): run it from the app, a terminal, or let the collector do it.
 
 `--check` only reports; `--all` also upgrades the outdated Brewfile packages (`brew outdated --json=v2`, limited to the Brewfile); `--dry-run` prints the plan.
@@ -245,7 +245,7 @@ For each entry in `environments` (also triggered by `devhost env create`):
 
 `env create` refuses to run if the target account does not exist.
 
-**Session reattach** (`devhost session reattach <id> [--dry-run]`): after a reboot a service registers anew and an ended Remote Control session is left without a machine. For a session the service started in its own worktree (`.claude/worktrees/bridge-cse_<id>` ↔ `session_<id>` on claude.ai), runs `claude remote-control --session-id session_<id>` in that worktree as a one-shot LaunchDaemon `com.devhost.reattach.cse_<id>` (`KeepAlive: false`, network wait as above). Reports success only once it connected; a job that cannot connect (the session archived or expired on claude.ai) is removed. Ended reattach jobs are removed on the next reattach and by `uninstall`.
+**Session reattach** (`devhost session reattach <id> [--dry-run]`): after a reboot a service registers anew and an ended Remote Control session is left without a machine. For a session the service started in its own worktree (`.claude/worktrees/bridge-cse_<id>` ↔ `session_<id>` on claude.ai), runs `claude remote-control --session-id session_<id>` in that worktree as a one-shot LaunchDaemon `com.devhost.reattach.cse_<id>` (`KeepAlive: false`, network wait as above). Reports success only once it connected; a job that cannot connect (the session archived or expired on claude.ai) is removed. Ended reattach jobs are removed on the next reattach and by `uninstall`. Usually not needed: a session whose process is gone continues under its environment's service when someone writes in it on claude.ai. While a reattach job runs, claude.ai lists its single-session environment ("bridge-cse_…") instead of the environment; `devhost update` removes running ones.
 
 ### A7.10 Interactive first-run (`devhost login <account> [--switch-login]`)
 
@@ -445,7 +445,7 @@ Question it answers: how much of agent time is this host's, i.e. what a faster o
 | `devhost login <account> [--switch-login]` | A7.10. |
 | `devhost env list \| create \| delete \| start \| stop \| restart \| logs` | A7.9. `create` flags: `--account`, `--name`, `--repo`, `--no-rc`, `--permission-mode`, `--compose auto\|off`. |
 | `devhost session reattach <id> [--dry-run]` | A7.9. |
-| `devhost update [--check] [--all] [--force] [--dry-run]` | A7.5: update Claude Code, restart the Remote Control services onto it, reattach their open sessions; `--all` also upgrades the Brewfile packages. |
+| `devhost update [--check] [--all] [--force] [--dry-run]` | A7.5: update Claude Code, restart the Remote Control services onto it, list their detached sessions (they continue from claude.ai); `--all` also upgrades the Brewfile packages. |
 | `devhost storage list \| adopt \| prepare \| status \| wait \| set-passphrase \| migrate` | A7.12. `prepare` and `migrate --cleanup` are the only destructive paths; never run by `apply` or the app (`prepare`). |
 | `devhost plugin list \| run \| widgets \| install \| uninstall \| enable \| disable` | A18. |
 | `devhost config get \| set \| validate \| edit \| raw \| put` | Read and change config with schema validation; `set` takes a JSON pointer and value; `raw`/`put` for the app (comments kept, `put` only if valid). Changing config does not apply it; run `apply`. |
