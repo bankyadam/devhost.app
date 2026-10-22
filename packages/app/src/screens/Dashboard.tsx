@@ -141,7 +141,7 @@ export function Dashboard({ params = {}, onParams = () => undefined }: { params?
           onClose={() => setReattach(null)}
           after={(r) => r.data && <p>Back on Remote Control: <button className="btn sm" onClick={() => void openClaude(transport, webApps.appFor(r.data!.account), r.data!.url)}>Open in Claude</button></p>}
         >
-          <p className="sec">Runs the session's Remote Control again in its worktree, once (after a reboot the environment's service starts a new one, and the old session is left without a machine).</p>
+          <p className="sec">Runs the session's Remote Control again in its worktree, once. Usually not needed: writing in the session on claude.ai continues it under the environment's service. While this job runs, claude.ai lists a single-session environment named after the worktree instead of the environment.</p>
         </RunDialog>
       )}
       {update && <UpdateClaude latest={dash.updates?.claude.latest ?? null} onClose={() => setUpdate(false)} />}

@@ -2,15 +2,15 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DevhostConfig, UpdateData } from '@devhost/contract';
 import { Db, dbPath } from './collector/db.js';
-import { parseLsofCwd, parsePs } from './collector/samplers.js';
+import { parsePs } from './collector/samplers.js';
 import { long, newExecutor, newStepContext, type GlobalOptions } from './command-support.js';
 import { accountsOf, envDir, environmentsOf, rcLabel } from './config/accounts.js';
 import { loadConfig } from './config/load.js';
 import type { Deps } from './deps.js';
-import { DevhostError, UsageError } from './errors.js';
-import { daemonState, serviceEnv } from './launchd.js';
+import { UsageError } from './errors.js';
+import { daemonState, removeDaemon, serviceEnv } from './launchd.js';
 import { parseVersion } from './claude-version.js';
-import { reattachInWorktree, reattachLabels } from './reattach.js';
+import { REATTACH_PREFIX, reattachLabels } from './reattach.js';
 import type { Reporter } from './reporter.js';
 import type { Executor } from './runner/executor.js';
 import { readState, whichBinary } from './state.js';
@@ -107,15 +107,14 @@ interface LiveSession {
   account: string;
   env: string;
   key: string;
-  dir: string;
 }
 
 /**
- * The sessions each Remote Control service runs now: its children started with `--session-id cse_…`,
- * in their worktree (or, without one, wherever the process works). `self` is the service this
- * process itself runs under, if any: restarting that one would end this command too.
+ * The Remote Control sessions open now, and the services running them: each environment's service
+ * (its children started with `--session-id cse_…`) and any running reattach job (one session each).
+ * `self` is the service this process itself runs under, if any: restarting it would end this command.
  */
-async function liveRemoteSessions(ctx: StepContext): Promise<{ labels: string[]; sessions: LiveSession[]; self: string | null }> {
+async function liveRemoteSessions(ctx: StepContext): Promise<{ labels: string[]; reattachJobs: string[]; sessions: LiveSession[]; self: string | null }> {
   const { exec, config, home } = ctx;
   const procs = parsePs((await exec.query('ps', ['-axo', 'pid=,ppid=,pcpu=,rss=,command='])).stdout);
   const ancestors = new Set<number>();
@@ -123,11 +122,11 @@ async function liveRemoteSessions(ctx: StepContext): Promise<{ labels: string[];
   const labels: string[] = [];
   const sessions: LiveSession[] = [];
   let self: string | null = null;
-  const pending: { p: { pid: number }; s: LiveSession; fallback: string }[] = [];
-  for (const e of environmentsOf(config)) {
-    if (e.remoteControl?.enabled === false) continue;
+  const envs = environmentsOf(config).flatMap((e) => {
     const a = accountsOf(config).find((x) => x.name === e.account);
-    if (!a) continue;
+    return a && e.remoteControl?.enabled !== false ? [{ a, e, dir: envDir(a, e, home) }] : [];
+  });
+  for (const { a, e } of envs) {
     const label = rcLabel(a.name, e.name);
     const state = await daemonState(exec, label);
     if (!state.loaded) continue;
@@ -136,18 +135,20 @@ async function liveRemoteSessions(ctx: StepContext): Promise<{ labels: string[];
     if (ancestors.has(state.pid)) self = label;
     for (const p of procs.filter((x) => x.ppid === state.pid)) {
       const key = /--session-id (cse_[A-Za-z0-9]+)/.exec(p.command)?.[1];
-      if (!key) continue;
-      const worktree = join(envDir(a, e, home), '.claude', 'worktrees', `bridge-${key}`);
-      const s = { account: a.name, env: e.name, key, dir: worktree };
-      if (existsSync(worktree)) sessions.push(s);
-      else pending.push({ p, s, fallback: envDir(a, e, home) });
+      if (key) sessions.push({ account: a.name, env: e.name, key });
     }
   }
-  if (pending.length > 0) {
-    const cwds = parseLsofCwd((await exec.query('lsof', ['-a', '-d', 'cwd', '-Fpn', '-p', pending.map((x) => x.p.pid).join(',')])).stdout);
-    for (const x of pending) sessions.push({ ...x.s, dir: cwds.get(x.p.pid) ?? x.fallback });
+  const reattachJobs: string[] = [];
+  for (const label of await reattachLabels()) {
+    const state = await daemonState(exec, label);
+    if (!state.running) continue;
+    reattachJobs.push(label);
+    if (state.pid !== null && ancestors.has(state.pid)) self = label;
+    const key = label.slice(REATTACH_PREFIX.length);
+    const owner = envs.find((x) => existsSync(join(x.dir, '.claude', 'worktrees', `bridge-${key}`)));
+    sessions.push({ account: owner?.a.name ?? '?', env: owner?.e.name ?? '?', key });
   }
-  return { labels, sessions, self };
+  return { labels, reattachJobs, sessions, self };
 }
 
 export interface UpdateOptions {
@@ -160,8 +161,8 @@ export interface UpdateOptions {
 /**
  * Update Claude Code: upgrade it, restart every Remote Control service onto it (a service runs its
  * sessions from the versioned path the upgrade removes, so it cannot start new ones until it
- * restarts), then reattach the sessions the restart cut off. Waits while a session is in the middle
- * of a turn, unless forced. `--all` also upgrades the other Brewfile packages.
+ * restarts). The sessions it had open continue under it from claude.ai. Waits while a session is in
+ * the middle of a turn, unless forced. `--all` also upgrades the other Brewfile packages.
  */
 export async function runUpdate(ctx: StepContext, reporter: Reporter, now: number, o: UpdateOptions): Promise<{ data: UpdateData; human: string[] }> {
   const { exec, config, home } = ctx;
@@ -194,7 +195,7 @@ export async function runUpdate(ctx: StepContext, reporter: Reporter, now: numbe
     const busy = busySessions(home, now);
     if (busy.length > 0 && !o.force) {
       data.busy = busy;
-      human.push(`⏳ Claude Code ${claude.installed} → ${claude.latest ?? 'latest'} waits: ${busy.length} session(s) are in the middle of a turn (${busy.join(', ')}). Run again later, or with --force to interrupt them (they are reattached).`);
+      human.push(`⏳ Claude Code ${claude.installed} → ${claude.latest ?? 'latest'} waits: ${busy.length} session(s) are in the middle of a turn (${busy.join(', ')}). Run again later, or with --force to interrupt them (they continue on claude.ai afterwards).`);
     } else {
       const before = claude.installed;
       const live = await liveRemoteSessions(ctx);
@@ -204,9 +205,6 @@ export async function runUpdate(ctx: StepContext, reporter: Reporter, now: numbe
           'Run it from the devhost app, from a terminal on the host (ssh), or let the automatic update do it (claude.update: auto).',
         );
       }
-      const reattachJobs: string[] = [];
-      for (const l of await reattachLabels()) if ((await daemonState(exec, l)).running) reattachJobs.push(l);
-
       step('update.claude', `update Claude Code${claude.latest ? ` to ${claude.latest}` : ''}`);
       if (claude.install === 'brew') await exec.exec('brew', ['upgrade', '--cask', CASK], { env: BREW_ENV, progress: true, reason: 'update Claude Code' });
       else if (claude.path) await exec.exec(claude.path, ['update'], { reason: 'update Claude Code', progress: true });
@@ -216,31 +214,24 @@ export async function runUpdate(ctx: StepContext, reporter: Reporter, now: numbe
       reporter.step('update.claude', o.dryRun ? 'ok' : changed ? 'changed' : 'ok', o.dryRun ? 'planned' : changed ? `${before} → ${after}` : `${after} was current`);
 
       if (changed) {
+        // Each service restarts onto the new version; its open sessions are detached and continue
+        // under it as soon as someone writes in them on claude.ai. Reattach jobs go: one would
+        // register its own single-session environment and hide the environment on claude.ai.
         step('update.restart', 'restart the Remote Control services onto it');
         data.restarted = [];
-        for (const label of [...live.labels, ...reattachJobs]) {
+        for (const label of live.labels) {
           await exec.exec('launchctl', ['kickstart', '-k', `system/${label}`], { sudo: true, reason: `restart ${label} on the new Claude Code` });
           data.restarted.push(label);
         }
+        for (const label of live.reattachJobs) await removeDaemon(ctx, label);
+        if (live.reattachJobs.length) data.removed = live.reattachJobs;
         reporter.step('update.restart', o.dryRun ? 'ok' : 'changed', `${data.restarted.length} service(s)`);
-
-        data.reattached = [];
-        for (const s of live.sessions) {
-          const a = accountsOf(config).find((x) => x.name === s.account)!;
-          const e = environmentsOf(config).find((x) => x.name === s.env && x.account === s.account)!;
-          const remote = { id: `session_${s.key.slice('cse_'.length)}`, key: s.key, dir: s.dir };
-          try {
-            // The old session process goes down with its service; give the server a moment.
-            if (!o.dryRun) await exec.waitFor(async () => !(await exec.query('ps', ['-axo', 'command='])).stdout.includes(`--session-id ${s.key}`), 15, 1000);
-            await reattachInWorktree(ctx, reporter, a, e, remote, o.dryRun);
-            data.reattached.push({ remoteSession: remote.id, account: s.account, env: s.env, ok: true });
-          } catch (err) {
-            data.reattached.push({ remoteSession: remote.id, account: s.account, env: s.env, ok: false, error: err instanceof Error ? err.message : String(err) });
-          }
-        }
+        data.detached = live.sessions.map((s) => {
+          const id = `session_${s.key.slice('cse_'.length)}`;
+          return { remoteSession: id, account: s.account, env: s.env, url: `https://claude.ai/code/${id}` };
+        });
         human.push(o.dryRun ? `Would update Claude Code ${before} → ${claude.latest ?? 'latest'} and restart ${data.restarted.length} service(s).` : `✅ Claude Code ${before} → ${after}; ${data.restarted.length} service(s) restarted.`);
-        const failed = data.reattached.filter((r) => !r.ok);
-        if (data.reattached.length) human.push(`${data.reattached.length - failed.length} of ${data.reattached.length} open session(s) reattached.${failed.map((f) => `\n  ❌ ${f.remoteSession}: ${f.error}`).join('')}`);
+        if (data.detached.length) human.push(`${data.detached.length} open session(s) continue on claude.ai as soon as you write in them:${data.detached.map((d) => `\n  ${d.account}/${d.env}: ${d.url}`).join('')}`);
       } else {
         human.push(`Claude Code ${after} is current.`);
       }
@@ -270,9 +261,7 @@ export function updateCommand(deps: Deps, g: GlobalOptions, o: UpdateOptions): P
     const exec = newExecutor(deps, g, reporter, o.dryRun);
     const ctx = newStepContext(deps, g, config, exec);
     const { data, human } = await runUpdate(ctx, reporter, deps.now().getTime(), o);
-    const failed = (data.reattached ?? []).filter((r) => !r.ok);
     const plan = o.dryRun && exec.plan.length > 0 ? ['', 'Dry run plan (nothing was changed):', ...exec.plan.map((p) => `  ${p.sudo ? '[sudo] ' : ''}${p.action}${p.reason ? `  — ${p.reason}` : ''}`)] : [];
-    if (failed.length) return { ok: false, data, human: [...human, ...plan], error: new DevhostError(`${failed.length} session(s) could not be reattached`, 'reattach-failed', 1, 'Reattach them from the dashboard, or with `devhost session reattach <id>`.') };
     return { ok: true, data, human: [...human, ...plan] };
   });
 }

@@ -821,7 +821,7 @@ describe('Collector Claude Code updates', () => {
   it('checks once a day, updates only inside the window, waits for busy sessions, then reports the update', async () => {
     const u = updating(undefined, [
       { claude: claude('2.1.300', '2.1.310'), packages: [], checkedAt: 0, busy: ['business/acme-api · 5e000000'] },
-      { claude: { ...claude('2.1.310', '2.1.310'), updated: true }, packages: [], checkedAt: 0, restarted: ['com.devhost.rc.business.acme-api'], reattached: [{ remoteSession: 'session_01', account: 'business', env: 'acme-api', ok: true }] },
+      { claude: { ...claude('2.1.310', '2.1.310'), updated: true }, packages: [], checkedAt: 0, restarted: ['com.devhost.rc.business.acme-api'], detached: [{ remoteSession: 'session_01', account: 'business', env: 'acme-api', url: 'https://claude.ai/code/session_01' }] },
     ]);
     await u.collector.updateTick(); // noon: outside 02:00-06:00
     expect(u.calls).toEqual(['devhost update --check --json']);
@@ -839,7 +839,7 @@ describe('Collector Claude Code updates', () => {
     await u.collector.updateTick();
     expect(u.state()).toMatchObject({ claude: { installed: '2.1.310', outdated: false }, lastUpdate: { ok: true } });
     expect(u.state().waiting).toBeUndefined();
-    expect(u.notifier.sent.map((n) => n.message)).toEqual(['Claude Code 2.1.300 → 2.1.310; 1 service(s) restarted, 1 of 1 session(s) reattached.']);
+    expect(u.notifier.sent.map((n) => n.message)).toEqual(['Claude Code 2.1.300 → 2.1.310; 1 service(s) restarted; 1 open session(s) continue on claude.ai when you write in them.']);
     const dash = buildDash(u.db, CONFIG, { range: '24h' }, u.clock.now, 'macmini', null);
     expect(dash.updates?.claude.outdated).toBe(false);
   });

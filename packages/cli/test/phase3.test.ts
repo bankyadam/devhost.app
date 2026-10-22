@@ -400,32 +400,39 @@ describe('environments', () => {
     expect(mac.runner.lines().filter((l) => /brew upgrade|kickstart/.test(l))).toEqual([]);
   });
 
-  it('update upgrades Claude Code, restarts the services onto it and reattaches their open sessions', async () => {
+  it('update upgrades Claude Code, restarts the services onto it, removes reattach jobs and lists the detached sessions', async () => {
     const { env, mac, dir } = await created();
     mac.state.binaries.add('claude');
     mac.state.claudeLatest = '2.1.310';
-    const wt = join(dir, '.claude', 'worktrees', 'bridge-cse_01Live');
-    await mkdir(wt, { recursive: true });
+    await mkdir(join(dir, '.claude', 'worktrees', 'bridge-cse_01Live'), { recursive: true });
+    await mkdir(join(dir, '.claude', 'worktrees', 'bridge-cse_02Old'), { recursive: true });
     mac.state.procs = [
       ' 4242 1 1.0 1000 /opt/homebrew/bin/claude remote-control --name business-acme-api',
       ' 4300 4242 1.0 1000 /opt/homebrew/Caskroom/claude-code/2.1.300/claude --print --sdk-url https://api.anthropic.com/v1/code/sessions/cse_01Live --session-id cse_01Live',
     ];
-    const log = join(env.home, 'Library', 'Logs', 'devhost', 'rc-business-acme-api-cse_01Live.log');
-    mac.state.onBootstrap = (label) => {
-      if (label === 'com.devhost.reattach.cse_01Live') void appendFile(log, 'Connected\n');
-    };
+    // A reattach job from earlier: it registers its own single-session environment, which hides acme-api on claude.ai.
+    const job = join(env.home, 'LaunchDaemons', 'com.devhost.reattach.cse_02Old.plist');
+    await writeFile(job, '<plist/>');
+    mac.state.loaded.add('com.devhost.reattach.cse_02Old');
+
     expect(await env.run('update', '--json')).toBe(0);
     const data = lastResult(env).data as unknown as UpdateData;
     expect(validate('result.update', data).ok).toBe(true);
     expect(data.claude).toMatchObject({ installed: '2.1.310', outdated: false, updated: true });
     expect(data.restarted).toEqual(['com.devhost.rc.business.acme-api']);
-    expect(data.reattached).toEqual([{ remoteSession: 'session_01Live', account: 'business', env: 'acme-api', ok: true }]);
+    expect(data.removed).toEqual(['com.devhost.reattach.cse_02Old']);
+    expect(data.detached).toEqual([
+      { remoteSession: 'session_01Live', account: 'business', env: 'acme-api', url: 'https://claude.ai/code/session_01Live' },
+      { remoteSession: 'session_02Old', account: 'business', env: 'acme-api', url: 'https://claude.ai/code/session_02Old' },
+    ]);
     const lines = mac.runner.lines();
     const upgrade = lines.indexOf('brew upgrade --cask claude-code');
     const restart = lines.indexOf('sudo -n -- launchctl kickstart -k system/com.devhost.rc.business.acme-api');
     expect(upgrade).toBeGreaterThan(-1);
     expect(restart).toBeGreaterThan(upgrade);
-    expect(mac.state.loaded.has('com.devhost.reattach.cse_01Live')).toBe(true);
+    expect(mac.state.loaded.has('com.devhost.reattach.cse_02Old')).toBe(false);
+    await expect(stat(job)).rejects.toThrow();
+    expect(lines.some((l) => l.includes('reattach.cse_01Live'))).toBe(false); // nothing is reattached
 
     // Current now: nothing more to do.
     mac.runner.calls.length = 0;
