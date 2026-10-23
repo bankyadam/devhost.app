@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, readlink, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
@@ -568,6 +568,32 @@ describe('environments', () => {
     expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api')).toBe(0);
     expect(mac.state.composeUp.has('devhost-acme-api')).toBe(true);
     expect((await cfg(env)).match(/^\s+- name: acme-api$/gm)).toHaveLength(1);
+  });
+
+  it('compose pulls without the Keychain when Docker Desktop\'s credential helper cannot reach it (ssh, no GUI login)', async () => {
+    const { env, mac } = await withAccount();
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc')).toBe(0);
+    const dir = join(env.home, 'work', 'business', 'acme-api');
+    await writeFile(join(dir, 'compose.yaml'), 'services: { db: { image: postgres } }\n');
+    await mkdir(join(env.home, '.docker', 'contexts'), { recursive: true });
+    await writeFile(join(env.home, '.docker', 'config.json'), JSON.stringify({ auths: {}, credsStore: 'desktop', currentContext: 'desktop-linux' }));
+    const original = mac.runner.run.bind(mac.runner);
+    const seen: (string | undefined)[] = [];
+    mac.runner.run = async (cmd, args, opts) => {
+      if (cmd !== 'docker' || !args.includes('up')) return original(cmd, args, opts);
+      seen.push(opts?.env?.['DOCKER_CONFIG']);
+      return opts?.env?.['DOCKER_CONFIG']
+        ? original(cmd, args, opts)
+        : { code: 1, stdout: '', stderr: 'error getting credentials - err: exit status 1, out: `keychain cannot be accessed because the current session does not allow user interaction.`\n' };
+    };
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api')).toBe(0);
+    const free = join(env.home, '.local', 'share', 'devhost', 'docker');
+    expect(seen).toEqual([undefined, free]);
+    expect(mac.state.composeUp.has('devhost-acme-api')).toBe(true);
+    expect(JSON.parse(await readFile(join(free, 'config.json'), 'utf8'))).toEqual({ auths: {}, currentContext: 'desktop-linux' });
+    expect(await readlink(join(free, 'contexts'))).toBe(join(env.home, '.docker', 'contexts'));
+    // The user's own config is left as it is.
+    expect(JSON.parse(await readFile(join(env.home, '.docker', 'config.json'), 'utf8')).credsStore).toBe('desktop');
   });
 
   it('delete without --delete-files leaves the directory', async () => {
