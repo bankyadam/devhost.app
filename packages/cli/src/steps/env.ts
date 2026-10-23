@@ -110,9 +110,9 @@ async function composeUp(ctx: StepContext, e: Environment, dir: string): Promise
  * cause (compose refuses one it did not create for this project); devhost never removes it, since
  * something else may use it, but says how to.
  */
-export function composeError(a: Account, e: Environment, code: number, stderr: string): DevhostError {
+export function composeError(a: Account, e: Environment, code: number, stderr: string, serviceUp = false): DevhostError {
   const network = /network (?:with name )?["']?([\w.-]+)["']? (?:already exists|was found but|exists but)/i.exec(stderr)?.[1];
-  const again = `then run the setup again: devhost env create --account ${a.name} --name ${e.name} (the app: Environments → … → Run setup again)`;
+  const again = `then run the setup again: devhost env create --account ${a.name} --name ${e.name} (the app: Environments → … → Run setup again)${serviceUp ? `. The environment's Remote Control service runs already: a session in ${e.name} on claude.ai can fix it` : ''}`;
   const detail = stderr.trim().split('\n').filter(Boolean).at(-1) ?? `exit ${code}`;
   return network
     ? new DevhostError(`docker compose could not create the network "${network}": it exists already (${detail})`, 'compose-network-exists', 1, `See what uses it: docker network inspect ${network}. If nothing does: docker network rm ${network}, ${again}.`)
@@ -195,6 +195,7 @@ export function envStep(a: Account, e: Environment): Step {
       }
       await exec.exec('direnv', ['allow', dir]);
 
+      let composeFailed: { code: number; stderr: string } | null = null;
       if (e.compose !== 'off' && (await composeFile(ctx, dir))) {
         const composeUp = (env?: Record<string, string>) =>
           exec.exec('docker', ['compose', '-p', composeProject(e.name), 'up', '-d'], { cwd: dir, reason: 'start the environment\'s compose services', allowFailure: true, progress: true, ...(env ? { env } : {}) });
@@ -207,15 +208,17 @@ export function envStep(a: Account, e: Environment): Step {
             up = await composeUp({ DOCKER_CONFIG: config });
           }
         }
-        if (up.code !== 0) throw composeError(a, e, up.code, up.stderr);
+        // Reported once the service runs: a session in the environment is how its compose project gets fixed.
+        if (up.code !== 0) composeFailed = up;
       }
 
       if (e.remoteControl?.enabled === false) {
         await removeDaemon(ctx, rcLabel(a.name, e.name));
-        return;
+      } else {
+        if (ctx.beforeService) await ctx.beforeService(envInfoOf(a, e, ctx.home));
+        await applyDaemon(ctx, await rcSpec(ctx, a, e));
       }
-      if (ctx.beforeService) await ctx.beforeService(envInfoOf(a, e, ctx.home));
-      await applyDaemon(ctx, await rcSpec(ctx, a, e));
+      if (composeFailed) throw composeError(a, e, composeFailed.code, composeFailed.stderr, e.remoteControl?.enabled !== false);
     },
   };
 }

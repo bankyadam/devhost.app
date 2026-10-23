@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, readdir, readlink, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, readlink, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
@@ -568,6 +568,25 @@ describe('environments', () => {
     expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api')).toBe(0);
     expect(mac.state.composeUp.has('devhost-acme-api')).toBe(true);
     expect((await cfg(env)).match(/^\s+- name: acme-api$/gm)).toHaveLength(1);
+  });
+
+  it('a compose project that does not come up still gets its Remote Control service, so a session can fix it', async () => {
+    const { env, mac, dir } = await created();
+    const label = 'com.devhost.rc.business.acme-api';
+    await rm(join(env.home, 'LaunchDaemons', `${label}.plist`));
+    mac.state.loaded.delete(label);
+    await writeFile(join(dir, 'compose.yaml'), 'services: { s3: { image: minio/mc } }\n');
+    const original = mac.runner.run.bind(mac.runner);
+    mac.runner.run = async (cmd, args, opts) =>
+      cmd === 'docker' && args.includes('up')
+        ? { code: 1, stdout: '', stderr: "Error response from daemon: pull access denied for minio/mc, repository does not exist or may require 'docker login'\n" }
+        : original(cmd, args, opts);
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--json')).toBe(1);
+    const failed = lastResult(env).errors?.[0] as { code: string; message: string; hint?: string };
+    expect(failed.code).toBe('compose-failed');
+    expect(failed.message).toContain('pull access denied for minio/mc');
+    expect(failed.hint).toContain('Remote Control service runs already: a session in acme-api on claude.ai can fix it');
+    expect(mac.state.loaded.has(label)).toBe(true);
   });
 
   it('compose pulls without the Keychain when Docker Desktop\'s credential helper cannot reach it (ssh, no GUI login)', async () => {
