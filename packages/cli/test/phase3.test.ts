@@ -334,7 +334,7 @@ describe('environments', () => {
     const db = new Db(dbPath(env.home));
     db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at) VALUES ('6a7802e0-1111', 'business', 'acme-api', ?, 'ended', ?, ?, ?)", join(wt, 'sub'), now - 60_000, now - 30_000, now - 1000);
     db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at) VALUES ('7b000000-2222', 'business', 'acme-api', ?, 'idle', ?, ?, NULL)", wt, now - 60_000, now - 30_000);
-    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at) VALUES ('8c000000-3333', 'business', 'acme-api', ?, 'ended', ?, ?, ?)", dir, now - 60_000, now - 30_000, now - 1000);
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at, remote_session) VALUES ('8c000000-3333', 'business', 'acme-api', ?, 'ended', ?, ?, ?, 'session_01Own')", dir, now - 60_000, now - 30_000, now - 1000);
     db.close();
     const log = join(env.home, 'Library', 'Logs', 'devhost', 'rc-business-acme-api-cse_01Abc.log');
     await mkdir(dirname(log), { recursive: true });
@@ -350,7 +350,7 @@ describe('environments', () => {
     };
 
     expect(await env.run('session', 'reattach', '7b000000')).toBe(2); // still idle
-    expect(await env.run('session', 'reattach', '8c000000')).toBe(2); // not a Remote Control worktree
+    expect(await env.run('session', 'reattach', '8c000000')).toBe(2); // not a Remote Control worktree (the environment folder is the service's)
     env.out.length = 0;
     expect(await env.run('session', 'reattach', '6a7802e0', '--json')).toBe(0);
     const data = lastResult(env).data;
@@ -372,43 +372,12 @@ describe('environments', () => {
     expect(Object.fromEntries(sessions.map((x) => [x.id, x.remoteSession]))).toEqual({ '6a7802e0-1111': 'session_01Abc', '7b000000-2222': 'session_01Abc', '8c000000-3333': null });
   });
 
-  it('session reattach brings back a session the service ran in the environment folder, unless it is attached already', async () => {
-    const { env, mac, dir } = await created();
-    const now = env.deps.now().getTime();
-    const db = new Db(dbPath(env.home));
-    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at, remote_session) VALUES ('ad000000-5555', 'business', 'acme-api', ?, 'ended', ?, ?, ?, 'session_01Own')", dir, now - 60_000, now - 30_000, now - 1000);
-    db.close();
-    const log = join(env.home, 'Library', 'Logs', 'devhost', 'rc-business-acme-api-cse_01Own.log');
-    await mkdir(dirname(log), { recursive: true });
-    mac.state.onBootstrap = (label) => {
-      if (label === 'com.devhost.reattach.cse_01Own') void appendFile(log, '·✔︎· Connected · acme-api\n');
-    };
-    // The environment's service took it back itself.
-    mac.state.procs = [' 4300 4242 1.0 1024 /opt/homebrew/bin/claude --print --session-id cse_01Own'];
-    expect(await env.run('session', 'reattach', 'ad000000')).toBe(2);
-    expect(mac.state.loaded.has('com.devhost.reattach.cse_01Own')).toBe(false);
-  });
-
-  it('session reattach runs a session of the environment folder in that folder, and leaves the bridge pointer to the service', async () => {
-    const { env, mac, dir } = await created();
-    const now = env.deps.now().getTime();
-    const db = new Db(dbPath(env.home));
-    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at, remote_session) VALUES ('ad000000-5555', 'business', 'acme-api', ?, 'ended', ?, ?, ?, 'session_01Own')", dir, now - 60_000, now - 30_000, now - 1000);
-    db.close();
-    const log = join(env.home, 'Library', 'Logs', 'devhost', 'rc-business-acme-api-cse_01Own.log');
-    await mkdir(dirname(log), { recursive: true });
-    mac.state.onBootstrap = (label) => {
-      if (label === 'com.devhost.reattach.cse_01Own') void appendFile(log, '·✔︎· Connected · acme-api\n');
-    };
-    expect(await env.run('session', 'reattach', 'ad000000', '--json')).toBe(0);
-    expect(lastResult(env).data).toMatchObject({ remoteSession: 'session_01Own', label: 'com.devhost.reattach.cse_01Own' });
-    const plist = await readFile(join(env.home, 'LaunchDaemons', 'com.devhost.reattach.cse_01Own.plist'), 'utf8');
-    expect(plist).toContain(`<key>WorkingDirectory</key>\n  <string>${dir}</string>`);
-    expect(plist).toContain('<string>--session-id</string>\n    <string>session_01Own</string>');
-    expect(plist).not.toContain('bridge-pointer.json');
-    // The environment's own service renews its pointer before it starts.
+  it('a Remote Control service renews its bridge pointer before it starts, and drops one it could not start with', async () => {
+    const { env, dir } = await created();
     const service = await readFile(join(env.home, 'LaunchDaemons', 'com.devhost.rc.business.acme-api.plist'), 'utf8');
-    expect(service).toContain(`/usr/bin/touch ${env.home}/.claude-business/projects/${dir.replace(/[^A-Za-z0-9]/g, '-')}/bridge-pointer.json; exec`);
+    const pointer = `${env.home}/.claude-business/projects/${dir.replace(/[^A-Za-z0-9]/g, '-')}/bridge-pointer.json`;
+    const seen = `${env.home}/.local/share/devhost/rc/com.devhost.rc.business.acme-api.pointer`;
+    expect(service).toContain(`if [ -f ${pointer} ]; then if /usr/bin/cmp -s ${pointer} ${seen}; then`);
   });
 
   it('update --check names a newer Claude Code and the outdated Brewfile packages, and changes nothing', async () => {

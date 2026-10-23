@@ -28,14 +28,15 @@ export function remoteSessionOf(cwd: string): { id: string; key: string; dir: st
 }
 
 /**
- * The claude.ai session of a collector session: from its worktree, or, for a session the service ran
- * in the environment's own folder, the one the collector recorded (then `dir` is that folder).
+ * The Remote Control session process of a collector session: by its worktree, or, for a session the
+ * service runs in the environment's own folder, by the claude.ai session the collector recorded.
+ * Only worktree sessions can be reattached: a folder is served by one `remote-control` at a time.
  */
-export function remoteSessionFrom(cwd: string, recorded: string | null): { id: string; key: string; dir: string } | null {
+export function remoteSessionFrom(cwd: string, recorded: string | null): { id: string; key: string } | null {
   const worktree = remoteSessionOf(cwd);
   if (worktree) return worktree;
   const m = recorded ? /^session_([A-Za-z0-9]+)$/.exec(recorded) : null;
-  return m && cwd ? { id: recorded!, key: `cse_${m[1]}`, dir: cwd } : null;
+  return m ? { id: recorded!, key: `cse_${m[1]}` } : null;
 }
 
 /** Installed reattach jobs (their plists), running or ended. */
@@ -47,14 +48,12 @@ export async function reattachLabels(): Promise<string[]> {
   }
 }
 
-type SessionRow = { session_id: string; account: string; env: string; cwd: string; state: string; remote_session: string | null };
-
-function sessionRow(home: string, id: string): SessionRow {
+function sessionRow(home: string, id: string): { session_id: string; account: string; env: string; cwd: string; state: string } {
   if (!/^[A-Za-z0-9-]{8,}$/.test(id)) throw new UsageError('give a session id (at least its first 8 characters)');
   if (!existsSync(dbPath(home))) throw new UsageError('the collector has no sessions yet');
   const db = new Db(dbPath(home), { readonly: true });
   try {
-    const rows = db.all<SessionRow>('SELECT session_id, account, env, cwd, state, remote_session FROM sessions WHERE session_id LIKE ? LIMIT 2', `${id}%`);
+    const rows = db.all<{ session_id: string; account: string; env: string; cwd: string; state: string }>('SELECT session_id, account, env, cwd, state FROM sessions WHERE session_id LIKE ? LIMIT 2', `${id}%`);
     if (rows.length === 0) throw new UsageError(`no session ${id}`);
     if (rows.length > 1) throw new UsageError(`${id} matches more than one session; give more of the id`);
     return rows[0]!;
@@ -66,7 +65,7 @@ function sessionRow(home: string, id: string): SessionRow {
 /**
  * `devhost session reattach <id>`: bring an ended Remote Control session back, e.g. after a reboot,
  * when the environment's service registered itself anew and the old session is left without a
- * machine. Runs `claude remote-control --session-id session_…` in the session's directory as a
+ * machine. Runs `claude remote-control --session-id session_…` in the session's worktree as a
  * one-shot LaunchDaemon (no GUI login needed; not restarted when the session ends). Reattach jobs
  * that have ended are removed first.
  */
@@ -74,17 +73,17 @@ export function sessionReattachCommand(deps: Deps, g: GlobalOptions, id: string,
   return long(deps, g, async (reporter) => {
     const { config } = await loadConfig(g.configPath);
     const s = sessionRow(deps.home, id);
-    const remote = remoteSessionFrom(s.cwd, s.remote_session);
-    if (!remote) throw new UsageError(`session ${s.session_id.slice(0, 8)} is not a known Remote Control session (${s.cwd || 'no directory'})`, 'Only sessions a Remote Control service started can be reattached; resume others with `claude --resume` in their directory.');
+    const remote = remoteSessionOf(s.cwd);
+    if (!remote) throw new UsageError(`session ${s.session_id.slice(0, 8)} did not run in a Remote Control worktree (${s.cwd || 'no directory'})`, 'Only sessions a Remote Control service started with --spawn worktree can be reattached; resume others with `claude --resume` in their directory.');
     if (s.state !== 'ended') throw new UsageError(`session ${s.session_id.slice(0, 8)} is still ${s.state}`, 'Open it on claude.ai; reattach is for a session whose process is gone.');
     const env = environmentsOf(config).find((e) => e.name === s.env && e.account === s.account);
     const account = findAccount(config, s.account);
     if (!env || !account) throw new UsageError(`environment ${s.account}/${s.env} is not in the config any more`);
-    if (!existsSync(remote.dir)) throw new DevhostError(`the session's directory is gone: ${remote.dir}`, 'worktree-missing', 1);
+    if (!existsSync(remote.dir)) throw new DevhostError(`the session's worktree is gone: ${remote.dir}`, 'worktree-missing', 1);
 
     const exec = newExecutor(deps, g, reporter, dryRun);
     const ctx = newStepContext(deps, g, config, exec);
-    const { label, logPath, removed } = await reattachSession(ctx, reporter, account, env, remote, dryRun);
+    const { label, logPath, removed } = await reattachInWorktree(ctx, reporter, account, env, remote, dryRun);
     const url = `https://claude.ai/code/${remote.id}`;
     const data: SessionReattachData = { session: s.session_id, remoteSession: remote.id, account: s.account, env: s.env, url, label, logPath, ...(removed.length ? { removed } : {}), ...(dryRun ? { dryRun: true } : {}) };
     const plan = dryRun && exec.plan.length > 0 ? ['', 'Dry run plan (nothing was changed):', ...exec.plan.map((p) => `  ${p.sudo ? '[sudo] ' : ''}${p.action}${p.reason ? `  — ${p.reason}` : ''}`)] : [];
@@ -93,11 +92,11 @@ export function sessionReattachCommand(deps: Deps, g: GlobalOptions, id: string,
 }
 
 /**
- * Run `claude remote-control --session-id session_…` in the session's directory (its worktree, or
- * the environment's folder) as a one-shot LaunchDaemon and wait until it connects (or remove it
- * again and throw).
+ * Run `claude remote-control --session-id session_…` in the session's worktree as a one-shot
+ * LaunchDaemon and wait until it connects (or remove it again and throw). Also used by
+ * `devhost update` after the services restarted onto a new Claude Code.
  */
-export async function reattachSession(
+export async function reattachInWorktree(
   ctx: StepContext,
   reporter: Reporter,
   account: Account,
@@ -107,7 +106,7 @@ export async function reattachSession(
 ): Promise<{ label: string; logPath: string; removed: string[] }> {
   const { exec, home } = ctx;
   // The bridge pointer is the environment service's: the reattach job leaves it alone.
-  const { touch: _pointer, ...rc } = await rcSpec(ctx, account, env);
+  const { pointer: _pointer, ...rc } = await rcSpec(ctx, account, env);
   const permissionMode = rc.args[rc.args.indexOf('--permission-mode') + 1]!;
   const spec: DaemonSpec = {
     ...rc,
@@ -122,10 +121,6 @@ export async function reattachSession(
   exec.beginStep(step);
   reporter.step(step, 'start', `reattach ${remote.id} in ${env.name}`);
   if ((await daemonState(exec, spec.label)).running) throw new UsageError(`${remote.id} is attached already (${spec.label} is running)`, 'Open it on claude.ai.');
-  // The environment's service may have taken it back itself (its bridge pointer named it).
-  if (!dryRun && (await exec.query('ps', ['-axo', 'command='])).stdout.split('\n').some((l) => l.includes(`--session-id ${remote.key}`))) {
-    throw new UsageError(`${remote.id} is attached already`, 'Open it on claude.ai.');
-  }
 
   // The log is appended to: only what this run writes counts.
   const logFrom = ((await exec.readText(spec.logPath)) ?? '').length;

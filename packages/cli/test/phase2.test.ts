@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -125,6 +125,31 @@ describe('plist', () => {
     expect(r.status).toBe(0);
     expect(await readFile(log, 'utf8')).toMatch(/^\[devhost\] started \d{4}-\d\d-\d\d \d\d:\d\d:\d\d\nup\n$/);
     expect(() => networkWrapper('x; rm -rf ~')).toThrow();
+  });
+
+  it('a Remote Control service renews its bridge pointer, and drops one it could not start with', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wrap-'));
+    const pointer = join(dir, 'projects', 'p', 'bridge-pointer.json');
+    const seen = join(dir, 'state', 'rc', 'svc.pointer');
+    await mkdir(join(dir, 'projects', 'p'), { recursive: true });
+    const old = new Date(Date.now() - 8 * 3_600_000);
+    const start = (program: string[]) => {
+      const args = loggedArgs({ args: program, logPath: join(dir, 'svc.log'), pointer: { path: pointer, seen } });
+      return spawnSync(args[0]!, args.slice(1)).status;
+    };
+    await writeFile(pointer, '{"pid":1}');
+    await utimes(pointer, old, old);
+    // Renewed (Claude Code would drop it at 4 hours); the program rewrites it once it runs.
+    expect(start(['/bin/sh', '-c', `echo '{"pid":2}' > ${pointer}`])).toBe(0);
+    expect((await stat(pointer)).mtimeMs).toBeGreaterThan(Date.now() - 60_000);
+    expect(await readFile(seen, 'utf8')).toBe('{"pid":1}');
+    // Rewritten since: renewed again. This time the program exits without rewriting it.
+    expect(start(['/usr/bin/true'])).toBe(0);
+    expect(await readFile(pointer, 'utf8')).toBe('{"pid":2}\n');
+    // Still what it was at the last start: the program could not start with it, so it goes.
+    expect(start(['/usr/bin/true'])).toBe(0);
+    await expect(stat(pointer)).rejects.toThrow();
+    await expect(stat(seen)).rejects.toThrow();
   });
 
   describe.runIf(process.platform === 'darwin')('root helper (templates/devhost-root.js)', () => {

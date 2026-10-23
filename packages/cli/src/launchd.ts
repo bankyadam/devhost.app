@@ -1,5 +1,5 @@
 import { CommandError } from './errors.js';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { devhostConfigDir } from './config/paths.js';
 import { logsDir } from './config/accounts.js';
 import { renderTemplate } from './render.js';
@@ -27,11 +27,13 @@ export interface DaemonSpec {
    */
   gate?: string[];
   /**
-   * A file whose modification time is renewed just before the program starts, when it exists:
-   * Remote Control's bridge pointer, which Claude Code drops when it is older than 4 hours, so a
-   * service down longer than that (a night off) would register a new environment and session.
+   * Remote Control's bridge pointer (`path`), which Claude Code drops when it is older than 4 hours:
+   * a service down longer than that (a night off) would register a new environment and session.
+   * Its modification time is renewed just before the program starts, and a copy kept at `seen`. A
+   * pointer still equal to that copy at the next start was not rewritten, so the program could not
+   * start with it: it is removed, and the program registers anew.
    */
-  touch?: string;
+  pointer?: { path: string; seen: string };
 }
 
 /** Overridable so tests never touch the real /Library/LaunchDaemons. */
@@ -53,26 +55,30 @@ export const START_MARKER = '[devhost] started';
 const HOST = /^[A-Za-z0-9.-]+$/;
 const shq = (a: string): string => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
 
-/** Shell that renews `file`'s modification time when it exists (DaemonSpec.touch). */
-const touchCmd = (file?: string): string => (file ? `[ -f ${shq(file)} ] && /usr/bin/touch ${shq(file)}; ` : '');
+/** Shell that renews the bridge pointer, or drops one the program could not start with (DaemonSpec.pointer). */
+const pointerCmd = (p?: DaemonSpec['pointer']): string => {
+  if (!p) return '';
+  const [path, seen] = [shq(p.path), shq(p.seen)];
+  return `if [ -f ${path} ]; then if /usr/bin/cmp -s ${path} ${seen}; then /bin/rm -f ${path} ${seen}; else /bin/mkdir -p ${shq(dirname(p.seen))} && /bin/cp ${path} ${seen} && /usr/bin/touch ${path}; fi; fi; `;
+};
 
-export const networkWrapper = (host: string, gate?: string[], touch?: string): string => {
+export const networkWrapper = (host: string, gate?: string[], pointer?: DaemonSpec['pointer']): string => {
   if (!HOST.test(host)) throw new Error(`not a host name: ${host}`);
-  const before = (gate?.length ? `${gate.map(shq).join(' ')} || exit 75; ` : '') + touchCmd(touch);
+  const before = (gate?.length ? `${gate.map(shq).join(' ')} || exit 75; ` : '') + pointerCmd(pointer);
   return `exec >>"$0" 2>&1 && echo "${START_MARKER} $(date '+%Y-%m-%d %H:%M:%S')" && i=0 && until /usr/bin/dscacheutil -q host -a name ${host} | /usr/bin/grep -q address || [ $i -ge 90 ]; do i=$((i+1)); sleep 2; done; ${before}exec "$@"`;
 };
 /** The log wrapper with a gate and no network wait (Colima waiting for the work volume). */
-export const gateWrapper = (gate: string[], touch?: string): string => `exec >>"$0" 2>&1 && ${gate.map(shq).join(' ')} || exit 75; ${touchCmd(touch)}exec "$@"`;
+export const gateWrapper = (gate: string[], pointer?: DaemonSpec['pointer']): string => `exec >>"$0" 2>&1 && ${gate.map(shq).join(' ')} || exit 75; ${pointerCmd(pointer)}exec "$@"`;
 
-export const loggedArgs = (spec: Pick<DaemonSpec, 'args' | 'logPath' | 'waitForHost' | 'gate' | 'touch'>): string[] => [
+export const loggedArgs = (spec: Pick<DaemonSpec, 'args' | 'logPath' | 'waitForHost' | 'gate' | 'pointer'>): string[] => [
   '/bin/sh',
   '-c',
   spec.waitForHost
-    ? networkWrapper(spec.waitForHost, spec.gate, spec.touch)
+    ? networkWrapper(spec.waitForHost, spec.gate, spec.pointer)
     : spec.gate?.length
-      ? gateWrapper(spec.gate, spec.touch)
-      : spec.touch
-        ? `exec >>"$0" 2>&1 && ${touchCmd(spec.touch)}exec "$@"`
+      ? gateWrapper(spec.gate, spec.pointer)
+      : spec.pointer
+        ? `exec >>"$0" 2>&1 && ${pointerCmd(spec.pointer)}exec "$@"`
         : LOG_WRAPPER,
   spec.logPath,
   ...spec.args,

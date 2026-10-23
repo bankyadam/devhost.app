@@ -62,7 +62,7 @@ export async function rcSpec(ctx: StepContext, a: Account, e: Environment): Prom
     throttle: 30,
     waitForHost: CLAUDE_API_HOST,
     // After a long stop (a night off) the service reattaches to its environment and session.
-    ...(pointer ? { touch: pointer } : {}),
+    ...(pointer ? { pointer: { path: pointer, seen: join(ctx.home, '.local', 'share', 'devhost', 'rc', `${rcLabel(a.name, e.name)}.pointer`) } } : {}),
     // Only environments on the work volume wait for it; every other plist stays as it was (spec A7).
     ...(onVolume(workVolumeOf(ctx.config), info.dir) ? { gate: storageGate(ctx) } : {}),
   };
