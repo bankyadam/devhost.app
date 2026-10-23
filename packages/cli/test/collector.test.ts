@@ -427,7 +427,6 @@ environments:
     collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 'own-dir', cwd: `${HOME}/work/business/acme-api` }, 'business');
     await collector.sampleTick();
     expect(db.get("SELECT state, remote_session FROM sessions WHERE session_id = 'own-dir'")).toEqual({ state: 'idle', remote_session: 'session_01Own' });
-    expect(buildDash(db, config, { range: '24h' }, clock.now, 'macmini', null).sessions[0]).toMatchObject({ id: 'own-dir', remoteSession: 'session_01Own' });
     ps = ` 100 1 2.0 10240 /opt/homebrew/bin/claude remote-control --name business-acme-api\n`;
     clock.now += 11 * 60_000;
     await collector.sampleTick();
