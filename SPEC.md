@@ -240,6 +240,8 @@ For each entry in `environments` (also triggered by `devhost env create`):
    - Logs: `~/Library/Logs/devhost/rc-<account>-<name>.log` (rotated, A10.3).
 6. **Trust:** Remote Control without a TTY exits with "Workspace not trusted" in an untrusted dir. If the environment dir is not trusted, `env create` runs the interactive trust step (A7.10) before starting the service, answering Claude Code's questions on a real pty and checking the trust was recorded; with `--json` it emits a `prompt` event (A9) instead.
 
+A failed `docker compose up` does not stop the setup: the Remote Control service is still installed and started, and the failure is reported at the end (its hint says a session in the environment can fix the compose project). Otherwise a broken compose project could only be fixed outside devhost.
+
 `env create` again for an environment that is in the config continues (or repeats) its setup with the config's settings, e.g. after a failed `docker compose up`.
 
 `docker compose up` and the Keychain: Docker Desktop sets `credsStore: desktop` in `~/.docker/config.json` on every start, and that helper reads the login Keychain, which a session without a GUI login (ssh, as the app runs devhost; LaunchDaemons) cannot use: every pull fails ("error getting credentials … keychain cannot be accessed"), public images included. On that error devhost runs `up` once more with `DOCKER_CONFIG=~/.local/share/devhost/docker`: the user's config without the Keychain helpers (`desktop`, `osxkeychain`), the rest of `~/.docker` linked in (contexts, CLI plugins). Public images then pull; registries logged in to through the Keychain do not. The user's own config is never changed.
