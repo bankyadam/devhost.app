@@ -3,7 +3,7 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DevhostConfig, LoginData } from '@devhost/contract';
 import { runSteps } from './apply.js';
-import { accountEnv, accountsOf, claudeConfigDir, effectiveClaudeDir, environmentsOf, rcLabel, type Account } from './config/accounts.js';
+import { accountEnv, accountsOf, claudeConfigDir, effectiveClaudeDir, environmentsOf, projectKey, rcLabel, type Account } from './config/accounts.js';
 import { editConfigFile } from './config/edit.js';
 import { credentialsFile, serviceLogin, syncCredentialsFromKeychain } from './credentials.js';
 import type { Deps } from './deps.js';
@@ -258,9 +258,6 @@ async function pinLogin(ctx: LoginContext, email: string): Promise<void> {
   if (i < 0) return;
   await editConfigFile(ctx.stepContext().configPath, ctx.deps.now(), (doc) => doc.setIn(['accounts', i, 'claudeLogin'], email));
 }
-
-/** Claude Code's project directory name for a path. */
-const projectKey = (dir: string): string => dir.replace(/[^A-Za-z0-9]/g, '-');
 
 /**
  * Forget the account's Remote Control registrations: the bridge pointers of its environments (and

@@ -332,7 +332,7 @@ describe('dashboard (spec B3.1, B6)', () => {
     const wt = join(h.env.home, 'work', 'business', 'acme-api', '.claude', 'worktrees', 'bridge-cse_01Abc');
     const now = h.env.deps.now().getTime();
     const db = new Db(dbPath(h.env.home));
-    db.run("INSERT INTO sessions VALUES ('sess-ended-3', 'business', 'acme-api', ?, 'ended', ?, ?, ?)", wt, now - 60_000, now - 30_000, now - 1000);
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at) VALUES ('sess-ended-3', 'business', 'acme-api', ?, 'ended', ?, ?, ?)", wt, now - 60_000, now - 30_000, now - 1000);
     db.close();
     const row = (await screen.findByText('sess-end', undefined, { timeout: 8000 })).closest('tr')!;
     await h.user.click(within(row).getByRole('button', { name: /Open/ }));

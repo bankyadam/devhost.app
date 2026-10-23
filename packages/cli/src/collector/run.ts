@@ -4,7 +4,7 @@ import type { Server } from 'node:http';
 import type { DashData, DevhostConfig, UpdateData } from '@devhost/contract';
 import { inWindow } from '../update.js';
 import { accountsOf, effectiveClaudeDir, environmentsOf, logsDir, rcLabel, composeProject, type Account } from '../config/accounts.js';
-import { remoteSessionOf } from '../reattach.js';
+import { remoteSessionFrom } from '../reattach.js';
 import { tailscaleStatus, toSample } from '../tailscale-status.js';
 import type { Deps } from '../deps.js';
 import { daemonState } from '../launchd.js';
@@ -94,6 +94,8 @@ export class Collector {
   private prevCpu: { idle: number; total: number } | null = null;
   private docker = new Map<string, { cpu: number; memBytes: number }>();
   private lastPid = new Map<string, number>();
+  /** Remote Control session processes whose claude.ai session is recorded already. */
+  private bridged = new Set<number>();
   private servicePids = new Map<string, { pid: number | null; at: number }>();
   private lastVolumeAt = 0;
   private range: { at: number; parts: RangeParts } | null = null;
@@ -312,22 +314,27 @@ export class Collector {
    * worktree (`bridge-cse_<id>`) is the service's child started with `--session-id cse_<id>`; its
    * subtree's CPU and memory are sampled. Gone and quiet for SESSION_GONE_MS: ended (its process
    * went down with a service restart, or was stopped). Other sessions cannot be told apart by
-   * process: they end with their SessionEnd hook, or after SESSION_STALE_MS without hooks.
+   * process: they end with their SessionEnd hook, or after SESSION_STALE_MS without hooks. A
+   * session the service runs in the environment's own folder is told by its claude.ai session,
+   * which Claude Code keeps in `<config dir>/sessions/<pid>.json` while it runs (recordBridged).
    */
   private async sampleSessions(procs: Proc[], now: number): Promise<void> {
     if (procs.length === 0) return; // no ps output: nothing is known
-    const open = this.db.all<{ session_id: string; cwd: string; last_activity_at: number }>("SELECT session_id, cwd, last_activity_at FROM sessions WHERE state <> 'ended'");
     const byKey = new Map<string, Proc>();
     for (const p of procs) {
       const key = /--session-id (cse_[A-Za-z0-9]+)/.exec(p.command)?.[1];
       if (key && !/remote-control/.test(p.command)) byKey.set(key, p);
     }
+    await this.recordBridged([...byKey.values()]);
+    const open = this.db.all<{ session_id: string; cwd: string; last_activity_at: number; remote_session: string | null }>(
+      "SELECT session_id, cwd, last_activity_at, remote_session FROM sessions WHERE state <> 'ended'",
+    );
     const end = (id: string): void => {
       this.db.run("UPDATE sessions SET state = 'ended', ended_at = ? WHERE session_id = ?", now, id);
       this.db.run('UPDATE agents SET ended_at = ? WHERE session_id = ? AND ended_at IS NULL', now, id);
     };
     for (const s of open) {
-      const remote = remoteSessionOf(s.cwd);
+      const remote = remoteSessionFrom(s.cwd, s.remote_session);
       if (!remote) {
         if (now - s.last_activity_at > SESSION_STALE_MS) end(s.session_id);
         continue;
@@ -339,6 +346,31 @@ export class Collector {
       }
       const sum = sumProcs(subtree(procs, proc.pid));
       this.db.run('INSERT INTO samples_session (ts, session_id, cpu_pct, rss_bytes) VALUES (?, ?, ?, ?)', now, s.session_id, sum.cpu, sum.rssBytes);
+    }
+  }
+
+  /** Records the claude.ai session of each Remote Control session process, once per process. */
+  private async recordBridged(procs: Proc[]): Promise<void> {
+    const live = new Set(procs.map((p) => p.pid));
+    for (const pid of this.bridged) if (!live.has(pid)) this.bridged.delete(pid);
+    const dirs = [...new Set(accountsOf(this.config).map((a) => effectiveClaudeDir(a, this.opts.deps.home)))];
+    for (const p of procs) {
+      if (this.bridged.has(p.pid)) continue;
+      for (const dir of dirs) {
+        const text = await this.exec.readText(`${dir}/sessions/${p.pid}.json`);
+        if (text === null) continue;
+        try {
+          const { sessionId, bridgeSessionId } = JSON.parse(text) as { sessionId?: unknown; bridgeSessionId?: unknown };
+          if (typeof sessionId !== 'string' || typeof bridgeSessionId !== 'string' || !/^session_[A-Za-z0-9]+$/.test(bridgeSessionId)) break;
+          // The session row comes with its first hook or OTel event: until then, try again.
+          if (!this.db.get('SELECT 1 FROM sessions WHERE session_id = ?', sessionId)) break;
+          this.db.run('UPDATE sessions SET remote_session = ? WHERE session_id = ?', bridgeSessionId, sessionId);
+          this.bridged.add(p.pid);
+        } catch {
+          /* written while we read: next tick */
+        }
+        break;
+      }
     }
   }
 

@@ -255,7 +255,7 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
   const session = program.command('session').description('Claude Code sessions on this host');
   session
     .command('reattach <id>')
-    .description('Bring an ended Remote Control session back (e.g. after a reboot): runs it again in its worktree, once')
+    .description('Bring an ended Remote Control session back (e.g. after a reboot): runs it again in its worktree or environment folder, once')
     .option('--dry-run', 'only print the plan')
     .action((id: string, o: { dryRun?: boolean }) => run(() => sessionReattachCommand(deps, globals(), id, o.dryRun === true))());
 

@@ -28,6 +28,19 @@ export function accountEnv(a: Account, home: string): Record<string, string> {
   return dir ? { CLAUDE_CONFIG_DIR: dir } : {};
 }
 
+/** Claude Code's project directory name for a path (paths longer than 200 characters get a hash: not handled). */
+export const projectKey = (dir: string): string => dir.replace(/[^A-Za-z0-9]/g, '-');
+
+/**
+ * Where a Remote Control service started in `dir` remembers its environment and session between
+ * runs. Claude Code reuses it only while it is younger than 4 hours; null for a path whose project
+ * name Claude Code would hash.
+ */
+export function bridgePointerPath(a: Account, dir: string, home: string): string | null {
+  const key = projectKey(dir);
+  return key.length > 200 ? null : join(effectiveClaudeDir(a, home), 'projects', key, 'bridge-pointer.json');
+}
+
 export function envDir(a: Account, e: Environment, home: string): string {
   return join(accountRoot(a, home), e.name);
 }
