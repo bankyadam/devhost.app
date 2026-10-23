@@ -242,6 +242,8 @@ For each entry in `environments` (also triggered by `devhost env create`):
 
 `env create` again for an environment that is in the config continues (or repeats) its setup with the config's settings, e.g. after a failed `docker compose up`.
 
+`docker compose up` and the Keychain: Docker Desktop sets `credsStore: desktop` in `~/.docker/config.json` on every start, and that helper reads the login Keychain, which a session without a GUI login (ssh, as the app runs devhost; LaunchDaemons) cannot use: every pull fails ("error getting credentials … keychain cannot be accessed"), public images included. On that error devhost runs `up` once more with `DOCKER_CONFIG=~/.local/share/devhost/docker`: the user's config without the Keychain helpers (`desktop`, `osxkeychain`), the rest of `~/.docker` linked in (contexts, CLI plugins). Public images then pull; registries logged in to through the Keychain do not. The user's own config is never changed.
+
 `devhost env delete <name>`: stops and removes the service, `docker compose down`, removes the config entry. Deletes the directory only with `--delete-files`, after showing unpushed commits/branches and requiring a typed confirmation of the name.
 
 `env create` refuses to run if the target account does not exist.

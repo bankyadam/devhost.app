@@ -17,6 +17,7 @@ import { applyDaemon, checkDaemon, daemonInstalled, removeDaemon, serviceEnv, ty
 import { toolPath } from '../state.js';
 import { onVolume, workVolumeOf } from '../storage/volume.js';
 import { DevhostError } from '../errors.js';
+import { isKeychainError, keychainFreeDockerConfig } from '../docker-creds.js';
 import { ok, todo, type EnvInfo, type Step, type StepContext } from './types.js';
 
 export const COMPOSE_FILES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
@@ -195,7 +196,17 @@ export function envStep(a: Account, e: Environment): Step {
       await exec.exec('direnv', ['allow', dir]);
 
       if (e.compose !== 'off' && (await composeFile(ctx, dir))) {
-        const up = await exec.exec('docker', ['compose', '-p', composeProject(e.name), 'up', '-d'], { cwd: dir, reason: 'start the environment\'s compose services', allowFailure: true, progress: true });
+        const composeUp = (env?: Record<string, string>) =>
+          exec.exec('docker', ['compose', '-p', composeProject(e.name), 'up', '-d'], { cwd: dir, reason: 'start the environment\'s compose services', allowFailure: true, progress: true, ...(env ? { env } : {}) });
+        let up = await composeUp();
+        if (up.code !== 0 && isKeychainError(up.stderr)) {
+          // Docker Desktop's credential helper needs the Keychain, which this session (ssh, no GUI login) cannot use.
+          const config = await keychainFreeDockerConfig(exec, ctx.home);
+          if (config) {
+            exec.warn('Docker\'s credential helper needs the macOS Keychain, which is locked to this session: pulling without it (public images only).');
+            up = await composeUp({ DOCKER_CONFIG: config });
+          }
+        }
         if (up.code !== 0) throw composeError(a, e, up.code, up.stderr);
       }
 

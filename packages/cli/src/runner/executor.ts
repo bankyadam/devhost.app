@@ -1,5 +1,5 @@
 import type { ApplyData } from '@devhost/contract';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, readlink, rm, symlink } from 'node:fs/promises';
 import { CommandError, HumanActionRequired } from '../errors.js';
 import { backupFile, readTextIfExists, writeTextWithBackup } from '../fsutil.js';
 import type { Reporter } from '../reporter.js';
@@ -173,6 +173,16 @@ export class Executor {
     if (this.opts.dryRun) return;
     assertWritable(path);
     await mkdir(path, { recursive: true, mode: opts.mode });
+  }
+
+  /** Make `path` a symbolic link to `target` (replacing a link or file that is there). */
+  async symlink(target: string, path: string): Promise<void> {
+    if ((await readlink(path).catch(() => null)) === target) return;
+    this.plan.push({ stepId: this.stepId, action: `ln -sf ${target} ${path}`, sudo: false });
+    if (this.opts.dryRun) return;
+    assertWritable(path);
+    await rm(path, { force: true });
+    await symlink(target, path);
   }
 
   /** Remove a file or directory tree. The caller is responsible for having confirmed it. */

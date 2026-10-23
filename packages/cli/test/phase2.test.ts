@@ -7,6 +7,7 @@ import type { ApplyData } from '@devhost/contract';
 import { managedSettings, mergeSettings, parseSettings, removeManaged } from '../src/claude-settings.js';
 import { loggedArgs, networkWrapper, renderPlist } from '../src/launchd.js';
 import { rcLogCheck } from '../src/doctor/checks.js';
+import { isKeychainError, withoutKeychain } from '../src/docker-creds.js';
 import { withoutClaudeSession } from '../src/runner/real.js';
 import { templatesDir } from '../src/paths.js';
 import { gitconfigBlockBody } from '../src/steps/git.js';
@@ -177,6 +178,23 @@ describe('plist', () => {
       expect((await check(good.replace('/Users/adam/work/a/b', '/etc'))).error).toContain('WorkingDirectory must be inside /Users/adam');
       expect((await check('not a plist')).ok).toBe(false);
     });
+  });
+});
+
+describe('docker credentials without the Keychain', () => {
+  it('leaves out only the Keychain helpers', () => {
+    expect(JSON.parse(withoutKeychain(JSON.stringify({ auths: { 'r.io': { auth: 'x' } }, credsStore: 'desktop', credHelpers: { 'a.io': 'osxkeychain', 'ecr.io': 'ecr-login' }, currentContext: 'desktop-linux' }))!)).toEqual({
+      auths: { 'r.io': { auth: 'x' } },
+      credHelpers: { 'ecr.io': 'ecr-login' },
+      currentContext: 'desktop-linux',
+    });
+    expect(withoutKeychain(JSON.stringify({ auths: {}, credsStore: 'pass' }))).toBeNull();
+    expect(withoutKeychain('not json')).toBeNull();
+  });
+
+  it('knows the Keychain error', () => {
+    expect(isKeychainError('error getting credentials - err: exit status 1, out: `keychain cannot be accessed because the current session does not allow user interaction.`')).toBe(true);
+    expect(isKeychainError('pull access denied for minio/mc')).toBe(false);
   });
 });
 
