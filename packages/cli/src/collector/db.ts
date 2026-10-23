@@ -91,6 +91,11 @@ const MIGRATIONS: string[] = [
   CREATE TABLE samples_collector (ts INTEGER NOT NULL, cpu_pct REAL NOT NULL, rss_bytes INTEGER NOT NULL, children INTEGER NOT NULL, overlaps INTEGER NOT NULL, skipped INTEGER NOT NULL);
   CREATE INDEX samples_collector_ts ON samples_collector (ts);
   `,
+  // The claude.ai session of a Remote Control session that runs in the environment's own folder
+  // (worktree sessions carry it in their cwd), so it can be reattached and its end noticed.
+  `
+  ALTER TABLE sessions ADD COLUMN remote_session TEXT;
+  `,
 ];
 
 export class Db {

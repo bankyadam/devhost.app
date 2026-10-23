@@ -3,6 +3,7 @@ import type { DevhostConfig } from '@devhost/contract';
 import {
   accountEnv,
   accountsOf,
+  bridgePointerPath,
   composeProject,
   effectiveClaudeDir,
   envDir,
@@ -47,6 +48,7 @@ export const CLAUDE_API_HOST = 'api.anthropic.com';
 export async function rcSpec(ctx: StepContext, a: Account, e: Environment): Promise<DaemonSpec> {
   const info = envInfoOf(a, e, ctx.home);
   const claude = await toolPath(ctx.exec, ctx.home, 'claudePath', 'claude', `${ctx.brewPrefix}/bin/claude`);
+  const pointer = bridgePointerPath(a, info.dir, ctx.home);
   return {
     label: rcLabel(a.name, e.name),
     args: [claude, 'remote-control', '--name', `${a.name}-${e.name}`, '--spawn', info.spawn, '--permission-mode', info.permissionMode],
@@ -59,6 +61,8 @@ export async function rcSpec(ctx: StepContext, a: Account, e: Environment): Prom
     logPath: rcLogPath(ctx.home, a.name, e.name),
     throttle: 30,
     waitForHost: CLAUDE_API_HOST,
+    // After a long stop (a night off) the service reattaches to its environment and session.
+    ...(pointer ? { touch: pointer } : {}),
     // Only environments on the work volume wait for it; every other plist stays as it was (spec A7).
     ...(onVolume(workVolumeOf(ctx.config), info.dir) ? { gate: storageGate(ctx) } : {}),
   };

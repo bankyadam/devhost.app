@@ -26,6 +26,12 @@ export interface DaemonSpec {
    * volume's `devhost storage wait`); when it fails the job exits and launchd retries it.
    */
   gate?: string[];
+  /**
+   * A file whose modification time is renewed just before the program starts, when it exists:
+   * Remote Control's bridge pointer, which Claude Code drops when it is older than 4 hours, so a
+   * service down longer than that (a night off) would register a new environment and session.
+   */
+  touch?: string;
 }
 
 /** Overridable so tests never touch the real /Library/LaunchDaemons. */
@@ -47,18 +53,27 @@ export const START_MARKER = '[devhost] started';
 const HOST = /^[A-Za-z0-9.-]+$/;
 const shq = (a: string): string => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
 
-export const networkWrapper = (host: string, gate?: string[]): string => {
+/** Shell that renews `file`'s modification time when it exists (DaemonSpec.touch). */
+const touchCmd = (file?: string): string => (file ? `[ -f ${shq(file)} ] && /usr/bin/touch ${shq(file)}; ` : '');
+
+export const networkWrapper = (host: string, gate?: string[], touch?: string): string => {
   if (!HOST.test(host)) throw new Error(`not a host name: ${host}`);
-  const before = gate?.length ? `${gate.map(shq).join(' ')} || exit 75; ` : '';
+  const before = (gate?.length ? `${gate.map(shq).join(' ')} || exit 75; ` : '') + touchCmd(touch);
   return `exec >>"$0" 2>&1 && echo "${START_MARKER} $(date '+%Y-%m-%d %H:%M:%S')" && i=0 && until /usr/bin/dscacheutil -q host -a name ${host} | /usr/bin/grep -q address || [ $i -ge 90 ]; do i=$((i+1)); sleep 2; done; ${before}exec "$@"`;
 };
 /** The log wrapper with a gate and no network wait (Colima waiting for the work volume). */
-export const gateWrapper = (gate: string[]): string => `exec >>"$0" 2>&1 && ${gate.map(shq).join(' ')} || exit 75; exec "$@"`;
+export const gateWrapper = (gate: string[], touch?: string): string => `exec >>"$0" 2>&1 && ${gate.map(shq).join(' ')} || exit 75; ${touchCmd(touch)}exec "$@"`;
 
-export const loggedArgs = (spec: Pick<DaemonSpec, 'args' | 'logPath' | 'waitForHost' | 'gate'>): string[] => [
+export const loggedArgs = (spec: Pick<DaemonSpec, 'args' | 'logPath' | 'waitForHost' | 'gate' | 'touch'>): string[] => [
   '/bin/sh',
   '-c',
-  spec.waitForHost ? networkWrapper(spec.waitForHost, spec.gate) : spec.gate?.length ? gateWrapper(spec.gate) : LOG_WRAPPER,
+  spec.waitForHost
+    ? networkWrapper(spec.waitForHost, spec.gate, spec.touch)
+    : spec.gate?.length
+      ? gateWrapper(spec.gate, spec.touch)
+      : spec.touch
+        ? `exec >>"$0" 2>&1 && ${touchCmd(spec.touch)}exec "$@"`
+        : LOG_WRAPPER,
   spec.logPath,
   ...spec.args,
 ];
