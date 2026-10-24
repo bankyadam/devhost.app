@@ -570,6 +570,34 @@ describe('environments', () => {
     expect((await cfg(env)).match(/^\s+- name: acme-api$/gm)).toHaveLength(1);
   });
 
+  it('agents: apply writes the configured agent files per account and environment, leaves the user\'s own, removes dropped ones', async () => {
+    const { env, dir } = await created();
+    const path = join(env.home, '.config', 'devhost', 'config.yaml');
+    const base = await readFile(path, 'utf8');
+    const acct = join(env.home, '.claude-business', 'agents');
+    const envAgents = join(dir, '.claude', 'agents');
+    await mkdir(acct, { recursive: true });
+    await writeFile(join(acct, 'explorer.md'), 'my own explorer\n');
+    await writeFile(path, `${base}\nagents:\n  custom:\n    - { name: sql-helper, description: Writes SQL, prompt: Write SQL. }\n`.replace(/\n(accounts:)/, '\n$1'));
+    // agents: on the account and the environment (edited in place)
+    let text = (await readFile(path, 'utf8')).replace(/(- name: business\n)/, '$1    agents: [explorer, reviewer]\n').replace(/(- name: acme-api\n)/, '$1    agents: [test-runner, sql-helper]\n');
+    await writeFile(path, text);
+    expect(await env.run('apply', '--only', 'agents')).toBe(0);
+    expect(await readFile(join(acct, 'explorer.md'), 'utf8')).toBe('my own explorer\n'); // not devhost's: untouched
+    expect(await readFile(join(acct, 'reviewer.md'), 'utf8')).toContain('managed by devhost');
+    expect(await readFile(join(envAgents, 'sql-helper.md'), 'utf8')).toContain('description: "Writes SQL"');
+    expect(await readFile(join(envAgents, 'test-runner.md'), 'utf8')).toContain('model: haiku');
+    // Dropping an agent removes only its managed file; a second apply changes nothing.
+    text = text.replace('[test-runner, sql-helper]', '[sql-helper]');
+    await writeFile(path, text);
+    expect(await env.run('apply', '--only', 'agents')).toBe(0);
+    await expect(stat(join(envAgents, 'test-runner.md'))).rejects.toThrow();
+    expect(await readFile(join(envAgents, 'sql-helper.md'), 'utf8')).toContain('Write SQL.');
+    // An unknown name is a config error.
+    await writeFile(path, text.replace('[sql-helper]', '[nope]'));
+    expect(await env.run('apply', '--only', 'agents')).not.toBe(0);
+  });
+
   it('a compose project that does not come up still gets its Remote Control service, so a session can fix it', async () => {
     const { env, mac, dir } = await created();
     const label = 'com.devhost.rc.business.acme-api';

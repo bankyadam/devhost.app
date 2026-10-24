@@ -197,6 +197,15 @@ export const schemas = {
               ],
               "default": null,
               "description": "The claude.ai login (email) this account signs in with; recorded at its first `devhost login`. A login as anyone else is refused (signed out again) unless `devhost login <account> --switch-login`."
+            },
+            "agents": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,47}$"
+              },
+              "uniqueItems": true,
+              "description": "Agents (subagent definitions) written for the Claude Code sessions here: names from the built-in catalog or from `agents.custom`."
             }
           }
         }
@@ -267,6 +276,15 @@ export const schemas = {
                 "off"
               ],
               "default": "auto"
+            },
+            "agents": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,47}$"
+              },
+              "uniqueItems": true,
+              "description": "Agents (subagent definitions) written for the Claude Code sessions here: names from the built-in catalog or from `agents.custom`."
             }
           }
         }
@@ -531,6 +549,55 @@ export const schemas = {
               "type": "object",
               "additionalProperties": true,
               "description": "Passed to the plugin as ctx.options."
+            }
+          }
+        }
+      },
+      "agents": {
+        "type": "object",
+        "additionalProperties": false,
+        "default": {},
+        "properties": {
+          "delegation": {
+            "type": "boolean",
+            "default": false,
+            "description": "Add a short rule to the generated CLAUDE.md that tells Claude when to hand work to subagents."
+          },
+          "custom": {
+            "type": "array",
+            "default": [],
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "description",
+                "prompt"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,47}$"
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "When Claude should use the agent."
+                },
+                "prompt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "model": {
+                  "type": "string"
+                },
+                "tools": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           }
         }
