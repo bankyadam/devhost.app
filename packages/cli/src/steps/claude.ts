@@ -69,7 +69,7 @@ async function wantedSettings(ctx: StepContext, a: Account): Promise<string> {
 
 async function wantedClaudeMd(ctx: StepContext, a: Account): Promise<string> {
   const file = claudeMdPathOf(a, ctx.home);
-  const body = (await renderTemplate('CLAUDE.md', {})).trimEnd().split('\n');
+  const body = (await renderTemplate('CLAUDE.md', { delegation: ctx.config.agents?.delegation === true })).trimEnd().split('\n');
   return markdownBlock.upsert((await ctx.exec.readText(file)) ?? '', body, file);
 }
 

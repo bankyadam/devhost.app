@@ -598,6 +598,21 @@ describe('environments', () => {
     expect(await env.run('apply', '--only', 'agents')).not.toBe(0);
   });
 
+  it('agents.delegation adds the subagent rule to the account CLAUDE.md, and removes it again', async () => {
+    const { env } = await created();
+    const path = join(env.home, '.config', 'devhost', 'config.yaml');
+    const claudeMd = join(env.home, '.claude-business', 'CLAUDE.md');
+    expect(await readFile(claudeMd, 'utf8')).not.toContain('## Subagents');
+    const base = await readFile(path, 'utf8');
+    await writeFile(path, `${base}\nagents: { delegation: true }\n`);
+    expect(await env.run('apply', '--only', 'accounts.claude')).toBe(0);
+    expect(await readFile(claudeMd, 'utf8')).toContain('## Subagents');
+    expect(await readFile(claudeMd, 'utf8')).toContain('Start independent subtasks in parallel');
+    await writeFile(path, base);
+    expect(await env.run('apply', '--only', 'accounts.claude')).toBe(0);
+    expect(await readFile(claudeMd, 'utf8')).not.toContain('## Subagents');
+  });
+
   it('a compose project that does not come up still gets its Remote Control service, so a session can fix it', async () => {
     const { env, mac, dir } = await created();
     const label = 'com.devhost.rc.business.acme-api';

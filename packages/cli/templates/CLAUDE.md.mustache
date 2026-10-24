@@ -6,3 +6,11 @@
 - Dev servers: bind to 0.0.0.0 and use a free port between $DEVHOST_PORT_BASE and
   $DEVHOST_PORT_BASE+99 (parallel worktrees run side by side).
   Report the URL as http://<hostname>:<port>.
+{{#delegation}}
+
+## Subagents
+- Hand broad searches (many files or directories) to an `explorer` subagent, test, lint and build runs to `test-runner`,
+  and a review of the finished change to `reviewer`, when those agents exist here.
+- Start independent subtasks in parallel, in one message.
+- Do small, targeted reads and edits yourself: a subagent starts without your context.
+{{/delegation}}

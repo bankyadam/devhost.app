@@ -45,6 +45,18 @@ packages:
 
 runtimes: { node: lts, python: "3.12", ruby: "3.3", php: "8.3" }   # via mise (installed with its own installer)
 
+# Subagent definitions for Claude Code sessions (`devhost apply` writes them as agent files).
+# Built-in: explorer, reviewer, test-runner, docs. List the ones an account or environment should have
+# with `agents: [explorer, reviewer]`; define your own here.
+#agents:
+#  delegation: false                  # true: CLAUDE.md tells Claude when to hand work to subagents
+#  custom:
+#    - name: sql-helper
+#      description: Use for writing and checking SQL migrations.
+#      prompt: You write SQL migrations for this project ...
+#      model: sonnet                  # optional
+#      tools: [Read, Grep, Bash]      # optional
+
 docker: { runtime: {{dockerRuntime}}, cpu: 6, memoryGiB: 16, diskGiB: 200 }   # colima | orbstack | none
 
 network: { tailscale: {{tailscale}}, ssh: true }
