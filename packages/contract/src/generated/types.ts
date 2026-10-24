@@ -5,6 +5,7 @@ export type { Event } from './events.js';
 export type { PromptAnswer } from './prompt-answer.js';
 export type { AccountChangeData } from './result.account-change.js';
 export type { AccountListData } from './result.account-list.js';
+export type { AgentsListData } from './result.agents-list.js';
 export type { ApplyData } from './result.apply.js';
 export type { ConfigGetData } from './result.config-get.js';
 export type { ConfigRawData } from './result.config-raw.js';

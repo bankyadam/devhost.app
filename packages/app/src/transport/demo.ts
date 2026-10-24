@@ -21,6 +21,28 @@ export function createDemoTransport(host: string): Transport {
     if (a === 'dash') return envelope(demoDash(Date.now(), args[args.indexOf('--range') + 1] as DashData['range']));
     if (a === 'account' && b === 'list') return envelope({ accounts: ACCOUNTS });
     if (a === 'env' && b === 'list') return envelope({ environments: ENVS });
+    if (a === 'agents' && b === 'list') {
+      const doc = YAML.parse(config) as { accounts?: { name: string; agents?: string[] }[]; environments?: { name: string; account: string; agents?: string[] }[] };
+      return envelope({
+        delegation: false,
+        agents: [
+          { name: 'explorer', description: 'Use proactively for broad searches across many files or directories.', model: 'haiku', tools: ['Read', 'Grep', 'Glob', 'Bash'], builtin: true },
+          { name: 'reviewer', description: 'Use after a change is made: reviews the current diff in a fresh context.', model: null, tools: ['Read', 'Grep', 'Glob', 'Bash'], builtin: true },
+          { name: 'test-runner', description: 'Use to run tests, linters or a build: returns only what failed.', model: 'haiku', tools: ['Read', 'Grep', 'Glob', 'Bash'], builtin: true },
+          { name: 'docs', description: 'Use to bring the docs in line with a code change.', model: null, tools: null, builtin: true },
+        ],
+        targets: [
+          ...(doc.accounts ?? []).map((x) => ({ scope: 'account', account: x.name, env: null, dir: `~/.claude-${x.name}/agents`, agents: x.agents ?? [] })),
+          ...(doc.environments ?? []).map((x) => ({ scope: 'environment', account: x.account, env: x.name, dir: `~/work/${x.account}/${x.name}/.claude/agents`, agents: x.agents ?? [] })),
+        ],
+      });
+    }
+    if (a === 'config' && b === 'set') {
+      const doc = YAML.parseDocument(config);
+      doc.setIn(args[2]!.split('/').slice(1).map((t) => (/^\d+$/.test(t) ? Number(t) : t)), JSON.parse(args[3]!));
+      config = doc.toString();
+      return envelope({ pointer: args[2], value: JSON.parse(args[3]!), path: '~/.config/devhost/config.yaml', backup: null });
+    }
     if ((a === 'env' || a === 'collector') && b === 'logs') return envelope({ name: args[2] ?? 'collector', path: '/Users/me/Library/Logs/devhost/x.log', lines: LOG });
     if (a === 'doctor') return envelope(DOCTOR);
     if (a === 'plugin' && b === 'list') return envelope({ plugins: DEMO_PLUGINS });
