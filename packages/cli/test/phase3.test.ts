@@ -598,6 +598,24 @@ describe('environments', () => {
     expect(await env.run('apply', '--only', 'agents')).not.toBe(0);
   });
 
+  it('agents list shows the catalog, custom agents and what each account and environment has', async () => {
+    const { env, dir } = await created();
+    const path = join(env.home, '.config', 'devhost', 'config.yaml');
+    await writeFile(path, `${await readFile(path, 'utf8')}\nagents:\n  custom:\n    - { name: sql-helper, description: Writes SQL, prompt: Write SQL., model: sonnet }\n`);
+    expect(await env.run('config', 'set', '/environments/0/agents', '["explorer","sql-helper"]')).toBe(0);
+    env.out.length = 0;
+    expect(await env.run('agents', 'list', '--json')).toBe(0);
+    const data = lastResult(env).data as { delegation: boolean; agents: { name: string; builtin: boolean; model: string | null }[]; targets: { scope: string; account: string; env: string | null; dir: string; agents: string[] }[] };
+    expect(validate('result.agents-list', data).ok).toBe(true);
+    expect(data.delegation).toBe(false);
+    expect(data.agents.map((a) => [a.name, a.builtin])).toEqual([['explorer', true], ['reviewer', true], ['test-runner', true], ['docs', true], ['sql-helper', false]]);
+    expect(data.agents.find((a) => a.name === 'sql-helper')?.model).toBe('sonnet');
+    expect(data.targets).toEqual([
+      { scope: 'account', account: 'business', env: null, dir: join(env.home, '.claude-business', 'agents'), agents: [] },
+      { scope: 'environment', account: 'business', env: 'acme-api', dir: join(dir, '.claude', 'agents'), agents: ['explorer', 'sql-helper'] },
+    ]);
+  });
+
   it('agents.delegation adds the subagent rule to the account CLAUDE.md, and removes it again', async () => {
     const { env } = await created();
     const path = join(env.home, '.config', 'devhost', 'config.yaml');

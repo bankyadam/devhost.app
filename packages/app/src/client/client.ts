@@ -2,6 +2,7 @@ import {
   CONTRACT_VERSION,
   type AccountChangeData,
   type AccountListData,
+  type AgentsListData,
   type ApplyData,
   type ConfigRawData,
   type DashData,
@@ -118,6 +119,12 @@ export class DevhostClient {
   collectorLogs = (lines = 200): Promise<EnvLogsData> => this.short(['collector', 'logs', '-n', String(lines)]);
   configRaw = (): Promise<ConfigRawData> => this.short(['config', 'raw']);
   configGet = (): Promise<DevhostConfig> => this.short<{ pointer: string; value: DevhostConfig }>(['config', 'get']).then((d) => d.value);
+
+  agents = (): Promise<AgentsListData> => this.short(['agents', 'list']);
+  /** `config set <pointer> <json>`: validated by the CLI, nothing is written when it does not validate; `apply` makes it real. */
+  configSet = (pointer: string, value: unknown): Promise<unknown> => this.short(['config', 'set', pointer, JSON.stringify(value)]);
+  /** Writes the agent files and the CLAUDE.md block the configuration asks for. */
+  applyAgents = (handlers?: LongHandlers): LongRun<ApplyData> => this.run<ApplyData>(['apply', '--only', 'agents', 'accounts.claude'], handlers);
 
   /** Doctor reports problems through its data, so a failing exit code is not an error here. */
   async doctor(): Promise<DoctorData> {

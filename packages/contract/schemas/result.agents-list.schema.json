@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://devhost.app/schemas/result.agents-list.schema.json",
+  "title": "AgentsListData",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["delegation", "agents", "targets"],
+  "properties": {
+    "delegation": { "type": "boolean", "description": "agents.delegation: the shared CLAUDE.md carries the subagent rule." },
+    "agents": {
+      "type": "array",
+      "description": "The built-in catalog followed by agents.custom.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "description", "model", "tools", "builtin"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "model": { "type": ["string", "null"] },
+          "tools": { "type": ["array", "null"], "items": { "type": "string" } },
+          "builtin": { "type": "boolean" }
+        }
+      }
+    },
+    "targets": {
+      "type": "array",
+      "description": "Every account and environment with the agents configured for it.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "account", "env", "dir", "agents"],
+        "properties": {
+          "scope": { "type": "string", "enum": ["account", "environment"] },
+          "account": { "type": "string" },
+          "env": { "type": ["string", "null"] },
+          "dir": { "type": "string", "description": "Where the agent files go." },
+          "agents": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

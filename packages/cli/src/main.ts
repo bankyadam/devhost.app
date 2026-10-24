@@ -17,6 +17,7 @@ import { accountAddCommand, accountListCommand, accountRemoveCommand, loginComma
 import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, envServiceCommand } from './commands-env.js';
 import { collectorLogsCommand, collectorRunCommand, dashCommand, notifyCommand, topCommand } from './commands-collector.js';
 import { doctorCommand, statusCommand, uninstallCommand } from './commands-doctor.js';
+import { agentsListCommand } from './commands-agents.js';
 import { sessionReattachCommand } from './reattach.js';
 import { updateCommand } from './update.js';
 import { storageAdoptCommand, storageListCommand, storageMigrateCommand, storagePrepareCommand, storageSetPassphraseCommand, storageStatusCommand, storageWaitCommand } from './commands-storage.js';
@@ -129,6 +130,12 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .description('Open the config in $EDITOR and validate it afterwards')
     .action(run(() => configEditCommand(deps, globals())));
 
+  program
+    .command('agents')
+    .description('Subagents configured for accounts and environments')
+    .command('list')
+    .description('The agent catalog and what each account and environment has (change it with `config set`, then `apply --only agents`)')
+    .action(run(() => agentsListCommand(deps, globals())));
   const account = program.command('account').description('Manage Claude accounts');
   account
     .command('list')

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AppProvider, useApp, type Screen } from './app-context';
 import { loadPrefs, savePrefs, type Prefs } from './lib/prefs';
 import { Accounts } from './screens/Accounts';
+import { Agents } from './screens/Agents';
 import { Configuration } from './screens/Configuration';
 import { Dashboard } from './screens/Dashboard';
 import { Doctor } from './screens/Doctor';
@@ -17,6 +18,7 @@ const NAV: { id: Screen; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'environments', label: 'Environments' },
   { id: 'accounts', label: 'Accounts' },
+  { id: 'agents', label: 'Agents' },
   { id: 'storage', label: 'Storage' },
   { id: 'plugins', label: 'Plugins' },
   { id: 'configuration', label: 'Configuration' },
@@ -143,6 +145,8 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
           <Environments />
         ) : screen === 'accounts' ? (
           <Accounts />
+        ) : screen === 'agents' ? (
+          <Agents />
         ) : screen === 'storage' ? (
           <StorageScreen />
         ) : screen === 'plugins' ? (

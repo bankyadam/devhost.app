@@ -544,6 +544,32 @@ describe('configuration (spec B3.4, B6)', () => {
   });
 });
 
+describe('agents', () => {
+  it('picks agents per account, turns on the delegation rule, and applies: the agent files and the CLAUDE.md block are written', async () => {
+    const h = await makeHarness();
+    await withBusiness(h);
+    mount(h);
+    await screen.findByText(/connected · devhost/);
+    await goto(h, 'Agents');
+    expect(await screen.findByText('Catalog')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+
+    await h.user.click(await screen.findByRole('checkbox', { name: 'explorer for business' }));
+    await h.user.click(screen.getByRole('checkbox', { name: /Tell Claude, in each account/ }));
+    await waitFor(async () => expect(await cfg(h)).toMatch(/agents:\s*\n\s*delegation: true/));
+    expect(await cfg(h)).toMatch(/agents:\s*\[?\s*-?\s*explorer/);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply changes' })).toBeEnabled());
+
+    await h.user.click(screen.getByRole('button', { name: 'Apply changes' }));
+    const dlg = within(await screen.findByRole('dialog'));
+    await dlg.findByRole('button', { name: 'Close' }, { timeout: 15000 });
+    await h.user.click(dlg.getByRole('button', { name: 'Close' }));
+    expect(await readFile(join(h.env.home, '.claude-business', 'agents', 'explorer.md'), 'utf8')).toContain('managed by devhost');
+    expect(await readFile(join(h.env.home, '.claude-business', 'CLAUDE.md'), 'utf8')).toContain('## Subagents');
+    expect(screen.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+  });
+});
+
 describe('doctor and logs (spec B3.5)', () => {
   it('shows the checklist with fixes you can copy, and opens the collector log', async () => {
     const h = await makeHarness();
