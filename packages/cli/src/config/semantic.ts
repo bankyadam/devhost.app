@@ -1,4 +1,5 @@
 import type { DevhostConfig, ValidationIssue } from '@devhost/contract';
+import { BUILTIN_AGENTS } from '../agents/catalog.js';
 
 const BLOCK = 100;
 
@@ -9,6 +10,17 @@ export function validateSemantics(config: DevhostConfig): ValidationIssue[] {
 
   const accounts = config.accounts ?? [];
   const environments = config.environments ?? [];
+
+  const known = new Set([...BUILTIN_AGENTS.map((a) => a.name), ...(config.agents?.custom ?? []).map((a) => a.name)]);
+  (config.agents?.custom ?? []).forEach((a, i) => {
+    if (BUILTIN_AGENTS.some((b) => b.name === a.name)) add(`/agents/custom/${i}/name`, `"${a.name}" is a built-in agent: pick another name`);
+  });
+  const checkAgents = (path: string, names: string[] | undefined): void =>
+    (names ?? []).forEach((n, i) => {
+      if (!known.has(n)) add(`${path}/${i}`, `no agent "${n}": the built-in ones are ${BUILTIN_AGENTS.map((b) => b.name).join(', ')}, or define it under agents.custom`);
+    });
+  accounts.forEach((a, i) => checkAgents(`/accounts/${i}/agents`, a.agents));
+  environments.forEach((e, i) => checkAgents(`/environments/${i}/agents`, e.agents));
 
   const seenAccounts = new Map<string, number>();
   accounts.forEach((a, i) => {

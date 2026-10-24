@@ -64,6 +64,10 @@ export interface DevhostConfig {
      * The claude.ai login (email) this account signs in with; recorded at its first `devhost login`. A login as anyone else is refused (signed out again) unless `devhost login <account> --switch-login`.
      */
     claudeLogin?: string | null;
+    /**
+     * Agents (subagent definitions) written for the Claude Code sessions here: names from the built-in catalog or from `agents.custom`.
+     */
+    agents?: string[];
   }[];
   environments?: {
     name: string;
@@ -76,6 +80,10 @@ export interface DevhostConfig {
       permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'auto' | 'dontAsk' | 'bypassPermissions';
     };
     compose?: 'auto' | 'off';
+    /**
+     * Agents (subagent definitions) written for the Claude Code sessions here: names from the built-in catalog or from `agents.custom`.
+     */
+    agents?: string[];
   }[];
   packages?: {
     brew?: string[];
@@ -160,5 +168,21 @@ export interface DevhostConfig {
         [k: string]: unknown;
       };
     };
+  };
+  agents?: {
+    /**
+     * Add a short rule to the generated CLAUDE.md that tells Claude when to hand work to subagents.
+     */
+    delegation?: boolean;
+    custom?: {
+      name: string;
+      /**
+       * When Claude should use the agent.
+       */
+      description: string;
+      prompt: string;
+      model?: string;
+      tools?: string[];
+    }[];
   };
 }
