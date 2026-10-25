@@ -228,3 +228,6 @@ legend { font-weight: 600; padding: 0 6px; font-size: 13px; }
 /* Doctor: checks grouped by the first part of their id */
 .check-group h3 { margin: 14px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-2); }
 .check-group:first-of-type h3 { margin-top: 6px; }
+
+/* Agents: an account row with its environments under it */
+tr.group > td { background: color-mix(in srgb, var(--ink-2) 8%, transparent); }

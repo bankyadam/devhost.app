@@ -210,3 +210,13 @@ describe('preferences', () => {
     expect(loadPrefs({ getItem: () => { throw new Error('blocked'); } })).toMatchObject({ host: '' });
   });
 });
+
+import { grouped } from '../src/screens/Agents';
+
+describe('agents grid order', () => {
+  it('lists accounts in ABC order, each followed by its environments in ABC order', () => {
+    const t = (account: string, env: string | null) => ({ scope: env ? 'environment' : 'account', account, env, dir: '', agents: [] }) as never;
+    const out = grouped([t('personal', 'kipipa'), t('stylers-group', null), t('personal', null), t('personal', 'devhost'), t('stylers-group', 'api'), t('Beta', null)]) as { account: string; env: string | null }[];
+    expect(out.map((x) => `${x.account}/${x.env ?? ''}`)).toEqual(['Beta/', 'personal/', 'personal/devhost', 'personal/kipipa', 'stylers-group/', 'stylers-group/api']);
+  });
+});
