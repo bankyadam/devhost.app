@@ -11,7 +11,7 @@ import { Db, dbPath } from '../src/collector/db.js';
 import { envLocations, parseHook } from '../src/collector/hooks.js';
 import { Ingestor } from '../src/collector/ingest.js';
 import { createNotifier, maskTopic, NtfyNotifier, type Notification, type Notifier } from '../src/collector/notify.js';
-import { CumulativeTracker, parseLogs, parseMetrics, parseToolRuns } from '../src/collector/otlp.js';
+import { CumulativeTracker, parseLogs, parseMetrics, parseToolRuns, sourceOf } from '../src/collector/otlp.js';
 import { buildDash } from '../src/collector/query.js';
 import { buildProfile, merge, subtract, toolClass, total } from '../src/collector/profile.js';
 import type { PluginContext, WidgetContent } from '../src/plugins/api.js';
@@ -70,7 +70,7 @@ const attribution = () => {
 describe('db', () => {
   it('migrates once and keeps the version', () => {
     const db = new Db(':memory:');
-    expect(db.schemaVersion).toBe(5);
+    expect(db.schemaVersion).toBe(6);
     db.kvSet('a', '1', 5);
     expect(db.kvGet('a')).toBe('1');
     expect(db.kvGet('missing')).toBeNull();
@@ -680,7 +680,7 @@ describe('dashboard', () => {
     expect(data.sessions[0]).toMatchObject({ id: 'sess-aaaa1111', state: 'waiting', tokensToday: 1200, costToday: 1.25, cpuPercent: 3 });
     expect(data.usage.reduce((a, r) => a + r.input + r.output, 0)).toBe(1200);
     expect(data.limits.join(' ')).toContain('estimate');
-    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 5 });
+    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 6 });
 
     expect(buildDash(db, CONFIG, { range: '24h', account: 'personal' }, now, 'm', null).sessions).toEqual([]);
     expect(buildDash(db, CONFIG, { range: '24h', env: 'acme-api', model: 'other' }, now, 'm', null).usage).toEqual([]);
@@ -889,6 +889,36 @@ describe('Collector Claude Code updates', () => {
     expect(u.calls).toEqual(['devhost update --check --json', 'devhost update --check --json']);
     expect(u.notifier.sent).toHaveLength(1);
     expect(u.notifier.sent[0]!.message).toContain('Claude Code 2.1.310 is available');
+  });
+});
+
+describe('where requests come from', () => {
+  it('names a query_source as the main thread, a built-in subagent type, custom agents or compaction', () => {
+    expect(['repl_main_thread', 'repl_main_thread:outputStyle:Concise', 'agent:builtin:Explore', 'agent:builtin:', 'agent:custom', 'agent:custom:reviewer', 'compact', 'web_search_tool', ''].map(sourceOf)).toEqual(
+      ['main', 'main', 'Explore', 'builtin agent', 'custom agents', 'custom agents', 'compaction', 'web_search_tool', ''],
+    );
+  });
+
+  it('ingests the source, rolls it up, and the stats plugin shows what subagents cost and what the main thread read', async () => {
+    const db = new Db(':memory:');
+    let now = T0;
+    const ingest = new Ingestor(db, () => now, () => []);
+    const call = (source: string, cost: number, cacheRead: number, ts = T0) => ({ timeUnixNano: String(BigInt(ts) * 1_000_000n), attributes: [kv('event.name', 'api_request'), kv('model', 'm1'), kv('input_tokens', 100), kv('output_tokens', 10), kv('cache_read_tokens', cacheRead), kv('cost_usd', cost), kv('query_source', source), kv('session.id', 's1')] });
+    const body = (...records: ReturnType<typeof call>[]) => ({ resourceLogs: [{ resource: { attributes: [kv('devhost.account', 'business')] }, scopeLogs: [{ logRecords: records }] }] });
+    ingest.logs(body(call('repl_main_thread', 0.5, 50_000), call('repl_main_thread', 0.5, 60_000), call('agent:builtin:Explore', 0.1, 4_000), call('agent:custom:explorer', 0.05, 2_000)));
+    now = T0 + 2 * H; // the hour has ended: rolled up, and the raw rows are still there for the next hour's rows
+    rollup(db, now);
+    ingest.logs(body(call('agent:builtin:Explore', 0.1, 5_000, T0 + 2 * H)));
+    expect(db.all('SELECT source, requests FROM rollup_source ORDER BY source')).toEqual([{ source: 'Explore', requests: 1 }, { source: 'custom agents', requests: 1 }, { source: 'main', requests: 2 }]);
+    const dash = buildDash(db, CONFIG, { range: '24h' }, T0 + 2 * H + 60_000, 'macmini', null);
+    expect(validate('result.dash', dash).ok).toBe(true);
+    expect(dash.sources!.map((x) => [x.source, x.requests, Math.round(x.costUsd * 100) / 100])).toEqual([['main', 2, 1], ['Explore', 2, 0.2], ['custom agents', 1, 0.05]]);
+    expect(buildDash(db, CONFIG, { range: '24h', model: 'other' }, T0 + 2 * H + 60_000, 'macmini', null).sources).toBeNull();
+    const { stats: statsPlugin } = await import('../src/plugins/builtin/stats.js');
+    const w = (await statsPlugin.widgets!.find((x) => x.id === 'sources')!.run({ stats: async () => dash } as unknown as PluginContext, { range: '24h' })) as WidgetContent;
+    expect(w.summary).toBe('Subagents: 20% of the cost ($0.25), 9% of the tokens');
+    expect(w.tiles!.map((t) => [t.label, t.value])).toEqual([['Main thread', '$1.00'], ['Subagents', '$0.25'], ['In all', '$1.25']]);
+    expect(w.rows!.map((r) => r.label)).toEqual(['main', 'Explore', 'custom agents']);
   });
 });
 

@@ -89,7 +89,7 @@ const totals = (rows: UsageAgg[], pick: (r: UsageAgg) => boolean = () => true): 
 const recent = (ts: number | null | undefined, now: number, windowMs = MIN): boolean => ts != null && now - ts <= windowMs;
 
 /** What depends on the time range: usage over time, agents at work, models, the time profile. */
-export type RangeParts = Pick<DashData, 'range' | 'usage' | 'agents' | 'models' | 'profile'>;
+export type RangeParts = Pick<DashData, 'range' | 'usage' | 'agents' | 'models' | 'profile' | 'sources'>;
 /** Everything else: the state now, what the collector precomputes every tick (kv `snapshot`). */
 export type LiveParts = Omit<DashData, keyof RangeParts>;
 
@@ -121,7 +121,32 @@ export function buildRange(db: Db, opts: DashOptions, now: number): RangeParts {
       from, rolled, from, rolled,
     ).map((r) => r.model),
     profile: buildProfile(db, from, now, { account: opts.account, env: opts.env }),
+    sources: sourcesOf(db, from, rolled, { account: opts.account, env: opts.env, model: opts.model }),
   };
+}
+
+/** Tokens and cost by request source in the range, the largest cost first; null when no request carried one. */
+function sourcesOf(db: Db, from: number, rolled: number, f: { account?: string | undefined; env?: string | undefined; model?: string | undefined }): DashData['sources'] {
+  const where: string[] = [];
+  const params: (string | number)[] = [from, rolled, from, rolled];
+  for (const [col, val] of [['account', f.account], ['env', f.env], ['model', f.model]] as const) {
+    if (val !== undefined && val !== '') {
+      where.push(`${col} = ?`);
+      params.push(val);
+    }
+  }
+  const rows = db.all<{ source: string; requests: number; input: number; output: number; cache_read: number; cache_creation: number; cost: number }>(
+    `SELECT source, SUM(requests) AS requests, SUM(input) AS input, SUM(output) AS output, SUM(cache_read) AS cache_read, SUM(cache_creation) AS cache_creation, SUM(cost) AS cost FROM (
+       SELECT account, env, source, model, 1 AS requests, COALESCE(input_tokens, 0) AS input, COALESCE(output_tokens, 0) AS output, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(cache_creation_tokens, 0) AS cache_creation, COALESCE(cost_usd, 0) AS cost
+         FROM api_requests WHERE ts >= ? AND ts >= ? AND source <> ''
+       UNION ALL
+       SELECT account, env, source, model, requests, input, output, cache_read, cache_creation, cost_usd FROM rollup_source WHERE hour >= ? AND hour < ?
+     ) ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''} GROUP BY source ORDER BY cost DESC, requests DESC`,
+    ...params,
+  );
+  return rows.length === 0
+    ? null
+    : rows.map((r) => ({ source: r.source, requests: Number(r.requests), input: Number(r.input), output: Number(r.output), cacheRead: Number(r.cache_read), cacheCreation: Number(r.cache_creation), costUsd: Number(r.cost) }));
 }
 
 /** A full snapshot for `devhost dash` and the desktop app (spec A10.6), computed now. */
