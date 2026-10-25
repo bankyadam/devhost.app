@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, configure, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
@@ -13,6 +13,9 @@ import { App } from '../../src/App';
 import { InProcessTransport } from './inprocess';
 
 afterEach(() => cleanup());
+// Every screen waits on the in-process CLI; under a full parallel run its answers can take longer
+// than Testing Library's default 1 s.
+configure({ asyncUtilTimeout: 5000 });
 
 export interface Harness {
   env: TestEnv;

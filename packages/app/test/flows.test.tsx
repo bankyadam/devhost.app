@@ -276,7 +276,9 @@ describe('environments (spec B3.2)', () => {
     await envAction(h, 'acme-api', 'Run setup again');
     const dlg = within(await screen.findByRole('dialog', { name: 'Set up business/acme-api' }));
     expect(await dlg.findByRole('status')).toHaveTextContent(/Working on \S+… 0:0\d/);
-    expect(dlg.getAllByRole('progressbar').map((e) => e.getAttribute('aria-label'))).toEqual(expect.arrayContaining(['Working', 'env.acme-api is running']));
+    // the step's spinner shows once its start event arrives, which can lag behind the status line under load
+    expect(await dlg.findByRole('progressbar', { name: 'env.acme-api is running' }, { timeout: 8000 })).toBeInTheDocument();
+    expect(dlg.getByRole('progressbar', { name: 'Working' })).toBeInTheDocument();
     release();
     expect(await dlg.findByText('Done.', undefined, { timeout: 8000 })).toBeInTheDocument();
     expect(dlg.queryAllByRole('progressbar')).toEqual([]);

@@ -22,13 +22,18 @@ if len(sys.argv) < 2:
     sys.stderr.write("usage: pty-run.py <command> [args...]\n")
     sys.exit(2)
 
+# Why the command could not be started comes back on a pipe (closed by a successful exec), not on the
+# terminal: macOS drops what is still unread on a pty once its last writer exits.
+err_r, err_w = os.pipe()
 pid, master = pty.fork()
 if pid == 0:
+    os.close(err_r)
     try:
         os.execvp(sys.argv[1], sys.argv[1:])
     except OSError as e:
-        sys.stderr.write("%s: %s\n" % (sys.argv[1], e.strerror))
+        os.write(err_w, ("%s: %s\n" % (sys.argv[1], e.strerror)).encode())
         os._exit(127)
+os.close(err_w)
 
 # A terminal of a normal size: programs lay their output out for it.
 fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
@@ -66,4 +71,5 @@ while True:
         os.write(1, data)
 
 _, status = os.waitpid(pid, 0)
+sys.stderr.write(os.read(err_r, 4096).decode())
 sys.exit(os.WEXITSTATUS(status) if os.WIFEXITED(status) else 128 + os.WTERMSIG(status))
