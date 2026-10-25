@@ -247,4 +247,18 @@ export interface DashData {
       pressureShare: number | null;
     };
   } | null;
+  /**
+   * Tokens and cost by where the request came from in the selected range: the main thread, each built-in subagent type, custom agents, compaction. Null before the first request carrying a source.
+   */
+  sources?:
+    | {
+        source: string;
+        requests: number;
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheCreation: number;
+        costUsd: number;
+      }[]
+    | null;
 }

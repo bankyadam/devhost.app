@@ -31,6 +31,13 @@ export function rollup(db: Db, now: number): void {
        WHERE ts >= ? AND ts < ? GROUP BY 1, account`,
       from, upTo,
     );
+    db.run(
+      `INSERT OR REPLACE INTO rollup_source (hour, account, env, source, model, requests, input, output, cache_read, cache_creation, cost_usd)
+       SELECT (ts / ${HOUR}) * ${HOUR}, account, env, source, model, COUNT(*), SUM(COALESCE(input_tokens, 0)), SUM(COALESCE(output_tokens, 0)),
+         SUM(COALESCE(cache_read_tokens, 0)), SUM(COALESCE(cache_creation_tokens, 0)), SUM(COALESCE(cost_usd, 0)) FROM api_requests
+       WHERE ts >= ? AND ts < ? AND source <> '' GROUP BY 1, account, env, source, model`,
+      from, upTo,
+    );
     rollupProfile(db, from, upTo);
     db.kvSet('rolled_through', String(upTo), now);
   });
@@ -54,7 +61,7 @@ export function retain(db: Db, now: number, r: Retention): void {
     db.run('DELETE FROM rollup_usage WHERE hour < ?', now - r.rollupDays * DAY);
     db.run('DELETE FROM rollup_env WHERE hour < ?', now - r.rollupDays * DAY);
     db.run('DELETE FROM rollup_agents WHERE hour < ?', now - r.rollupDays * DAY);
-    for (const table of ['rollup_profile', 'rollup_tools', 'rollup_memory']) db.run(`DELETE FROM ${table} WHERE hour < ?`, now - r.rollupDays * DAY);
+    for (const table of ['rollup_profile', 'rollup_tools', 'rollup_memory', 'rollup_source']) db.run(`DELETE FROM ${table} WHERE hour < ?`, now - r.rollupDays * DAY);
     db.run('DELETE FROM agents WHERE ended_at IS NOT NULL AND ended_at < ?', rawCutoff);
   });
 }

@@ -25,6 +25,22 @@ export interface ApiRequestRow {
   cacheCreation: number | null;
   costUsd: number | null;
   durationMs: number | null;
+  /** Where the request came from, see `sourceOf`; '' when Claude Code did not say. */
+  source: string;
+}
+
+/**
+ * Claude Code's `query_source` as one short label: the main thread, a built-in subagent type
+ * (`agent:builtin:Explore` → `Explore`), `custom agents` (the name of a custom agent is not reported),
+ * compaction, anything else as it is.
+ */
+export function sourceOf(q: string): string {
+  if (q === '') return '';
+  if (q.startsWith('repl_main_thread') || q === 'sdk') return 'main';
+  if (q.startsWith('agent:builtin:')) return q.slice('agent:builtin:'.length) || 'builtin agent';
+  if (q.startsWith('agent:custom')) return 'custom agents';
+  if (q === 'compact') return 'compaction';
+  return q.slice(0, 60);
 }
 
 type Attrs = Record<string, string | number | boolean>;
@@ -192,6 +208,7 @@ export function parseLogs(body: unknown, now: number, attr: Attribution): ApiReq
           cacheCreation: num(a, 'cache_creation_tokens'),
           costUsd: num(a, 'cost_usd'),
           durationMs: num(a, 'duration_ms'),
+          source: sourceOf(str(a, 'query_source')),
         });
       }
     }

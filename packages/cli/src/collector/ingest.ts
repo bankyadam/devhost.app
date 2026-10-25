@@ -49,8 +49,8 @@ export class Ingestor {
       }
       for (const r of rows) {
         this.db.run(
-          'INSERT INTO api_requests (ts, account, env, session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          r.ts, r.account, r.env, r.sessionId, r.model, r.input, r.output, r.cacheRead, r.cacheCreation, r.costUsd, r.durationMs,
+          'INSERT INTO api_requests (ts, account, env, session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, duration_ms, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          r.ts, r.account, r.env, r.sessionId, r.model, r.input, r.output, r.cacheRead, r.cacheCreation, r.costUsd, r.durationMs, r.source,
         );
       }
     });

@@ -96,6 +96,13 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE sessions ADD COLUMN remote_session TEXT;
   `,
+  // Where an API request came from (Claude Code's query_source: main thread, a subagent type, custom agents, compaction).
+  `
+  ALTER TABLE api_requests ADD COLUMN source TEXT NOT NULL DEFAULT '';
+  CREATE TABLE rollup_source (hour INTEGER NOT NULL, account TEXT NOT NULL, env TEXT NOT NULL, source TEXT NOT NULL, model TEXT NOT NULL,
+    requests INTEGER NOT NULL, input REAL NOT NULL, output REAL NOT NULL, cache_read REAL NOT NULL, cache_creation REAL NOT NULL, cost_usd REAL NOT NULL,
+    PRIMARY KEY (hour, account, env, source, model));
+  `,
 ];
 
 export class Db {

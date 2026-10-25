@@ -2136,6 +2136,49 @@ export const schemas = {
             }
           }
         }
+      },
+      "sources": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "description": "Tokens and cost by where the request came from in the selected range: the main thread, each built-in subagent type, custom agents, compaction. Null before the first request carrying a source.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "requests",
+            "input",
+            "output",
+            "cacheRead",
+            "cacheCreation",
+            "costUsd"
+          ],
+          "properties": {
+            "source": {
+              "type": "string"
+            },
+            "requests": {
+              "type": "number"
+            },
+            "input": {
+              "type": "number"
+            },
+            "output": {
+              "type": "number"
+            },
+            "cacheRead": {
+              "type": "number"
+            },
+            "cacheCreation": {
+              "type": "number"
+            },
+            "costUsd": {
+              "type": "number"
+            }
+          }
+        }
       }
     }
   },

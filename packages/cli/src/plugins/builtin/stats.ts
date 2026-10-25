@@ -93,7 +93,7 @@ const NO_DATA: WidgetContent = { summary: 'No data yet: the collector has not ru
 export const stats = definePlugin({
   name: 'stats',
   version: '1.0.0',
-  description: 'Usage statistics on the dashboard: per account, tokens or cost over time, agents at work',
+  description: 'Usage statistics on the dashboard: per account, tokens or cost over time, agents at work, where tokens and cost go',
   filters: [
     { id: 'range', label: 'Time range', kind: 'segmented', default: '24h', options: async () => RANGES },
     { id: 'account', label: 'Account', kind: 'select', allLabel: 'All accounts', options: async (ctx: PluginContext) => (ctx.config.accounts ?? []).map((a) => ({ value: a.name, label: a.name })) },
@@ -156,6 +156,41 @@ export const stats = definePlugin({
           summary: `now ${plural(n.sessions, 'session', 'sessions')} + ${plural(n.subagents, 'subagent', 'subagents')} · most at once in this range: ${d.agents.peak.total}`,
           chart: agentsChart(d),
           note: `Sessions running a turn plus the subagents they started, sampled every few seconds${p['account'] ? ` (${p['account']})` : ', all accounts'}.`,
+        };
+      },
+    },
+    {
+      id: 'sources',
+      title: 'Where tokens and cost go',
+      size: 'wide',
+      refreshSeconds: REFRESH,
+      async run(ctx, p) {
+        const d = await ctx.stats(query(p));
+        if (!d) return NO_DATA;
+        const src = d.sources;
+        if (!src || src.length === 0) return { summary: 'No requests with a source yet: this starts with the first request after this update.' };
+        const tokens = (x: (typeof src)[number]): number => x.input + x.output + x.cacheRead + x.cacheCreation;
+        const cost = src.reduce((a, x) => a + x.costUsd, 0);
+        const all = src.reduce((a, x) => a + tokens(x), 0);
+        const pct = (v: number, of: number): string => (of > 0 ? `${Math.round((v / of) * 100)}%` : '–');
+        const main = src.find((x) => x.source === 'main');
+        const agents = src.filter((x) => x.source !== 'main' && x.source !== 'compaction');
+        const agentCost = agents.reduce((a, x) => a + x.costUsd, 0);
+        const agentTokens = agents.reduce((a, x) => a + tokens(x), 0);
+        const per = (x: (typeof src)[number]): string => `${compact(tokens(x) / Math.max(1, x.requests))} tokens/request`;
+        return {
+          summary: agents.length === 0 ? `All of it from the main thread (${usd(cost)}): no subagent requests in this range` : `Subagents: ${pct(agentCost, cost)} of the cost (${usd(agentCost)}), ${pct(agentTokens, all)} of the tokens`,
+          tiles: [
+            { label: 'Main thread', value: usd(main?.costUsd ?? 0), sub: main ? `${compact(tokens(main))} tokens · ${per(main)}` : 'none' },
+            { label: 'Subagents', value: usd(agentCost), sub: `${compact(agentTokens)} tokens · ${agents.reduce((a, x) => a + x.requests, 0)} requests` },
+            { label: 'In all', value: usd(cost), sub: `${compact(all)} tokens` },
+          ],
+          rows: src.map((x) => ({
+            label: x.source,
+            value: usd(x.costUsd),
+            note: `${pct(x.costUsd, cost)} of the cost · ${compact(tokens(x))} tokens (${compact(x.cacheRead)} cache read) · ${x.requests} request${x.requests === 1 ? '' : 's'} · ${per(x)}`,
+          })),
+          note: 'By where Claude Code made the request: the main thread, each built-in subagent type, custom agents (all together: their names are not reported), compaction. A subagent keeps long searches and test output out of the main context, which every later main-thread request would read again; compare the main thread\'s tokens per request before and after you start using agents. Requests from before this update are not in this list.',
         };
       },
     },
