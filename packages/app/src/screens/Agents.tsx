@@ -17,6 +17,16 @@ export function pointerOf(config: DevhostConfig, t: Target): string | null {
   return i < 0 ? null : `/environments/${i}/agents`;
 }
 
+/** Accounts in ABC order, each followed by its environments in ABC order. */
+export function grouped(targets: Target[]): Target[] {
+  const by = (a: string, b: string): number => a.localeCompare(b, undefined, { sensitivity: 'base' });
+  const accounts = [...new Set(targets.map((t) => t.account))].sort(by);
+  return accounts.flatMap((name) => [
+    ...targets.filter((t) => t.account === name && t.scope === 'account'),
+    ...targets.filter((t) => t.account === name && t.scope === 'environment').sort((a, b) => by(a.env ?? '', b.env ?? '')),
+  ]);
+}
+
 export function Agents() {
   const { client, connection, reportUnreachable } = useApp();
   const [data, setData] = useState<AgentsListData | null>(null);
@@ -110,16 +120,23 @@ export function Agents() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.targets.map((t) => (
-                      <tr key={`${t.account}/${t.env ?? ''}`}>
-                        <td>{t.scope === 'account' ? <b>{t.account}</b> : <span>{t.account}/<b>{t.env}</b></span>}<div className="note mono">{t.dir}</div></td>
-                        {data.agents.map((a) => (
-                          <td key={a.name} className="num">
-                            <input type="checkbox" aria-label={`${a.name} for ${t.scope === 'account' ? t.account : `${t.account}/${t.env}`}`} checked={t.agents.includes(a.name)} onChange={() => toggle(t, a.name)} />
+                    {grouped(data.targets).map((t) => {
+                      const label = t.scope === 'account' ? t.account : `${t.account}/${t.env}`;
+                      return (
+                        <tr key={`${t.account}/${t.env ?? ''}`} className={t.scope === 'account' ? 'group' : undefined}>
+                          <td style={t.scope === 'environment' ? { paddingLeft: '2rem' } : undefined}>
+                            {t.scope === 'account' ? <b>{t.account}</b> : <span aria-hidden="true">└ </span>}
+                            {t.scope === 'environment' && <b>{t.env}</b>}
+                            <div className="note mono">{t.dir}</div>
                           </td>
-                        ))}
-                      </tr>
-                    ))}
+                          {data.agents.map((a) => (
+                            <td key={a.name} className="num">
+                              <input type="checkbox" aria-label={`${a.name} for ${label}`} checked={t.agents.includes(a.name)} onChange={() => toggle(t, a.name)} />
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
