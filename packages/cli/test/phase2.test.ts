@@ -128,29 +128,57 @@ describe('plist', () => {
     expect(() => networkWrapper('x; rm -rf ~')).toThrow();
   });
 
-  it('a Remote Control service renews its bridge pointer, and drops one it could not start with', async () => {
+  it('a Remote Control service renews its bridge pointer, and drops one it could not start with in three starts', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'wrap-'));
     const pointer = join(dir, 'projects', 'p', 'bridge-pointer.json');
     const seen = join(dir, 'state', 'rc', 'svc.pointer');
+    const log = join(dir, 'svc.log');
     await mkdir(join(dir, 'projects', 'p'), { recursive: true });
     const old = new Date(Date.now() - 8 * 3_600_000);
+    const start = (program: string[]) => {
+      const args = loggedArgs({ args: program, logPath: log, pointer: { path: pointer, seen } });
+      return spawnSync(args[0]!, args.slice(1)).status;
+    };
+    // Stands in for `claude`: answers --version, rewrites the pointer when told to.
+    const prog = join(dir, 'prog');
+    await writeFile(prog, `#!/bin/sh\n[ "$1" = --version ] && exit 0\n[ "$1" = write ] && echo "{\\"pid\\":$$}" > ${pointer}\nexit 0\n`, { mode: 0o755 });
+    await writeFile(pointer, '{"pid":1}');
+    await utimes(pointer, old, old);
+    // Renewed (Claude Code would drop it at 4 hours); the program rewrites it once it runs.
+    expect(start([prog, 'write'])).toBe(0);
+    expect((await stat(pointer)).mtimeMs).toBeGreaterThan(Date.now() - 60_000);
+    expect(await readFile(seen, 'utf8')).toBe('{"pid":1}');
+    const written = await readFile(pointer, 'utf8');
+    // A program that cannot run at all (Gatekeeper at boot) leaves the pointer and its count alone.
+    for (let i = 0; i < 4; i++) expect(start([join(dir, 'missing')])).toBe(75);
+    expect(await readFile(pointer, 'utf8')).toBe(written);
+    // Rewritten since: renewed again. Then the program runs without rewriting it, three times.
+    expect(start([prog])).toBe(0);
+    expect(start([prog])).toBe(0);
+    expect(start([prog])).toBe(0);
+    expect(await readFile(pointer, 'utf8')).toBe(written);
+    // Not rewritten in three starts in a row: the program could not start with it, so it goes.
+    expect(start([prog])).toBe(0);
+    await expect(stat(pointer)).rejects.toThrow();
+    await expect(stat(seen)).rejects.toThrow();
+    expect(await readFile(log, 'utf8')).toContain('[devhost] bridge pointer not rewritten in 3 starts: registering anew');
+  });
+
+  it('a rewrite resets the count of starts without one', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wrap-'));
+    const pointer = join(dir, 'bridge-pointer.json');
+    const seen = join(dir, 'svc.pointer');
     const start = (program: string[]) => {
       const args = loggedArgs({ args: program, logPath: join(dir, 'svc.log'), pointer: { path: pointer, seen } });
       return spawnSync(args[0]!, args.slice(1)).status;
     };
+    const prog = join(dir, 'prog');
+    await writeFile(prog, `#!/bin/sh\n[ "$1" = write ] && echo "{\\"pid\\":$$}" > ${pointer}\nexit 0\n`, { mode: 0o755 });
     await writeFile(pointer, '{"pid":1}');
-    await utimes(pointer, old, old);
-    // Renewed (Claude Code would drop it at 4 hours); the program rewrites it once it runs.
-    expect(start(['/bin/sh', '-c', `echo '{"pid":2}' > ${pointer}`])).toBe(0);
-    expect((await stat(pointer)).mtimeMs).toBeGreaterThan(Date.now() - 60_000);
-    expect(await readFile(seen, 'utf8')).toBe('{"pid":1}');
-    // Rewritten since: renewed again. This time the program exits without rewriting it.
-    expect(start(['/usr/bin/true'])).toBe(0);
-    expect(await readFile(pointer, 'utf8')).toBe('{"pid":2}\n');
-    // Still what it was at the last start: the program could not start with it, so it goes.
-    expect(start(['/usr/bin/true'])).toBe(0);
+    for (const run of [[prog], [prog], [prog, 'write'], [prog], [prog], [prog]]) expect(start(run)).toBe(0);
+    await stat(pointer); // two misses, a rewrite, three starts: the third one is the first to drop it
+    expect(start([prog])).toBe(0);
     await expect(stat(pointer)).rejects.toThrow();
-    await expect(stat(seen)).rejects.toThrow();
   });
 
   describe.runIf(process.platform === 'darwin')('root helper (templates/devhost-root.js)', () => {
