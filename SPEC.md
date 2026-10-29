@@ -146,7 +146,7 @@ plugins:                             # A18; built-in ones are on unless enabled:
 
 ## A7. What `apply` sets up
 
-Each item is a **step** with `check()`, `apply()`, and a description. Steps run in order; a failure stops with a clear message and fix hint.
+Each item is a **step** with `check()`, `apply()`, and a description. Steps run in order; a failure stops with a clear message and fix hint. Environment steps (`env.<name>`) are independent of each other: a failed one is reported and the run goes on with the next, so one broken environment does not keep the others on an old plist; the command still exits with the first failure.
 
 **Running sessions are not disturbed.** A Remote Control service is restarted only when what it runs changes (its plist bytes, its login, its working directory). A change elsewhere in the config, a storage step, or a re-run of `apply` leaves a running service and its sessions alone. In particular:
 - Without a work volume, every generated plist stays byte-identical to what it was before the storage feature.
@@ -229,7 +229,7 @@ For each entry in `environments` (also triggered by `devhost env create`):
    export DEVHOST_PORT_BASE=<portBase>
    export OTEL_RESOURCE_ATTRIBUTES="devhost.account=<account>,devhost.env=<name>"
    ```
-4. **Compose:** with `compose: auto` and a compose file present, `docker compose up -d` with project name `devhost-<name>` (used by the collector to map containers to environments). A compose network left from before is reported with how to remove it (never removed by devhost).
+4. **Compose:** with `compose: auto` and a compose file present, `docker compose up -d` with project name `devhost-<name>` (used by the collector to map containers to environments). The project is up when at least one container runs and every other one exited 0 (a one-shot init service, e.g. creating buckets). A compose network left from before is reported with how to remove it (never removed by devhost).
 5. **Remote Control service:** one launchd job per environment with `remoteControl.enabled: true`:
    - LaunchDaemon with `UserName` = operator (starts at boot without GUI login). Label `com.devhost.rc.<account>.<name>`.
    - `WorkingDirectory`: the environment dir. Must be a git repo: `--spawn worktree` requires one. *(This is why Remote Control runs per environment, not per account root.)*
