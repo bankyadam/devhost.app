@@ -30,8 +30,10 @@ export interface DaemonSpec {
    * Remote Control's bridge pointer (`path`), which Claude Code drops when it is older than 4 hours:
    * a service down longer than that (a night off) would register a new environment and session.
    * Its modification time is renewed just before the program starts, and a copy kept at `seen`. A
-   * pointer still equal to that copy at the next start was not rewritten, so the program could not
-   * start with it: it is removed, and the program registers anew.
+   * pointer the program did not rewrite (same bytes, not newer than the copy) in three starts in a
+   * row is one it cannot start with: it is removed, and the program registers anew. Before any of
+   * this the program must run at all (`--version`): at boot Gatekeeper can refuse the first exec,
+   * and a start that never ran must not count against the pointer.
    */
   pointer?: { path: string; seen: string };
 }
@@ -55,11 +57,24 @@ export const START_MARKER = '[devhost] started';
 const HOST = /^[A-Za-z0-9.-]+$/;
 const shq = (a: string): string => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
 
-/** Shell that renews the bridge pointer, or drops one the program could not start with (DaemonSpec.pointer). */
+/** Starts in a row without a rewrite after which the bridge pointer is dropped (DaemonSpec.pointer). */
+export const POINTER_TRIES = 3;
+
+/**
+ * Shell that renews the bridge pointer, or drops one the program could not start with in
+ * POINTER_TRIES starts (DaemonSpec.pointer). The count is kept next to the copy (`<seen>.tries`).
+ */
 const pointerCmd = (p?: DaemonSpec['pointer']): string => {
   if (!p) return '';
-  const [path, seen] = [shq(p.path), shq(p.seen)];
-  return `if [ -f ${path} ]; then if /usr/bin/cmp -s ${path} ${seen}; then /bin/rm -f ${path} ${seen}; else /bin/mkdir -p ${shq(dirname(p.seen))} && /bin/cp ${path} ${seen} && /usr/bin/touch ${path}; fi; fi; `;
+  const [path, seen, tries] = [shq(p.path), shq(p.seen), shq(`${p.seen}.tries`)];
+  return (
+    `"$1" --version >/dev/null 2>&1 || { echo "[devhost] $1 cannot run yet; trying again"; exit 75; }; ` +
+    `if [ -f ${path} ]; then ` +
+    `if [ ${path} -nt ${seen} ] || ! /usr/bin/cmp -s ${path} ${seen}; then n=0; /bin/mkdir -p ${shq(dirname(p.seen))} && /bin/cp ${path} ${seen}; ` +
+    `else n=$(/bin/cat ${tries} 2>/dev/null); n=$((\${n:-0}+1)); fi; ` +
+    `if [ $n -ge ${POINTER_TRIES} ]; then echo "[devhost] bridge pointer not rewritten in $n starts: registering anew"; /bin/rm -f ${path} ${seen} ${tries}; ` +
+    `else echo $n > ${tries} && /usr/bin/touch ${path} && /usr/bin/touch -r ${path} ${seen}; fi; fi; `
+  );
 };
 
 export const networkWrapper = (host: string, gate?: string[], pointer?: DaemonSpec['pointer']): string => {

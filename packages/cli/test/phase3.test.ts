@@ -377,7 +377,7 @@ describe('environments', () => {
     const service = await readFile(join(env.home, 'LaunchDaemons', 'com.devhost.rc.business.acme-api.plist'), 'utf8');
     const pointer = `${env.home}/.claude-business/projects/${dir.replace(/[^A-Za-z0-9]/g, '-')}/bridge-pointer.json`;
     const seen = `${env.home}/.local/share/devhost/rc/com.devhost.rc.business.acme-api.pointer`;
-    expect(service).toContain(`if [ -f ${pointer} ]; then if /usr/bin/cmp -s ${pointer} ${seen}; then`);
+    expect(service).toContain(`&quot;$1&quot; --version &gt;/dev/null 2&gt;&amp;1 || { echo &quot;[devhost] $1 cannot run yet; trying again&quot;; exit 75; }; if [ -f ${pointer} ]; then if [ ${pointer} -nt ${seen} ] || ! /usr/bin/cmp -s ${pointer} ${seen}; then`);
   });
 
   it('update --check names a newer Claude Code and the outdated Brewfile packages, and changes nothing', async () => {
