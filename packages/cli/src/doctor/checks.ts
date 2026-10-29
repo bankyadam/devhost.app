@@ -6,14 +6,14 @@ import { shadowedClaudes } from '../update.js';
 import { MIN_REMOTE_CONTROL_VERSION, parseVersion, versionAtLeast } from '../claude-version.js';
 import { Db, dbPath } from '../collector/db.js';
 import { managedSettings, parseSettings } from '../claude-settings.js';
-import { accountEnv, accountRoot, accountsOf, composeProject, effectiveClaudeDir, envDir, environmentsOf, rcLabel, rcLogPath, type Account, type Environment } from '../config/accounts.js';
+import { accountEnv, accountRoot, accountsOf, effectiveClaudeDir, envDir, environmentsOf, rcLabel, rcLogPath, type Account, type Environment } from '../config/accounts.js';
 import type { Deps } from '../deps.js';
 import { daemonState, plistPath, START_MARKER } from '../launchd.js';
 import { authStatus, claudeBinary, claudeRunOptions, loginIdentity, stripAnsi } from '../login.js';
 import type { Executor } from '../runner/executor.js';
 import { miseBinary } from '../mise.js';
 import { brewfilePath, renderBrewfile, BUNDLE_CHECK_ENV, bundleCheckArgs } from '../steps/packages.js';
-import { COMPOSE_FILES, envrcFor, hasCommit, workspaceTrusted } from '../steps/env.js';
+import { COMPOSE_FILES, composeState, envrcFor, hasCommit, workspaceTrusted } from '../steps/env.js';
 import { COLIMA_LABEL } from '../steps/docker.js';
 import { COLLECTOR_LABEL } from '../steps/collector.js';
 import { tailscaleNow, tailscaleVariant } from '../tailscale-status.js';
@@ -378,10 +378,8 @@ async function oneEnv(c: DoctorContext, a: Account, e: Environment): Promise<Che
     let file: string | null = null;
     for (const f of COMPOSE_FILES) if ((await exec.readText(join(dir, f))) !== null) file = f;
     if (file) {
-      const running = await exec.query('docker', ['compose', '-p', composeProject(e.name), 'ps', '-q', '--status', 'running'], { cwd: dir });
-      const all = await exec.query('docker', ['compose', '-p', composeProject(e.name), 'ps', '-q', '-a'], { cwd: dir });
-      const n = (s: string): number => s.split('\n').filter(Boolean).length;
-      out.push(running.code === 0 && n(running.stdout) > 0 && n(running.stdout) === n(all.stdout) ? ok(`${id}.compose`, `${n(running.stdout)} compose service(s) up`) : fail(`${id}.compose`, 'compose services are not all up', `devhost apply --only ${id}`));
+      const state = await composeState(exec, e.name, dir);
+      out.push(state.up ? ok(`${id}.compose`, `${state.running} compose service(s) up`) : fail(`${id}.compose`, 'compose services are not all up', `devhost apply --only ${id}`));
     }
   }
 

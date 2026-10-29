@@ -159,10 +159,13 @@ export function formatApplySummary(data: ApplyData): string[] {
       lines.push(`  ${p.sudo ? '[sudo] ' : ''}${p.stepId}: ${p.action}${p.reason ? `  — ${p.reason}` : ''}`);
     }
   } else {
-    const failed = data.steps.find((s) => s.status === 'failed');
+    const failed = data.steps.filter((s) => s.status === 'failed');
+    // The run stops at a failed step, unless it is an independent one (an environment): then it goes on.
+    const stoppedAt = data.steps.at(-1)?.status === 'failed' && failed.length === 1 ? failed[0] : undefined;
     lines.push(
       '',
-      failed ? `Stopped at ${failed.id}; ${data.changed ? 'the steps before it were applied, ' : ''}the steps after it did not run.`
+      stoppedAt ? `Stopped at ${stoppedAt.id}; ${data.changed ? 'the steps before it were applied, ' : ''}the steps after it did not run.`
+      : failed.length > 0 ? `Failed: ${failed.map((s) => s.id).join(', ')}; the other steps ran${data.changed ? ' and their changes were applied' : ''}.`
       : data.changed ? 'Done: changes were applied.'
       : 'No changes: the system already matches the config.',
     );

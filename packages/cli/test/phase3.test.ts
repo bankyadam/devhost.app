@@ -631,6 +631,18 @@ describe('environments', () => {
     expect(await readFile(claudeMd, 'utf8')).not.toContain('## Subagents');
   });
 
+  it('a one-shot compose service that ran to completion (exit 0) does not count as down', async () => {
+    const { env, mac, dir } = await created();
+    await writeFile(join(dir, 'compose.yaml'), 'services: { s3: { image: rustfs }, s3-init: { image: minio/mc } }\n');
+    mac.state.composeInit = true;
+    expect(await env.run('apply', '--only', 'env.acme-api')).toBe(0);
+    expect(mac.state.composeUp.has('devhost-acme-api')).toBe(true);
+    const original = mac.runner.run.bind(mac.runner);
+    mac.runner.run = async (cmd, args, opts) =>
+      cmd === 'docker' && args.includes('--format') ? { code: 0, stdout: 'running 0\nexited 1\n', stderr: '' } : original(cmd, args, opts);
+    expect(await env.run('apply', '--only', 'env.acme-api')).toBe(1); // a service that failed is down
+  });
+
   it('a compose project that does not come up still gets its Remote Control service, so a session can fix it', async () => {
     const { env, mac, dir } = await created();
     const label = 'com.devhost.rc.business.acme-api';

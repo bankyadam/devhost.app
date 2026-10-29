@@ -133,6 +133,8 @@ export interface FakeState {
   /** What a container sees in a bind mount from the work volume (false: an empty directory, Colima without the mount). */
   colimaSeesVolume?: boolean;
   composeUp: Set<string>;
+  /** A one-shot init container that ran to completion next to the running ones. */
+  composeInit?: boolean;
   /** Output of `git log --branches --not --remotes --oneline` per directory. */
   unpushed: Map<string, string>;
   uninstalled: string[];
@@ -346,7 +348,7 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       state.composeUp.delete(m[1]!);
       return {};
     }
-    if ((m = /^docker compose -p (\S+) ps -q/.exec(line))) return { stdout: state.composeUp.has(m[1]!) ? 'abc123\n' : '' };
+    if ((m = /^docker compose -p (\S+) ps -a --format/.exec(line))) return { stdout: state.composeUp.has(m[1]!) ? (state.composeInit ? 'running 0\nexited 0\n' : 'running 0\n') : '' };
     if (line === 'sw_vers -productVersion') return { stdout: '26.0\n' };
     if (line === 'uname -m') return { stdout: `${state.arch}\n` };
     if (line === 'sysctl -n sysctl.proc_translated') return state.rosetta ? { stdout: '1\n' } : { code: 1, stderr: 'unknown oid\n' };

@@ -98,11 +98,19 @@ async function composeFile(ctx: StepContext, dir: string): Promise<string | null
   return null;
 }
 
+/**
+ * The compose project's containers: up when at least one runs and every other one ran to
+ * completion (exit 0), like a one-shot init service that creates buckets or runs migrations.
+ */
+export async function composeState(exec: StepContext['exec'], name: string, dir: string): Promise<{ up: boolean; running: number }> {
+  const r = await exec.query('docker', ['compose', '-p', composeProject(name), 'ps', '-a', '--format', '{{.State}} {{.ExitCode}}'], { cwd: dir });
+  const rows = r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+  const running = rows.filter((l) => l.startsWith('running ')).length;
+  return { up: r.code === 0 && running > 0 && rows.every((l) => l.startsWith('running ') || l === 'exited 0'), running };
+}
+
 async function composeUp(ctx: StepContext, e: Environment, dir: string): Promise<boolean> {
-  const running = await ctx.exec.query('docker', ['compose', '-p', composeProject(e.name), 'ps', '-q', '--status', 'running'], { cwd: dir });
-  const all = await ctx.exec.query('docker', ['compose', '-p', composeProject(e.name), 'ps', '-q', '-a'], { cwd: dir });
-  const count = (s: string): number => s.split('\n').filter(Boolean).length;
-  return running.code === 0 && count(running.stdout) > 0 && count(running.stdout) === count(all.stdout);
+  return (await composeState(ctx.exec, e.name, dir)).up;
 }
 
 /**
@@ -140,6 +148,7 @@ export function envStep(a: Account, e: Environment): Step {
   return {
     id,
     description: `Environment ${a.name}/${e.name}: repo, ports, compose, Remote Control service`,
+    independent: true,
     async check(ctx) {
       const dir = envDir(a, e, ctx.home);
       const problems: string[] = [];

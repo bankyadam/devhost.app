@@ -52,4 +52,6 @@ export interface Step {
   apply(ctx: StepContext): Promise<void>;
   /** Set to false for best-effort steps whose result cannot be fully verified (e.g. `brew uninstall` of a package others depend on). */
   verify?: boolean;
+  /** Nothing after it depends on it (one environment): a failure is reported and the run goes on. */
+  independent?: boolean;
 }

@@ -10,6 +10,9 @@ import { brewFormulae, packagesStep, renderBrewfile, requiredPackages } from '..
 import { installedRequests, runtimesStep } from '../src/steps/runtimes.js';
 import { pmsetCapabilities, pmsetValues, powerStep, sshStep, hostnameStep } from '../src/steps/system.js';
 import { buildSteps, selectSteps } from '../src/steps/index.js';
+import type { Step } from '../src/steps/types.js';
+import { runSteps } from '../src/apply.js';
+import { formatApplySummary } from '../src/commands.js';
 import { HELPER_PATH, helperArgs, sudoersRule } from '../src/root-helper.js';
 import { rootHelperStep } from '../src/steps/root-helper.js';
 import { bootstrapDaemon } from '../src/launchd.js';
@@ -190,6 +193,33 @@ describe('runtimes', () => {
 
     const installed = new MockRunner().on('test -x /h/.local/bin/mise', {}).on('/h/.local/bin/mise ls', { stdout: JSON.stringify({ node: [{ requested_version: 'lts', installed: true }] }) });
     expect(await runtimesStep.check(ctx(installed))).toEqual({ state: 'ok' });
+  });
+});
+
+describe('runSteps', () => {
+  const step = (id: string, fails: boolean, independent = false): Step => ({
+    id,
+    description: id,
+    check: async () => ({ state: 'todo', reason: 'differs' }),
+    apply: async () => {
+      if (fails) throw new Error(`${id} broke`);
+    },
+    verify: false,
+    ...(independent ? { independent: true } : {}),
+  });
+  const run = async (steps: Step[]) => runSteps(steps, { exec: exec(new MockRunner()) } as never, silent, { cancelled: false });
+
+  it('a failed environment does not stop the others; the first error is returned', async () => {
+    const out = await run([step('git', false), step('env.a', true, true), step('env.b', false, true), step('env.c', true, true)]);
+    expect(out.data.steps.map((s) => `${s.id}:${s.status}`)).toEqual(['git:changed', 'env.a:failed', 'env.b:changed', 'env.c:failed']);
+    expect(out.error?.message).toBe('env.a broke');
+    expect(formatApplySummary(out.data).at(-1)).toBe('Failed: env.a, env.c; the other steps ran and their changes were applied.');
+  });
+
+  it('any other failed step stops the run', async () => {
+    const out = await run([step('git', true), step('env.a', false, true)]);
+    expect(out.data.steps.map((s) => s.id)).toEqual(['git']);
+    expect(formatApplySummary(out.data).at(-1)).toBe('Stopped at git; the steps after it did not run.');
   });
 });
 

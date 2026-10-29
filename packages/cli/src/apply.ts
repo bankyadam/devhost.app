@@ -5,7 +5,7 @@ import type { Step, StepContext } from './steps/types.js';
 
 export interface ApplyOutcome {
   data: ApplyData;
-  /** The error that stopped the run, if any. */
+  /** The first error: the one that stopped the run, or of an independent step the run went past. */
   error: DevhostError | Error | null;
   cancelled: boolean;
 }
@@ -14,6 +14,8 @@ export interface ApplyOutcome {
  * Run steps in order (spec A7). A step whose check passes is left alone, so a
  * second run reports no changes. In a dry-run, steps that would change
  * something still run `apply()`, but every side effect only lands in the plan.
+ * A failed step stops the run, unless it is `independent` (one environment): then
+ * the others still run, and the first error is returned.
  */
 export async function runSteps(
   steps: Step[],
@@ -62,11 +64,11 @@ export async function runSteps(
       results.push({ id: step.id, description: step.description, status: 'changed', message });
       reporter.step(step.id, 'changed', message);
     } catch (err) {
-      error = err instanceof Error ? err : new Error(String(err));
-      const message = error.message;
-      results.push({ id: step.id, description: step.description, status: 'failed', message });
-      reporter.step(step.id, 'failed', message);
-      break;
+      const failure = err instanceof Error ? err : new Error(String(err));
+      error ??= failure;
+      results.push({ id: step.id, description: step.description, status: 'failed', message: failure.message });
+      reporter.step(step.id, 'failed', failure.message);
+      if (!step.independent) break;
     }
   }
 
