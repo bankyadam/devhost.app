@@ -9,7 +9,7 @@ describe('config schema', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value.machine.power).toEqual({ neverSleep: true, autoRestartAfterPowerLoss: true, wakeOnLan: true });
-    expect(r.value.docker).toEqual({ runtime: 'colima', cpu: 6, memoryGiB: 16, diskGiB: 200 });
+    expect(r.value.docker).toEqual({ runtime: 'colima', cpu: 6, memoryGiB: 16, diskGiB: 200, idleSleepMinutes: 60 });
     expect(r.value.collector?.retention).toEqual({ rawDays: 7, rollupDays: 365, logDays: 7 });
     expect(r.value.runtimes).toEqual({ node: 'lts', python: '3.12', ruby: '3.3', php: '8.3' });
     expect(r.value.accounts).toEqual([]);

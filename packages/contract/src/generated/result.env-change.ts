@@ -3,7 +3,7 @@
 export interface EnvChangeData {
   name: string;
   account?: string;
-  action: 'created' | 'deleted' | 'started' | 'stopped' | 'restarted';
+  action: 'created' | 'deleted' | 'started' | 'stopped' | 'restarted' | 'asleep' | 'awake';
   dir?: string;
   portBase?: number;
   steps?: {
@@ -17,4 +17,8 @@ export interface EnvChangeData {
   };
   filesDeleted?: boolean;
   warnings?: string[];
+  /**
+   * sleep/wake: the compose services stopped or started
+   */
+  services?: string[];
 }

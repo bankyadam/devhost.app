@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { validate } from '@devhost/contract';
 import type { DashData, Envelope } from '@devhost/contract';
 import { AlertEngine } from '../src/collector/alerts.js';
@@ -23,6 +23,7 @@ import { projectSlug, sessionTitle } from '../src/collector/titles.js';
 import { renderTop } from '../src/collector/top.js';
 import { parseConfig } from '../src/config/load.js';
 import { MockRunner } from '../src/runner/mock.js';
+import { sleepState } from '../src/sleep.js';
 import { fakeMac, makeEnv, ndjson } from './helpers.js';
 
 const HOME = '/Users/op';
@@ -316,13 +317,13 @@ function fakeOs(over: Partial<{ memUsedPct: number; diskFreePct: number }> = {})
   };
 }
 
-function setup(over: { runner?: MockRunner; config?: typeof CONFIG } = {}) {
+function setup(over: { runner?: MockRunner; config?: typeof CONFIG; home?: string } = {}) {
   const db = new Db(':memory:');
   const runner = over.runner ?? new MockRunner();
   const notifier = new Recorder();
   const clock = { now: T0 };
   const os = fakeOs();
-  const collector = new Collector({ db, config: () => over.config ?? CONFIG, deps: { home: HOME, user: 'op', brewPrefix: '/opt/homebrew', runner }, notifier, now: () => clock.now, os: os.os });
+  const collector = new Collector({ db, config: () => over.config ?? CONFIG, deps: { home: over.home ?? HOME, user: 'op', brewPrefix: '/opt/homebrew', runner }, notifier, now: () => clock.now, os: os.os });
   return { db, runner, notifier, clock, os, collector };
 }
 
@@ -474,6 +475,67 @@ environments:
     await collector.dockerTick();
     expect(db.kvGet('docker')).toBe('down');
     await expect(collector.sampleTick()).resolves.toBeUndefined(); // ps missing → skipped quietly
+  });
+});
+
+describe('sleeping environments', () => {
+  const project = 'devhost-acme-api';
+  const dir = `${HOME}/work/business/acme-api`;
+  const running = () =>
+    new MockRunner()
+      .on('docker info', { stdout: '27.0\n' })
+      .on('docker stats', { stdout: `{"Name":"${project}-api-1","CPUPerc":"1.00%","MemUsage":"100MiB / 8GiB"}\n` })
+      .on('docker ps', { stdout: `${project}-api-1\t${project}\n` })
+      // The model server was stopped by hand: it is not among the running ones; a paused one is.
+      .on(`docker compose -p ${project} ps --format {{.Service}} {{.State}}`, { stdout: 'api running\ndb paused\nollama exited\n' })
+      .on(/^docker compose -p \S+ (stop|start) /, {});
+  const sleeping = async () => {
+    const home = await mkdtemp(join(tmpdir(), 'sleep-'));
+    const t = setup({ runner: running(), home });
+    await t.collector.dockerTick();
+    return { ...t, home };
+  };
+
+  it('falls asleep after an hour without a session, stopping only the services that ran', async () => {
+    const { collector, runner, clock, home } = await sleeping();
+    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: dir }, 'business');
+    collector.ingest.hook({ hook_event_name: 'Stop', session_id: 's1', cwd: dir }, 'business');
+    clock.now += 59 * 60_000;
+    await collector.sleepTick();
+    expect(runner.lines().some((l) => l.includes('compose -p devhost-acme-api stop'))).toBe(false);
+    clock.now += 2 * 60_000;
+    await collector.sleepTick();
+    expect(runner.lines()).toContain(`docker compose -p ${project} stop api db`);
+    expect(await sleepState(home, 'acme-api')).toEqual({ at: clock.now, services: ['api', 'db'] });
+  });
+
+  it('a session in the middle of a turn keeps it awake; idleSleepMinutes 0 turns it off', async () => {
+    const { collector, runner, clock } = await sleeping();
+    collector.ingest.hook({ hook_event_name: 'UserPromptSubmit', session_id: 's1', cwd: `${dir}/.claude/worktrees/bridge-cse_01X` }, 'business');
+    clock.now += 5 * H;
+    await collector.sleepTick();
+    expect(runner.lines().some((l) => l.includes(' stop'))).toBe(false);
+
+    const off = { ...CONFIG, docker: { ...CONFIG.docker, idleSleepMinutes: 0 } };
+    const t = setup({ runner: running(), config: off, home: await mkdtemp(join(tmpdir(), 'sleep-')) });
+    await t.collector.dockerTick();
+    t.clock.now += 5 * H;
+    await t.collector.sleepTick();
+    expect(t.runner.lines().some((l) => l.includes(' stop'))).toBe(false);
+  });
+
+  it('wakes with the next session, starting the services it stopped and no others', async () => {
+    const { collector, runner, clock, home } = await sleeping();
+    clock.now += 2 * H;
+    await collector.sleepTick();
+    expect(await sleepState(home, 'acme-api')).not.toBeNull();
+    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 's2', cwd: `${dir}/.claude/worktrees/bridge-cse_01Y` }, 'business');
+    await vi.waitFor(() => expect(runner.lines()).toContain(`docker compose -p ${project} start api db`));
+    await vi.waitFor(async () => expect(await sleepState(home, 'acme-api')).toBeNull());
+    // Just woken: not put to sleep again on the next tick.
+    clock.now += 60_000;
+    await collector.sleepTick();
+    expect(runner.lines().filter((l) => l.endsWith('stop api db'))).toHaveLength(1);
   });
 });
 

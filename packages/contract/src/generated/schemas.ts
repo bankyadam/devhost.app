@@ -373,6 +373,12 @@ export const schemas = {
             "type": "integer",
             "minimum": 10,
             "default": 200
+          },
+          "idleSleepMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 60,
+            "description": "Stop an environment's compose services after this many minutes without a session in it, and start them again with the next one (A7.9). 0 turns it off."
           }
         }
       },
@@ -2304,7 +2310,9 @@ export const schemas = {
           "deleted",
           "started",
           "stopped",
-          "restarted"
+          "restarted",
+          "asleep",
+          "awake"
         ]
       },
       "dir": {
@@ -2368,6 +2376,13 @@ export const schemas = {
         "items": {
           "type": "string"
         }
+      },
+      "services": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "sleep/wake: the compose services stopped or started"
       }
     }
   },

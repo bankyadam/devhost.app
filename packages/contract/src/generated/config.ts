@@ -104,6 +104,10 @@ export interface DevhostConfig {
     cpu?: number;
     memoryGiB?: number;
     diskGiB?: number;
+    /**
+     * Stop an environment's compose services after this many minutes without a session in it, and start them again with the next one (A7.9). 0 turns it off.
+     */
+    idleSleepMinutes?: number;
   };
   network?: {
     tailscale?: boolean;

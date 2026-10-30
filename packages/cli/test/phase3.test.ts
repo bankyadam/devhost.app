@@ -643,6 +643,27 @@ describe('environments', () => {
     expect(await env.run('apply', '--only', 'env.acme-api')).toBe(1); // a service that failed is down
   });
 
+  it('env sleep stops the running compose services and apply leaves them asleep; env wake starts them again', async () => {
+    const { env, mac, dir } = await created();
+    await writeFile(join(dir, 'compose.yaml'), 'services: { db: { image: postgres } }\n');
+    expect(await env.run('apply', '--only', 'env.acme-api')).toBe(0);
+    expect(mac.state.composeUp.has('devhost-acme-api')).toBe(true);
+    env.out.length = 0;
+    expect(await env.run('env', 'sleep', 'acme-api', '--json')).toBe(0);
+    expect(lastResult(env).data).toMatchObject({ name: 'acme-api', action: 'asleep', services: ['db'] });
+    expect(mac.state.composeUp.has('devhost-acme-api')).toBe(false);
+    // Asleep is not broken: apply does not start it, doctor does not flag it.
+    expect(await env.run('apply', '--only', 'env.acme-api')).toBe(0);
+    expect(mac.state.composeUp.has('devhost-acme-api')).toBe(false);
+    env.out.length = 0;
+    expect(await env.run('env', 'wake', 'acme-api', '--json')).toBe(0);
+    expect(lastResult(env).data).toMatchObject({ action: 'awake', services: ['db'] });
+    expect(mac.runner.lines()).toContain('docker compose -p devhost-acme-api start db');
+    env.out.length = 0;
+    expect(await env.run('env', 'wake', 'acme-api', '--json')).toBe(0);
+    expect(lastResult(env).data).toMatchObject({ action: 'awake', services: [] });
+  });
+
   it('a compose project that does not come up still gets its Remote Control service, so a session can fix it', async () => {
     const { env, mac, dir } = await created();
     const label = 'com.devhost.rc.business.acme-api';
