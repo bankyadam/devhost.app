@@ -15,6 +15,7 @@ import {
 } from '../config/accounts.js';
 import { applyDaemon, checkDaemon, daemonInstalled, removeDaemon, serviceEnv, type DaemonSpec } from '../launchd.js';
 import { toolPath } from '../state.js';
+import { sleepState } from '../sleep.js';
 import { onVolume, workVolumeOf } from '../storage/volume.js';
 import { DevhostError } from '../errors.js';
 import { isKeychainError, keychainFreeDockerConfig } from '../docker-creds.js';
@@ -99,14 +100,15 @@ async function composeFile(ctx: StepContext, dir: string): Promise<string | null
 }
 
 /**
- * The compose project's containers: up when at least one runs and every other one ran to
- * completion (exit 0), like a one-shot init service that creates buckets or runs migrations.
+ * The compose project's containers: up when at least one runs (or is paused on purpose) and every
+ * other one ran to completion (exit 0), like a one-shot init service that creates buckets or runs migrations.
  */
 export async function composeState(exec: StepContext['exec'], name: string, dir: string): Promise<{ up: boolean; running: number }> {
   const r = await exec.query('docker', ['compose', '-p', composeProject(name), 'ps', '-a', '--format', '{{.State}} {{.ExitCode}}'], { cwd: dir });
   const rows = r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
-  const running = rows.filter((l) => l.startsWith('running ')).length;
-  return { up: r.code === 0 && running > 0 && rows.every((l) => l.startsWith('running ') || l === 'exited 0'), running };
+  const isUp = (l: string): boolean => l.startsWith('running ') || l.startsWith('paused ');
+  const running = rows.filter(isUp).length;
+  return { up: r.code === 0 && running > 0 && rows.every((l) => isUp(l) || l === 'exited 0'), running };
 }
 
 async function composeUp(ctx: StepContext, e: Environment, dir: string): Promise<boolean> {
@@ -161,7 +163,7 @@ export function envStep(a: Account, e: Environment): Step {
         else if (!/Found RC allowed 0/.test((await ctx.exec.query('direnv', ['status'], { cwd: dir })).stdout)) problems.push('.envrc is not allowed in direnv');
         const exclude = (await ctx.exec.readText(join(dir, '.git', 'info', 'exclude'))) ?? '';
         if (!exclude.split('\n').includes('.envrc')) problems.push('.envrc is not git-excluded');
-        if (e.compose !== 'off' && (await composeFile(ctx, dir)) && !(await composeUp(ctx, e, dir))) problems.push('compose services are not up');
+        if (e.compose !== 'off' && (await composeFile(ctx, dir)) && !(await sleepState(ctx.home, e.name)) && !(await composeUp(ctx, e, dir))) problems.push('compose services are not up');
         if (needsFirstCommit(e) && !(await hasCommit(ctx.exec, dir))) problems.push('the repository has no commit: worktree sessions cannot start');
       }
 
@@ -205,7 +207,8 @@ export function envStep(a: Account, e: Environment): Step {
       await exec.exec('direnv', ['allow', dir]);
 
       let composeFailed: { code: number; stderr: string } | null = null;
-      if (e.compose !== 'off' && (await composeFile(ctx, dir))) {
+      // Asleep (A7.9): its services start when a session uses it, not here.
+      if (e.compose !== 'off' && (await composeFile(ctx, dir)) && !(await sleepState(ctx.home, e.name))) {
         const composeUp = (env?: Record<string, string>) =>
           exec.exec('docker', ['compose', '-p', composeProject(e.name), 'up', '-d'], { cwd: dir, reason: 'start the environment\'s compose services', allowFailure: true, progress: true, ...(env ? { env } : {}) });
         let up = await composeUp();

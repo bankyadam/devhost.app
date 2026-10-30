@@ -8,6 +8,7 @@ import { remoteSessionFrom } from '../reattach.js';
 import { tailscaleStatus, toSample } from '../tailscale-status.js';
 import type { Deps } from '../deps.js';
 import { daemonState } from '../launchd.js';
+import { sleepEnv, sleepState, wakeEnv } from '../sleep.js';
 import { Executor } from '../runner/executor.js';
 import { AlertEngine, RESTART_WINDOW_MS, type AlertThresholds } from './alerts.js';
 import { checkAuth } from './auth.js';
@@ -110,13 +111,14 @@ export class Collector {
     this.opts = opts;
     this.db = opts.db;
     this.now = opts.now ?? Date.now;
+    this.startedAt = this.now();
     this.os = opts.os ?? realOs;
     this.exec = new Executor(
       opts.deps.runner,
       { step: () => undefined, log: () => undefined },
       { dryRun: false, verbose: false, interactiveSudo: false, now: () => new Date(this.now()) },
     );
-    this.ingest = new Ingestor(opts.db, this.now, () => this.locations());
+    this.ingest = new Ingestor(opts.db, this.now, () => this.locations(), (where) => void this.wake(where));
     this.alerts = new AlertEngine(opts.db, opts.notifier, this.now, opts.log);
     this.sources = new Sources((m) => this.log(m));
   }
@@ -398,6 +400,59 @@ export class Collector {
     });
   }
 
+  // ---- sleeping environments (A7.9) ----
+
+  /** When the collector started: an environment counts as used from then on, so a restart does not put everything to sleep. */
+  private readonly startedAt: number;
+  private waking = new Set<string>();
+
+  /** A session started or got a prompt in an environment: start the services it had when it fell asleep. */
+  async wake(where: EnvLocation): Promise<void> {
+    if (this.waking.has(where.env) || !(await sleepState(this.opts.deps.home, where.env))) return;
+    this.waking.add(where.env);
+    try {
+      const state = await wakeEnv(this.exec, this.opts.deps.home, where.env, where.dir);
+      if (state) {
+        this.db.kvSet(`awake:${where.env}`, String(this.now()), this.now());
+        this.log(`${where.env} woke up for a session: started ${state.services.join(', ')}`);
+      }
+    } catch (err) {
+      this.log(`waking ${where.env} failed: ${(err as Error).message}`);
+    } finally {
+      this.waking.delete(where.env);
+    }
+  }
+
+  /**
+   * Every minute: an environment whose compose services run and that had no session activity for
+   * docker.idleSleepMinutes falls asleep. A session in the middle of a turn keeps it awake however
+   * long the turn takes.
+   */
+  async sleepTick(): Promise<void> {
+    const minutes = this.config.docker?.idleSleepMinutes ?? 60;
+    if (minutes <= 0) return;
+    await this.sources.run('sleep', async () => {
+      const now = this.now();
+      const envs = new Map(environmentsOf(this.config).map((e) => [e.name, e]));
+      for (const l of this.locations()) {
+        if (envs.get(l.env)?.compose === 'off' || !this.docker.has(composeProject(l.env))) continue;
+        if (await sleepState(this.opts.deps.home, l.env)) continue;
+        const busy = this.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM sessions WHERE env = ? AND state = 'running'", l.env)?.n ?? 0;
+        if (busy > 0) continue;
+        const last = Math.max(
+          this.db.get<{ t: number | null }>('SELECT MAX(last_activity_at) AS t FROM sessions WHERE env = ?', l.env)?.t ?? 0,
+          Number(this.db.kvGet(`awake:${l.env}`) ?? 0),
+          this.startedAt,
+        );
+        if (now - last < minutes * 60_000) continue;
+        await this.safe(`sleep ${l.env}`, async () => {
+          const state = await sleepEnv(this.exec, this.opts.deps.home, l.env, l.dir, now);
+          if (state) this.log(`${l.env} fell asleep after ${minutes} min without a session: stopped ${state.services.join(', ')}`);
+        });
+      }
+    });
+  }
+
   /**
    * Every minute: Tailscale's state, without peers. tailscaled answers on its unix socket (no child
    * process); `dash`, `doctor` and `status` read this sample instead of asking themselves.
@@ -556,6 +611,7 @@ export class Collector {
     every(interval, () => this.sampleTick());
     every(15_000, () => this.dockerTick());
     every(60_000, () => this.tailscaleTick());
+    every(60_000, () => this.sleepTick());
     every(Math.max(1, this.config.collector?.authCheckMinutes ?? 60) * 60_000, () => this.authTick());
     every(10 * 60_000, () => this.maintenanceTick());
     every(24 * 3_600_000, () => this.diskUsageTick());

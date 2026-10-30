@@ -348,6 +348,15 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       state.composeUp.delete(m[1]!);
       return {};
     }
+    if ((m = /^docker compose -p (\S+) ps --format \{\{\.Service\}\} \{\{\.State\}\}$/.exec(line))) return { stdout: state.composeUp.has(m[1]!) ? 'db running\n' : '' };
+    if ((m = /^docker compose -p (\S+) stop /.exec(line))) {
+      state.composeUp.delete(m[1]!);
+      return {};
+    }
+    if ((m = /^docker compose -p (\S+) start /.exec(line))) {
+      state.composeUp.add(m[1]!);
+      return {};
+    }
     if ((m = /^docker compose -p (\S+) ps -a --format/.exec(line))) return { stdout: state.composeUp.has(m[1]!) ? (state.composeInit ? 'running 0\nexited 0\n' : 'running 0\n') : '' };
     if (line === 'sw_vers -productVersion') return { stdout: '26.0\n' };
     if (line === 'uname -m') return { stdout: `${state.arch}\n` };

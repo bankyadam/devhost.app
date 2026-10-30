@@ -13,6 +13,7 @@ import { acceptWorkspace, authStatus, type LoginContext } from './login.js';
 import { allocatePortBase } from './ports.js';
 import { makePrompter } from './prompter.js';
 import type { Executor } from './runner/executor.js';
+import { sleepEnv, wakeEnv } from './sleep.js';
 import { buildSteps, selectSteps } from './steps/index.js';
 
 function findEnv(config: DevhostConfig, name: string): { env: Environment; account: Account } {
@@ -263,6 +264,30 @@ export function envServiceCommand(deps: Deps, g: GlobalOptions, name: string, ac
     const data: EnvChangeData = { name, account: env.account, action: action === 'start' ? 'started' : action === 'stop' ? 'stopped' : 'restarted' };
     const note = action === 'stop' ? ' It stays stopped until `devhost env start` or the next reboot.' : '';
     return { ok: true, data, human: ['', `✅ ${name}: ${data.action}.${note}`] };
+  });
+}
+
+/**
+ * Put an environment's compose services to sleep, or wake them (A7.9). Sleep notes the services
+ * running now and stops them; wake starts exactly those again. The collector does this on its own
+ * after docker.idleSleepMinutes without a session, and wakes it with the next one.
+ */
+export function envSleepCommand(deps: Deps, g: GlobalOptions, name: string, action: 'sleep' | 'wake'): Promise<number> {
+  return long(deps, g, async (reporter) => {
+    const { config } = await loadConfig(g.configPath);
+    const { env, account } = findEnv(config, name);
+    if (env.compose === 'off') throw new UsageError(`environment "${name}" has compose off: nothing to ${action}`);
+    const exec = newExecutor(deps, g, reporter, false);
+    const dir = envDir(account, env, deps.home);
+    reporter.step(`env.${name}`, 'start', action);
+    const state = action === 'sleep' ? await sleepEnv(exec, deps.home, name, dir, deps.now().getTime()) : await wakeEnv(exec, deps.home, name, dir);
+    const services = state?.services ?? [];
+    reporter.step(`env.${name}`, state ? 'changed' : 'ok', state ? `${action === 'sleep' ? 'stopped' : 'started'} ${services.join(', ')}` : action === 'sleep' ? 'no service runs, or asleep already' : 'awake already');
+    const data: EnvChangeData = { name, account: env.account, action: action === 'sleep' ? 'asleep' : 'awake', services };
+    const human = !state ? `✅ ${name}: ${action === 'sleep' ? 'nothing runs, or it is asleep already' : 'awake already'}.`
+      : action === 'sleep' ? `✅ ${name} is asleep: ${services.join(', ')} stopped. They start again with the next session, or \`devhost env wake ${name}\`.`
+      : `✅ ${name} is awake: ${services.join(', ')} started.`;
+    return { ok: true, data, human: ['', human] };
   });
 }
 

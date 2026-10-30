@@ -10,6 +10,8 @@ export class Ingestor {
     private readonly db: Db,
     private readonly now: () => number,
     private readonly locations: () => EnvLocation[],
+    /** A session started or got a prompt in this environment (wakes a sleeping one, A7.9). */
+    private readonly onActive?: (where: EnvLocation) => void,
   ) {}
 
   private readonly attribution: Attribution = {
@@ -100,6 +102,7 @@ export class Ingestor {
       if (state === 'ended') this.db.run('UPDATE agents SET ended_at = ? WHERE session_id = ? AND ended_at IS NULL', now, evt.sessionId);
     });
     this.db.kvSet('last_hook_at', String(now), now);
+    if (where && (evt.event === 'SessionStart' || evt.event === 'UserPromptSubmit')) this.onActive?.(where);
     return true;
   }
 }

@@ -13,6 +13,7 @@ import { authStatus, claudeBinary, claudeRunOptions, loginIdentity, stripAnsi } 
 import type { Executor } from '../runner/executor.js';
 import { miseBinary } from '../mise.js';
 import { brewfilePath, renderBrewfile, BUNDLE_CHECK_ENV, bundleCheckArgs } from '../steps/packages.js';
+import { sleepState } from '../sleep.js';
 import { COMPOSE_FILES, composeState, envrcFor, hasCommit, workspaceTrusted } from '../steps/env.js';
 import { COLIMA_LABEL } from '../steps/docker.js';
 import { COLLECTOR_LABEL } from '../steps/collector.js';
@@ -378,8 +379,13 @@ async function oneEnv(c: DoctorContext, a: Account, e: Environment): Promise<Che
     let file: string | null = null;
     for (const f of COMPOSE_FILES) if ((await exec.readText(join(dir, f))) !== null) file = f;
     if (file) {
-      const state = await composeState(exec, e.name, dir);
-      out.push(state.up ? ok(`${id}.compose`, `${state.running} compose service(s) up`) : fail(`${id}.compose`, 'compose services are not all up', `devhost apply --only ${id}`));
+      const asleep = await sleepState(deps.home, e.name);
+      if (asleep) {
+        out.push(ok(`${id}.compose`, `asleep since ${new Date(asleep.at).toLocaleString()}: ${asleep.services.join(', ')} start with the next session`));
+      } else {
+        const state = await composeState(exec, e.name, dir);
+        out.push(state.up ? ok(`${id}.compose`, `${state.running} compose service(s) up`) : fail(`${id}.compose`, 'compose services are not all up', `devhost apply --only ${id}`));
+      }
     }
   }
 

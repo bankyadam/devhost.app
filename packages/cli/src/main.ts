@@ -14,7 +14,7 @@ import {
 } from './commands.js';
 import type { GlobalOptions } from './command-support.js';
 import { accountAddCommand, accountListCommand, accountRemoveCommand, loginCommand } from './commands-accounts.js';
-import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, envServiceCommand } from './commands-env.js';
+import { envCreateCommand, envDeleteCommand, envListCommand, envLogsCommand, envServiceCommand, envSleepCommand } from './commands-env.js';
 import { collectorLogsCommand, collectorRunCommand, dashCommand, notifyCommand, topCommand } from './commands-collector.js';
 import { doctorCommand, statusCommand, uninstallCommand } from './commands-doctor.js';
 import { agentsListCommand } from './commands-agents.js';
@@ -207,6 +207,8 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
   for (const action of ['start', 'stop', 'restart'] as const) {
     env.command(`${action} <name>`).description(`${action[0]!.toUpperCase()}${action.slice(1)} an environment's Remote Control service`).action((name: string) => run(() => envServiceCommand(deps, globals(), name, action))());
   }
+  env.command('sleep <name>').description("Stop an environment's compose services until a session uses it (only those running now come back)").action((name: string) => run(() => envSleepCommand(deps, globals(), name, 'sleep'))());
+  env.command('wake <name>').description("Start the compose services an environment had running when it fell asleep").action((name: string) => run(() => envSleepCommand(deps, globals(), name, 'wake'))());
   env
     .command('logs <name>')
     .description('Show the Remote Control service log')
