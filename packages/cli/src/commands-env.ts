@@ -13,7 +13,7 @@ import { acceptWorkspace, authStatus, type LoginContext } from './login.js';
 import { allocatePortBase } from './ports.js';
 import { makePrompter } from './prompter.js';
 import type { Executor } from './runner/executor.js';
-import { sleepEnv, wakeEnv } from './sleep.js';
+import { sleepEnv, sleepState, wakeEnv } from './sleep.js';
 import { buildSteps, selectSteps } from './steps/index.js';
 
 function findEnv(config: DevhostConfig, name: string): { env: Environment; account: Account } {
@@ -54,6 +54,11 @@ async function serviceInfo(exec: Executor, env: Environment): Promise<EnvListDat
   return { label, state: (await daemonInstalled(exec, label)) ? 'stopped' : 'not-installed', pid: null };
 }
 
+async function asleepOf(home: string, env: string): Promise<{ asleep?: { at: number; services: string[] } }> {
+  const st = await sleepState(home, env);
+  return st ? { asleep: { at: st.at, services: st.services } } : {};
+}
+
 export function envListCommand(deps: Deps, g: GlobalOptions): Promise<number> {
   return short<EnvListData>(deps, g, async () => {
     const { config } = await loadConfig(g.configPath);
@@ -72,12 +77,13 @@ export function envListCommand(deps: Deps, g: GlobalOptions): Promise<number> {
         remoteControl: { enabled: e.remoteControl?.enabled !== false, spawn: e.remoteControl?.spawn ?? 'worktree', permissionMode: e.remoteControl?.permissionMode ?? 'acceptEdits', ...(await environmentUrl(rcLogPath(deps.home, e.account, e.name))) },
         compose: e.compose ?? 'auto',
         service: await serviceInfo(exec, e),
+        ...await asleepOf(deps.home, e.name),
       });
     }
     const human =
       environments.length === 0
         ? 'No environments yet. Create one with `devhost env create --account <a> --name <n> [--repo <url>]`.'
-        : ['NAME\tACCOUNT\tPORTS\tSERVICE\tDIR', ...environments.map((e) => [e.name, e.account, e.portBase === null ? '-' : `${e.portBase}-${e.portBase + 99}`, e.service.state, e.dir].join('\t'))].join('\n');
+        : ['NAME\tACCOUNT\tPORTS\tSERVICE\tCOMPOSE\tDIR', ...environments.map((e) => [e.name, e.account, e.portBase === null ? '-' : `${e.portBase}-${e.portBase + 99}`, e.service.state, e.asleep ? 'asleep' : e.compose, e.dir].join('\t'))].join('\n');
     return { data: { environments }, human };
   });
 }

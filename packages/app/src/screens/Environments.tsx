@@ -33,7 +33,7 @@ export function Environments() {
   const [accountOrder, setAccountOrder] = useState<string[]>([]);
   // The dashboard colors accounts by their place in the config: the same here.
   const accountNames = accountOrder.length > 0 ? accountOrder : envs ? byAccount(envs).map(([a]) => a) : [];
-  const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env } | { kind: 'setup'; env: Env }>(null);
+  const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'sleep'; env: Env; action: 'sleep' | 'wake' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env } | { kind: 'setup'; env: Env }>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -86,7 +86,7 @@ export function Environments() {
                       <td><b>{e.name}</b>{volume && !volume.ready && (e.dir === volume.mountPoint || e.dir.startsWith(`${volume.mountPoint}/`)) && <> <Badge tone="bad">volume missing</Badge></>}</td>
                       <td>{e.service.state === 'running' ? <Badge tone="good">running{e.service.pid ? ` · pid ${e.service.pid}` : ''}</Badge> : e.service.state === 'stopped' ? <Badge tone="bad">stopped</Badge> : e.service.state === 'not-installed' ? <Badge tone="warn">not installed</Badge> : <Badge>off</Badge>}</td>
                       <td className="mono">{e.portBase === null ? '–' : `${e.portBase}–${e.portBase + 99}`}</td>
-                      <td>{e.compose}</td>
+                      <td>{e.asleep ? <span title={`Since ${new Date(e.asleep.at).toLocaleString()}. Starts with the next session: ${e.asleep.services.join(', ')}`}><Badge>asleep</Badge></span> : e.compose}</td>
                       <td className="mono small" title={e.dir}>{e.dir}{e.dirExists === false && <> <Badge tone="bad">missing</Badge></>}</td>
                       <td>
                         <div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
@@ -110,6 +110,8 @@ export function Environments() {
                               { label: 'Start', hidden: !e.remoteControl.enabled, disabled: e.service.state === 'running', onSelect: () => setDialog({ kind: 'service', env: e, action: 'start' }) },
                               { label: 'Stop', hidden: !e.remoteControl.enabled, disabled: e.service.state !== 'running', onSelect: () => setDialog({ kind: 'service', env: e, action: 'stop' }) },
                               { label: 'Restart', hidden: !e.remoteControl.enabled, onSelect: () => setDialog({ kind: 'service', env: e, action: 'restart' }) },
+                              { label: 'Put compose to sleep', hidden: e.compose === 'off' || !!e.asleep, onSelect: () => setDialog({ kind: 'sleep', env: e, action: 'sleep' }) },
+                              { label: 'Wake compose', hidden: !e.asleep, onSelect: () => setDialog({ kind: 'sleep', env: e, action: 'wake' }) },
                               { label: 'Logs', onSelect: () => setDialog({ kind: 'logs', env: e }) },
                               { label: 'Run setup again', onSelect: () => setDialog({ kind: 'setup', env: e }) },
                               ...plugins.actions('environment').map((a) => ({ label: `${a.title}${a.destructive ? '…' : ''}`, danger: a.destructive, onSelect: () => setPluginRun({ action: a, env: e.name }) })),
@@ -126,7 +128,7 @@ export function Environments() {
           </section>
         ))
       )}
-      <p className="note">Start, stop and restart change a system service, so they need the sudo password; if it cannot be asked here you get a Terminal window for it. A stopped service stays stopped until you start it or {hostName} reboots.</p>
+      <p className="note">Start, stop and restart change a system service, so they need the sudo password; if it cannot be asked here you get a Terminal window for it. A stopped service stays stopped until you start it or {hostName} reboots. Compose services go to sleep after an hour without a session (docker.idleSleepMinutes) and wake with the next one; what was stopped by hand stays stopped.</p>
 
       {pluginRun && <PluginRunDialog action={pluginRun.action} target={{ env: pluginRun.env }} onClose={() => setPluginRun(null)} />}
       {dialog?.kind === 'setup' && (
@@ -149,6 +151,17 @@ export function Environments() {
           onClose={() => { setDialog(null); void refresh(); }}
           onFinished={() => void refresh()}
         />
+      )}
+      {dialog?.kind === 'sleep' && (
+        <RunDialog
+          title={`${dialog.action === 'sleep' ? 'Put to sleep' : 'Wake'} ${dialog.env.name}`}
+          begin={(h) => client.envSleep(dialog.env.name, dialog.action, h)}
+          terminal={{ kind: 'devhost', args: ['env', dialog.action, dialog.env.name] }}
+          onClose={() => { setDialog(null); void refresh(); }}
+          onFinished={() => void refresh()}
+        >
+          <p className="sec">{dialog.action === 'sleep' ? 'Stops the compose services running now. Only these start again, with the next session in this environment.' : `Starts ${dialog.env.asleep?.services.join(', ') ?? 'the services it had running'}.`}</p>
+        </RunDialog>
       )}
       {dialog?.kind === 'delete' && <DeleteFlow env={dialog.env} onClose={() => { setDialog(null); void refresh(); }} />}
       {dialog?.kind === 'logs' && <LogViewer title={`${dialog.env.name} · Remote Control log`} load={() => client.envLogs(dialog.env.name, 300).then((l) => l.lines)} onClose={() => setDialog(null)} />}

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -235,6 +235,23 @@ describe('environments (spec B3.2)', () => {
     expect(alert.closest('.notice')).toHaveTextContent('never handles the password');
     await h.user.click(within(alert.closest('.notice') as HTMLElement).getByRole('button', { name: 'Open in Terminal' }));
     expect(h.transport.opened.at(-1)).toEqual({ terminal: { kind: 'devhost', args: ['env', 'restart', 'acme-api'] } });
+  });
+
+  it('puts compose services to sleep and wakes them from the menu', async () => {
+    const h = await makeHarness();
+    await withBusiness(h);
+    await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
+    await writeFile(join(h.env.home, 'work', 'business', 'acme-api', 'compose.yaml'), 'services: { db: { image: postgres } }\n');
+    await h.cli('apply', '--only', 'env.acme-api');
+    mount(h);
+    await goto(h, 'Environments');
+    await envAction(h, 'acme-api', 'Put compose to sleep');
+    expect(await screen.findByText('stopped db', undefined, { timeout: 8000 })).toBeInTheDocument();
+    await h.user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(await screen.findByText('asleep')).toBeInTheDocument();
+    await envAction(h, 'acme-api', 'Wake compose');
+    expect(await screen.findByText('started db', undefined, { timeout: 8000 })).toBeInTheDocument();
+    expect(h.mac.runner.lines()).toContain('docker compose -p devhost-acme-api start db');
   });
 
   it("▶ opens the environment's Remote Control link, in the account's web app when it has one", async () => {
