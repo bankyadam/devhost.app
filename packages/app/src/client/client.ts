@@ -206,6 +206,8 @@ export class DevhostClient {
   }
   envDelete = (name: string, deleteFiles: boolean, h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', 'delete', name, ...(deleteFiles ? ['--delete-files'] : [])], h);
   envService = (name: string, action: 'start' | 'stop' | 'restart', h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', action, name], h);
+  /** Stop an environment's compose services until a session uses it, or start the ones it had (A7.9). */
+  envSleep = (name: string, action: 'sleep' | 'wake', h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', action, name], h);
 
   /** Bring an ended Remote Control session back (a one-shot service in its worktree). */
   sessionReattach = (id: string, h?: LongHandlers): LongRun<SessionReattachData> => this.run<SessionReattachData>(['session', 'reattach', id], h);

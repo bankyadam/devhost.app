@@ -2484,6 +2484,26 @@ export const schemas = {
                   ]
                 }
               }
+            },
+            "asleep": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "at",
+                "services"
+              ],
+              "description": "Present while the environment sleeps (A7.9): since when, and the compose services that start with the next session",
+              "properties": {
+                "at": {
+                  "type": "integer"
+                },
+                "services": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           }
         }

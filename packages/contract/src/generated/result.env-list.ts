@@ -22,5 +22,12 @@ export interface EnvListData {
       state: 'running' | 'stopped' | 'not-installed' | 'disabled';
       pid: number | null;
     };
+    /**
+     * Present while the environment sleeps (A7.9): since when, and the compose services that start with the next session
+     */
+    asleep?: {
+      at: number;
+      services: string[];
+    };
   }[];
 }
