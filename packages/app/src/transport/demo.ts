@@ -256,6 +256,52 @@ function demoStats(d: DashData, metric: Metric, stack: Stack, others: unknown[])
         },
       },
       { plugin: 'stats', id: 'agents', title: 'Agents at work', size: 'wide', refreshSeconds: 15, summary: `now ${d.agents?.now.sessions ?? 0} sessions + ${d.agents?.now.subagents ?? 0} subagents`, chart: { title: 'Most agents at once', series: [{ key: 'total', label: 'Agents' }], points: agentBuckets(d), axis: 'time', format: 'integer', height: 140 } },
+      {
+        plugin: 'stats', id: 'sources', title: 'Where tokens and cost go', size: 'wide', refreshSeconds: 15,
+        summary: 'Subagents: 22% of the cost ($10.00), 18% of the tokens',
+        tiles: [
+          { label: 'Main thread', value: '$35.00', sub: '4.9M tokens · 41K tokens/request' },
+          { label: 'Subagents', value: '$10.00', sub: '1.1M tokens · 64 requests' },
+          { label: 'In all', value: '$45.00', sub: '6.1M tokens' },
+        ],
+        rows: [
+          { label: 'main', value: '$35.00', note: '78% of the cost · 4.9M tokens (4.2M cache read) · 120 requests · 41K tokens/request' },
+          { label: 'Explore', value: '$6.20', note: '14% of the cost · 720K tokens (510K cache read) · 41 requests · 18K tokens/request' },
+          { label: 'test-runner', value: '$2.60', note: '6% of the cost · 280K tokens (190K cache read) · 16 requests · 18K tokens/request' },
+          { label: 'custom', value: '$1.20', note: '3% of the cost · 100K tokens (60K cache read) · 7 requests · 14K tokens/request' },
+        ],
+        note: 'By where Claude Code made the request: the main thread, each built-in subagent type, custom agents, compaction.',
+      },
+      {
+        plugin: 'stats', id: 'time', title: 'Where the time goes', size: 'wide', refreshSeconds: 15,
+        summary: '21% of agent time was spent waiting on this host, 6% of it CPU-bound',
+        tiles: [
+          { label: 'Agents working', value: '7.4 h', sub: 'in the last 24h' },
+          { label: 'Model (API)', value: '68%', sub: '5.0 h' },
+          { label: 'On this host only', value: '21%', sub: '1.6 h · local tools 2.1 h in all' },
+          { label: 'CPU-bound', value: '6%', sub: '26 min' },
+          { label: 'Network tools', value: '4%', sub: '18 min' },
+          { label: '2× faster CPU', value: '−3%', sub: '4× faster: −5%' },
+        ],
+        rows: [
+          { label: 'Bash', value: '1.4 h', note: '310 runs · avg 16.3 s · this host' },
+          { label: 'Agent', value: '42 min', note: '18 runs · avg 2.3 min · subagent (its own time is counted)' },
+          { label: 'Read', value: '9 min', note: '640 runs · avg 0.8 s · this host' },
+          { label: 'WebFetch', value: '6 min', note: '22 runs · avg 16.4 s · network' },
+        ],
+        note: 'Per session, API requests and tool runs are merged so parallel subagents count once.',
+      },
+      {
+        plugin: 'stats', id: 'memory', title: 'Memory', refreshSeconds: 15, status: 'ok',
+        summary: 'No memory pressure in this range',
+        tiles: [
+          { label: 'Largest session', value: '1.8 GB', sub: 'its process tree at peak' },
+          { label: 'System peak', value: '64%', sub: 'of 64.0 GB' },
+          { label: 'Swap peak', value: '0 MB' },
+          { label: 'Pressure', value: '0%', sub: 'of samples at warning or critical' },
+        ],
+        note: 'Swap in use and memory pressure mean the host is short of RAM.',
+      },
       ...others,
     ],
   };

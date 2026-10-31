@@ -1,0 +1,108 @@
+import { useEffect, useState } from 'react';
+import type { EnvListData } from '@devhost/contract/lite';
+import { useApp } from '../app-context';
+import { ago, bytes, compact, pct, usd } from '../lib/format';
+import { sortSessions, STATE_LABEL, type Session, type SortDir, type SortKey } from '../lib/sessions';
+import { Badge, Empty, Menu } from '../ui/primitives';
+import { useDash } from '../use-dash';
+import { PluginRunDialog } from '../ui/plugin-run';
+import { usePlugins, type PluginActionInfo } from '../use-plugins';
+import { openClaude, useWebApps } from '../use-web-apps';
+
+/** The sessions that are open now, all accounts together: ended ones are not listed. */
+export function Sessions() {
+  const { client, transport, connection, hostName: hostLabel } = useApp();
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'lastActivityAt', dir: 'desc' });
+  const [envs, setEnvs] = useState<EnvListData['environments']>([]);
+  const { dash, loading, error, stale } = useDash('24h', {});
+  const webApps = useWebApps();
+  const plugins = usePlugins();
+  const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; session: string } | null>(null);
+
+  useEffect(() => {
+    if (connection.kind === 'connected') void client.envs().then((e) => setEnvs(e.environments)).catch(() => undefined);
+  }, [client, connection.kind, dash?.environments.length]);
+
+  if (!dash) {
+    return <div className="content"><h1>Sessions</h1><Empty>{error ? `Could not load the sessions: ${error}` : loading ? 'Loading the sessions…' : 'No data yet.'}</Empty></div>;
+  }
+
+  const now = dash.generatedAt;
+  const hostName = transport.host.replace(/^.*@/, '');
+  const sessions = sortSessions(dash.sessions.filter((s) => s.state !== 'ended'), sort.key, sort.dir);
+  const waiting = sessions.filter((s) => s.state === 'waiting').length;
+
+  return (
+    <div className="content" style={{ opacity: loading ? 0.6 : 1 }}>
+      <div className="row">
+        <h1>Sessions</h1>
+        {waiting > 0 && <Badge tone="warn">{waiting} waiting for input</Badge>}
+        {stale && <Badge tone="warn">showing the last data</Badge>}
+        {error && <span className="note" role="alert">{error}</span>}
+      </div>
+      <section className="card" aria-label="Sessions">
+        <header><h2>Idle and active</h2><span className="note">Claude Code sessions on {hostLabel}, all accounts together.</span></header>
+        {sessions.length === 0 ? <Empty>No idle or active sessions.</Empty> : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  {([['account', 'Account'], ['env', 'Environment'], ['id', 'Session'], ['state', 'State'], ['startedAt', 'Started'], ['lastActivityAt', 'Last activity'], ['tokensToday', 'Tokens today'], ['costToday', 'Cost today'], ['cpuPercent', 'CPU'], ['rssBytes', 'RAM']] as [SortKey, string][]).map(([key, text]) => (
+                    <th key={key} className={['tokensToday', 'costToday', 'cpuPercent', 'rssBytes'].includes(key) ? 'num' : ''} aria-sort={sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                      <button onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }))}>{text}{sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</button>
+                    </th>
+                  ))}
+                  <th><span className="sr">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envs.find((e) => e.name === s.env)?.dir} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} />)}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="note">CPU and RAM per session are best effort (matched by working directory); the numbers on the Environments screen are reliable.</p>
+      </section>
+      {pluginRun && <PluginRunDialog action={pluginRun.action} target={{ session: pluginRun.session }} onClose={() => setPluginRun(null)} />}
+    </div>
+  );
+}
+
+function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onAction }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void }) {
+  const { transport, tools } = useApp();
+  return (
+    <tr className={s.state === 'waiting' ? 'waiting' : ''}>
+      <td>{s.account ?? '–'}</td>
+      <td>{s.env ?? '–'}</td>
+      <td className="session" title={s.title ? `${s.titleFromPrompt ? 'Last prompt: ' : ''}${s.title}\n${s.id}` : s.id}>
+        {s.title && <div className={s.titleFromPrompt ? 'last-prompt' : undefined}>{s.title}</div>}
+        <div className={s.title ? 'note mono' : 'mono'}>{s.id.slice(0, 8)}</div>
+        {s.subagents && s.subagents.total > 0 && (
+          <div className="note" title={s.subagents.types.join(', ')}>
+            {s.subagents.running > 0 ? <Badge tone="good">{`+${s.subagents.running} ${s.subagents.running === 1 ? 'subagent' : 'subagents'} running`}</Badge> : null} {s.subagents.total} {s.subagents.total === 1 ? 'subagent' : 'subagents'}{s.subagents.types.length > 0 ? ` (${s.subagents.types.join(', ')})` : ''}
+          </div>
+        )}
+      </td>
+      <td>{s.state === 'waiting' ? <Badge tone="warn">{STATE_LABEL[s.state]}</Badge> : s.state === 'running' ? <Badge tone="good">running</Badge> : <Badge>{STATE_LABEL[s.state]}</Badge>}</td>
+      <td>{ago(s.startedAt, now)}</td>
+      <td>{ago(s.lastActivityAt, now)}</td>
+      <td className="num">{compact(s.tokensToday)}</td>
+      <td className="num">{usd(s.costToday)}</td>
+      <td className="num">{pct(s.cpuPercent)}</td>
+      <td className="num">{bytes(s.rssBytes)}</td>
+      <td>
+        <Menu
+          label="Open"
+          items={[
+            { label: app ? `claude.ai/code (${app})` : 'claude.ai/code', onSelect: () => void openClaude(transport, app, s.remoteSession ? `https://claude.ai/code/${s.remoteSession}` : envUrl) },
+            { label: 'Terminal: resume this session', hidden: !dir, onSelect: () => void transport.openTerminal({ kind: 'resume', dir: dir!, sessionId: s.id }) },
+            { label: 'Terminal: shell in the environment', hidden: !dir, onSelect: () => void transport.openTerminal({ kind: 'shell', dir: dir! }) },
+            { label: 'VS Code (Remote SSH)', hidden: !dir || !tools.code, onSelect: () => void transport.openVscode(dir!) },
+            { label: portBase ? `Dev server (port ${portBase})` : 'Dev server', hidden: portBase == null, onSelect: () => void transport.openUrl(`http://${hostName}:${portBase}`) },
+            ...actions.map((a) => ({ label: `${a.title}${a.destructive ? '…' : ''}`, danger: a.destructive, onSelect: () => onAction(a) })),
+          ]}
+        />
+      </td>
+    </tr>
+  );
+}

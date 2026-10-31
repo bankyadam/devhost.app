@@ -614,14 +614,19 @@ One view across all accounts and environments, from `devhost dash --follow --jso
 
 - **Header:** the host's health, titled with its name (online, uptime, CPU, RAM, internal disk free, Docker, Tailscale), with a work volume its state (mounted, free space, encrypted), Claude Code's version (current, a newer one with why the automatic update waits, the last update's outcome, outdated packages, and "Update now…": confirm → `devhost update`; when sessions are busy, "Interrupt them and update" runs it with `--force`), collector status, alert badges.
 - **Plugin cards:** each enabled plugin's filters and cards (A18). The usage statistics are the built-in `stats` plugin's: filters (time range 1h / 24h / 7d / 30d, account, environment, model, tokens or cost, stacked by account or token type), a card per account (today / this week, login state, daily cost alert meter), tokens or estimated cost over time, and agents at work (now, most at once, over time). Charts have a table view.
-- **Environments panel:** per environment: Remote Control service state, CPU/RAM (process tree + its containers), port block, disk size.
-- **Sessions table:** every Claude Code session on the Mac mini, all accounts together. Columns: account, environment, session title (or last prompt) and id, subagents, state (running / waiting for input / idle / ended), started, last activity, tokens today, estimated cost today, CPU, RAM. Sort by any column. Sessions waiting for input are highlighted.
 - **Known limits** shown inline where relevant (A10.7).
-- **Session actions:** open in claude.ai/code (the session itself for worktree sessions; through the account's web app when it has one), reattach an ended Remote Control session (A7.9), resume in Terminal, shell in the environment, open the environment in VS Code (`code --remote ssh-remote+<host> <path>`), open dev server URLs from the port block, plugin session actions.
+
+Compact: tiles of the health header and of plugin cards flow at most 8 to a row; a card's `note`, a row's `note` and the comment on the Claude Code version sit behind an (i) tooltip; a card's `rows` flow in two columns where it is wide enough.
+
+### B3.1.1 Sessions
+
+Its own screen: the sessions open now (running, waiting for input, idle), all accounts together; ended ones are not listed. Columns: account, environment, session title (or last prompt) and id, subagents, state, started, last activity, tokens today, estimated cost today, CPU, RAM. Sort by any column. Sessions waiting for input are highlighted.
+
+**Session actions:** open in claude.ai/code (the session itself for worktree sessions; through the account's web app when it has one), resume in Terminal, shell in the environment, open the environment in VS Code (`code --remote ssh-remote+<host> <path>`), open dev server URLs from the port block, plugin session actions. An ended session is reattached with `devhost session reattach` (A7.9), which the app no longer offers.
 
 ### B3.2 Environments
 
-- Grouped by account (one card per account, in the config's order, with the account's color); status; ▶ opens the environment's Remote Control link; start / stop / restart; compose asleep (badge, with since when and what starts with the next session), put compose to sleep / wake compose (A7.9); logs; run setup again; plugin environment actions; delete.
+- Grouped by account (one card per account, in the config's order, with the account's color); status, CPU/RAM (process tree + its containers), port block, disk size, open sessions; ▶ opens the environment's Remote Control link; start / stop / restart; compose asleep (badge, with since when and what starts with the next session), put compose to sleep / wake compose (A7.9); logs; run setup again; plugin environment actions; delete.
 - With a work volume: its status (mounted, free space, encrypted) above the list; environments whose volume is missing are marked.
 - **Create wizard:** account → name → repo URL (or empty) → Remote Control on/off, permission mode → compose auto/off → review (shows allocated port block and generated paths) → run `devhost env create --json` with a live step log. Prompt events (e.g. workspace trust) are handled in-app; a failed setup can be tried again.
 - **Delete:** shows unpushed commits/branches from the CLI; typed-name confirmation; files kept unless explicitly chosen.
@@ -678,7 +683,7 @@ Two screens:
 ## B6. Acceptance criteria (Part B)
 
 1. On a MacBook with SSH access to the Mac mini over Tailscale, the app connects and shows the dashboard within 5 seconds. Verified on an Apple Silicon Mac running macOS 26.
-2. The dashboard shows sessions from all accounts together, with live CPU/RAM and today's tokens and estimated cost, matching `devhost dash --json`.
+2. The Sessions screen shows open sessions from all accounts together, with live CPU/RAM and today's tokens and estimated cost, matching `devhost dash --json`.
 3. Creating an environment from the wizard produces the same result as `devhost env create`, and its session appears in the Claude app.
 4. Adding a new account from the app (including login) and removing it works end to end, with the same result as the CLI; re-login of an existing account works, including the browser step.
 5. Editing config in the form, reviewing the dry-run diff, and applying works; invalid config cannot be saved.

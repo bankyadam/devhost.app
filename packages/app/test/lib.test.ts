@@ -7,7 +7,7 @@ import { seriesSlot, seriesVar } from '../src/lib/colors';
 import { ago, bytes, compact, duration, pct, usd } from '../src/lib/format';
 import { predictAccountRange, predictEnvBlock } from '../src/lib/ports';
 import { loadPrefs, savePrefs } from '../src/lib/prefs';
-import { filterSessions, sortSessions, type Session } from '../src/lib/sessions';
+import { sortSessions, type Session } from '../src/lib/sessions';
 import { trayState } from '../src/lib/tray';
 import { SERIES_HEX, webAppIconSvg } from '../src/lib/webAppIcon';
 import { BUCKET_MS, buildBuckets, meterTone } from '../src/lib/usage';
@@ -90,11 +90,6 @@ describe('sessions table', () => {
     session({ id: 'b', state: 'waiting', account: 'y', env: 'q', tokensToday: 50, cpuPercent: null, lastActivityAt: 10 }),
     session({ id: 'c', state: 'running', account: 'x', env: 'q', tokensToday: 20, cpuPercent: 80, lastActivityAt: 20 }),
   ];
-  it('filters by account and environment', () => {
-    expect(filterSessions(list, { account: 'x' }).map((s) => s.id)).toEqual(['a', 'c']);
-    expect(filterSessions(list, { account: 'x', env: 'q' }).map((s) => s.id)).toEqual(['c']);
-    expect(filterSessions(list, {})).toHaveLength(3);
-  });
   it('sorts by any column; empty values sort last in both directions', () => {
     expect(sortSessions(list, 'tokensToday', 'desc').map((s) => s.id)).toEqual(['b', 'c', 'a']);
     expect(sortSessions(list, 'cpuPercent', 'desc').map((s) => s.id)).toEqual(['c', 'a', 'b']);

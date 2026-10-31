@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 
 export function StatusDot({ tone }: { tone: 'good' | 'warn' | 'bad' | 'none' }) {
   return <span className={`dot ${tone === 'none' ? '' : tone}`} aria-hidden="true" />;
@@ -13,6 +13,26 @@ export function Badge({ tone = 'none', children }: { tone?: 'good' | 'warn' | 'b
     </span>
   );
 }
+
+/** An (i) that shows `text` on hover or focus. Fixed to the window, so a scrolling table or a card's edge cannot cut it off. */
+export function Info({ text, label = 'More information' }: { text: string; label?: string }) {
+  const id = useId();
+  const button = useRef<HTMLButtonElement>(null);
+  const [place, setPlace] = useState<CSSProperties | null>(null);
+  const show = (): void => {
+    const r = button.current!.getBoundingClientRect();
+    const left = Math.max(8, Math.min(r.left + r.width / 2 - TIP_WIDTH / 2, window.innerWidth - TIP_WIDTH - 8));
+    setPlace(r.bottom > window.innerHeight * 0.6 ? { left, bottom: window.innerHeight - r.top + 2 } : { left, top: r.bottom + 2 });
+  };
+  const hide = (): void => setPlace(null);
+  return (
+    <span className="info" onMouseEnter={show} onMouseLeave={hide}>
+      <button type="button" ref={button} aria-label={label} aria-describedby={id} onFocus={show} onBlur={hide} onKeyDown={(e) => { if (e.key === 'Escape') hide(); }}>i</button>
+      <span role="tooltip" id={id} hidden={place === null} style={{ ...place, width: TIP_WIDTH }}>{text}</span>
+    </span>
+  );
+}
+const TIP_WIDTH = 340;
 
 export function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string | null; children: (id: string) => ReactNode }) {
   const id = useId();
