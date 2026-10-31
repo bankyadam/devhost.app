@@ -18,7 +18,6 @@ import {
   type PluginListData,
   type PluginRunData,
   type PluginWidgetsData,
-  type SessionReattachData,
   type UpdateData,
   type StorageChangeData,
   type StorageListData,
@@ -209,8 +208,6 @@ export class DevhostClient {
   /** Stop an environment's compose services until a session uses it, or start the ones it had (A7.9). */
   envSleep = (name: string, action: 'sleep' | 'wake', h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', action, name], h);
 
-  /** Bring an ended Remote Control session back (a one-shot service in its worktree). */
-  sessionReattach = (id: string, h?: LongHandlers): LongRun<SessionReattachData> => this.run<SessionReattachData>(['session', 'reattach', id], h);
   /** Update Claude Code (restarts the Remote Control services, reattaches their sessions); `all` also upgrades the Brewfile packages. */
   update = (o: { all?: boolean; force?: boolean }, h?: LongHandlers): LongRun<UpdateData> => this.run<UpdateData>(['update', ...(o.all ? ['--all'] : []), ...(o.force ? ['--force'] : [])], h);
 

@@ -4,15 +4,6 @@ export type Session = DashData['sessions'][number];
 export type SortKey = 'account' | 'env' | 'id' | 'state' | 'startedAt' | 'lastActivityAt' | 'tokensToday' | 'costToday' | 'cpuPercent' | 'rssBytes';
 export type SortDir = 'asc' | 'desc';
 
-export interface SessionFilter {
-  account?: string;
-  env?: string;
-}
-
-export function filterSessions(sessions: Session[], f: SessionFilter): Session[] {
-  return sessions.filter((s) => (!f.account || s.account === f.account) && (!f.env || s.env === f.env));
-}
-
 const STATE_ORDER: Record<Session['state'], number> = { waiting: 0, running: 1, idle: 2, ended: 3 };
 
 /** Sessions waiting for input first (they need a human), then by the chosen column. Nulls sort last. */

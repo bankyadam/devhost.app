@@ -122,6 +122,13 @@ describe('dashboard (spec B3.1, B6)', () => {
     return h;
   }
 
+  /** The dashboard's harness, on the Sessions screen. */
+  async function sessionsScreen(...args: Parameters<typeof dashboard>) {
+    const h = await dashboard(...args);
+    await h.user.click(screen.getByRole('button', { name: 'Sessions' }));
+    return h;
+  }
+
   it('offers Update now when Claude Code is outdated, waits for a busy session, and updates when told to interrupt it', async () => {
     const h = await dashboard();
     h.mac.state.binaries.add('claude');
@@ -148,7 +155,7 @@ describe('dashboard (spec B3.1, B6)', () => {
   });
 
   it('shows sessions of all accounts, highlights the one waiting, and the tray follows', async () => {
-    const h = await dashboard();
+    const h = await sessionsScreen();
     const sessions = within(await screen.findByLabelText('Sessions'));
     const rows = await sessions.findAllByRole('row');
     expect(rows.length).toBe(3); // header + 2 sessions
@@ -195,14 +202,17 @@ describe('dashboard (spec B3.1, B6)', () => {
     await waitFor(() => expect(within(screen.getByRole('region', { name: 'Usage over time (stats)' })).getByLabelText('Legend')).toHaveTextContent('Cache read'));
   });
 
-  it('filters re-query the host; sorting reorders the table', async () => {
+  it('filters re-query the host', async () => {
     const h = await dashboard();
     // The filters are the stats plugin's: they narrow its cards, not the sessions.
     await h.user.selectOptions(screen.getByLabelText('Account'), 'personal');
     await waitFor(() => expect(h.transport.calls.some((c) => c[0] === 'plugin' && c.includes('stats.account=personal'))).toBe(true));
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Account business' })).toBeNull());
     expect(screen.getByRole('region', { name: 'Account personal' })).toBeInTheDocument();
-    await h.user.selectOptions(screen.getByLabelText('Account'), '');
+  });
+
+  it('sorting reorders the sessions table', async () => {
+    const h = await sessionsScreen();
     const sessions = within(await screen.findByLabelText('Sessions'));
     await sessions.findByText('sess-wai');
     await h.user.click(sessions.getByRole('button', { name: /^Tokens today/ }));
@@ -213,7 +223,7 @@ describe('dashboard (spec B3.1, B6)', () => {
   });
 
   it("shows each session's title from its transcript, else its last prompt", async () => {
-    await dashboard([], {
+    await sessionsScreen([], {
       'sess-waiting-1': `${JSON.stringify({ type: 'custom-title', customTitle: 'Fix the login flow', sessionId: 'sess-waiting-1' })}\n`,
       'sess-running-2': `${JSON.stringify({ type: 'last-prompt', lastPrompt: 'run the   tests again', sessionId: 'sess-running-2' })}\n`,
     });
@@ -225,17 +235,18 @@ describe('dashboard (spec B3.1, B6)', () => {
   });
 
   it('shows subagents per session and how many agents worked at once', async () => {
-    await dashboard();
+    const h = await dashboard();
     const card = within(await screen.findByRole('region', { name: 'Agents at work (stats)' }));
     expect(card.getByText(/now 1 session \+ 1 subagent/)).toBeInTheDocument();
     expect(card.getByText(/most at once in this range: 5$/)).toBeInTheDocument(); // the peak, an hour ago: 2 sessions + 3 subagents
+    await h.user.click(screen.getByRole('button', { name: 'Sessions' }));
     const row = (await screen.findByText('sess-run')).closest('tr')!;
     expect(within(row).getByText('+1 subagent running')).toBeInTheDocument();
     expect(within(row).getByText(/2 subagents \(Explore, Plan\)/)).toBeInTheDocument();
   });
 
   it("plugin session actions are in the session's Open menu and ask before they stop anything", async () => {
-    const h = await dashboard([], {}, true);
+    const h = await sessionsScreen([], {}, true);
     const row = (await screen.findByText('sess-wai')).closest('tr')!;
     await h.user.click(within(row).getByRole('button', { name: /Open/ }));
     await h.user.click(await screen.findByRole('menuitem', { name: 'Stop the session process…' }));
@@ -300,7 +311,7 @@ describe('dashboard (spec B3.1, B6)', () => {
   });
 
   it("claude.ai/code opens the account's web app when it has one", async () => {
-    const h = await dashboard(['Claude – business']);
+    const h = await sessionsScreen(['Claude – business']);
     const row = (await screen.findByText('sess-wai')).closest('tr')!;
     await h.user.click(within(row).getByRole('button', { name: /Open/ }));
     await h.user.click(await screen.findByRole('menuitem', { name: 'claude.ai/code (Claude – business)' }));
@@ -311,6 +322,7 @@ describe('dashboard (spec B3.1, B6)', () => {
     const h = await dashboard();
     await h.user.click(screen.getByRole('button', { name: '7 days' }));
     await waitFor(() => expect(h.transport.calls.some((c) => c[0] === 'plugin' && c.includes('stats.range=7d'))).toBe(true));
+    await h.user.click(screen.getByRole('button', { name: 'Sessions' }));
     const row = (await screen.findByText('sess-wai')).closest('tr')!;
     await h.user.click(within(row).getByRole('button', { name: /Open/ }));
     await h.user.click(screen.getByRole('menuitem', { name: 'Terminal: resume this session' }));
@@ -326,26 +338,41 @@ describe('dashboard (spec B3.1, B6)', () => {
     expect(h.transport.opened.at(-1)).toEqual({ url: 'http://macmini:3000' });
   });
 
-  it('an ended Remote Control worktree session can be reattached from its Open menu; others cannot', async () => {
+  it('lists idle and active sessions, not ended ones, and keeps health and environment numbers on their own screens', async () => {
     const h = await dashboard();
     const { Db, dbPath } = await import('../../cli/src/collector/db.js');
-    const wt = join(h.env.home, 'work', 'business', 'acme-api', '.claude', 'worktrees', 'bridge-cse_01Abc');
     const now = h.env.deps.now().getTime();
     const db = new Db(dbPath(h.env.home));
-    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at) VALUES ('sess-ended-3', 'business', 'acme-api', ?, 'ended', ?, ?, ?)", wt, now - 60_000, now - 30_000, now - 1000);
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at) VALUES ('sess-ended-3', 'business', 'acme-api', '/x', 'ended', ?, ?, ?)", now - 60_000, now - 30_000, now - 1000);
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at) VALUES ('sess-idle-4', 'business', 'acme-api', '/x', 'idle', ?, ?)", now - 60_000, now - 30_000);
     db.close();
-    const row = (await screen.findByText('sess-end', undefined, { timeout: 8000 })).closest('tr')!;
-    await h.user.click(within(row).getByRole('button', { name: /Open/ }));
-    await h.user.click(screen.getByRole('menuitem', { name: 'claude.ai/code' }));
-    expect(h.transport.opened.at(-1)).toEqual({ url: 'https://claude.ai/code/session_01Abc' });
-    await h.user.click(within(row).getByRole('button', { name: /Open/ }));
-    await h.user.click(screen.getByRole('menuitem', { name: 'Reattach to Remote Control…' }));
-    expect(await screen.findByRole('dialog', { name: 'Reattach session sess-end' })).toBeInTheDocument();
-    await waitFor(() => expect(h.transport.calls.some((c) => c.join(' ') === 'session reattach sess-ended-3 --json')).toBe(true));
+    expect(screen.queryByLabelText('Sessions')).toBeNull();
+    expect(screen.queryByLabelText('Environments')).toBeNull();
+    await h.user.click(screen.getByRole('button', { name: 'Sessions' }));
+    await screen.findByText('sess-idl', undefined, { timeout: 8000 });
+    expect(screen.getByText('sess-run')).toBeInTheDocument();
+    expect(screen.queryByText('sess-end')).toBeNull();
+    await h.user.click(screen.getByRole('button', { name: 'Environments' }));
+    await waitFor(() => expect(within(screen.getByText('acme-api', { selector: 'b' }).closest('tr')!).getAllByRole('cell')[8]).toHaveTextContent(/^\d+$/)); // sessions, from the collector
+  });
 
-    const other = (await screen.findByText('sess-wai')).closest('tr')!;
-    await h.user.click(within(other).getByRole('button', { name: /Open/ }));
-    expect(screen.queryByRole('menuitem', { name: 'Reattach to Remote Control…' })).toBeNull();
+  it("a card's note and a row's details are behind an (i), and its tiles in one grid", async () => {
+    const h = await dashboard();
+    const usage = within(screen.getByRole('region', { name: 'Usage over time (stats)' }));
+    const info = usage.getByRole('button', { name: 'About Usage over time' });
+    const tip = usage.getByText(/Cost is an estimate from Claude Code/);
+    expect(tip).toHaveAttribute('role', 'tooltip');
+    expect(tip).not.toBeVisible();
+    await h.user.hover(info);
+    expect(tip).toBeVisible();
+    await h.user.unhover(info);
+    expect(tip).not.toBeVisible();
+    await h.user.tab();
+    info.focus();
+    await waitFor(() => expect(tip).toBeVisible());
+    await h.user.keyboard('{Escape}');
+    expect(tip).not.toBeVisible();
+    expect(info).toHaveAccessibleDescription(/Cost is an estimate/);
   });
 
   it('hides VS Code when it is not installed on the MacBook', async () => {
@@ -355,6 +382,7 @@ describe('dashboard (spec B3.1, B6)', () => {
     const { cleanup } = await import('@testing-library/react');
     cleanup();
     mount(h);
+    await h.user.click(await screen.findByRole('button', { name: 'Sessions' }));
     const row = (await screen.findByText('sess-wai')).closest('tr')!;
     await h.user.click(within(row).getByRole('button', { name: /Open/ }));
     expect(screen.queryByRole('menuitem', { name: 'VS Code (Remote SSH)' })).not.toBeInTheDocument();

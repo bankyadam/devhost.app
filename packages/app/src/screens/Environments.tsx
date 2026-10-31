@@ -4,10 +4,11 @@ import { useApp } from '../app-context';
 import { envCreateArgs, type EnvCreateInput } from '../client/client';
 import { errorMessage } from '../client/errors';
 import { seriesSlot, seriesVar } from '../lib/colors';
-import { bytes } from '../lib/format';
+import { bytes, pct } from '../lib/format';
 import { ENV_SLUG, predictEnvBlock } from '../lib/ports';
 import { Badge, Dialog, Empty, Field, Menu, WizardStep } from '../ui/primitives';
 import { RunDialog } from '../ui/run-dialog';
+import { useDash } from '../use-dash';
 import { PluginRunDialog } from '../ui/plugin-run';
 import { usePlugins, type PluginActionInfo } from '../use-plugins';
 import { openClaude, useWebApps } from '../use-web-apps';
@@ -25,6 +26,8 @@ export function byAccount(envs: Env[], order: readonly string[] = []): [string, 
 export function Environments() {
   const { client, transport, connection, reportUnreachable, hostName } = useApp();
   const [envs, setEnvs] = useState<Env[] | null>(null);
+  // CPU, memory, disk and sessions per environment come from the collector.
+  const { dash } = useDash('24h', {});
   const webApps = useWebApps();
   const plugins = usePlugins();
   const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; env: string } | null>(null);
@@ -79,15 +82,24 @@ export function Environments() {
             </header>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Environment</th><th>Remote Control service</th><th>Port block</th><th>Compose</th><th>Directory</th><th><span className="sr">Actions</span></th></tr></thead>
+                <thead><tr><th>Environment</th><th>Remote Control</th><th className="num">CPU</th><th className="num">RAM</th><th className="num">Containers</th><th>Ports</th><th>Compose</th><th className="num">Disk</th><th className="num">Sessions</th><th><span className="sr">Actions</span></th></tr></thead>
                 <tbody>
-                  {list.map((e) => (
+                  {list.map((e) => {
+                    const m = dash?.environments.find((x) => x.account === e.account && x.name === e.name);
+                    return (
                     <tr key={e.name}>
-                      <td><b>{e.name}</b>{volume && !volume.ready && (e.dir === volume.mountPoint || e.dir.startsWith(`${volume.mountPoint}/`)) && <> <Badge tone="bad">volume missing</Badge></>}</td>
+                      <td>
+                        <b>{e.name}</b>{volume && !volume.ready && (e.dir === volume.mountPoint || e.dir.startsWith(`${volume.mountPoint}/`)) && <> <Badge tone="bad">volume missing</Badge></>}
+                        <div className="note mono" title={e.dir}>{e.dir}{e.dirExists === false && <> <Badge tone="bad">missing</Badge></>}</div>
+                      </td>
                       <td>{e.service.state === 'running' ? <Badge tone="good">running{e.service.pid ? ` · pid ${e.service.pid}` : ''}</Badge> : e.service.state === 'stopped' ? <Badge tone="bad">stopped</Badge> : e.service.state === 'not-installed' ? <Badge tone="warn">not installed</Badge> : <Badge>off</Badge>}</td>
+                      <td className="num">{pct(m?.cpuPercent)}</td>
+                      <td className="num">{bytes(m?.rssBytes)}</td>
+                      <td className="num">{m?.containerCpuPercent == null ? '–' : `${pct(m.containerCpuPercent)} · ${bytes(m.containerMemBytes)}`}</td>
                       <td className="mono">{e.portBase === null ? '–' : `${e.portBase}–${e.portBase + 99}`}</td>
                       <td>{e.asleep ? <span title={`Since ${new Date(e.asleep.at).toLocaleString()}. Starts with the next session: ${e.asleep.services.join(', ')}`}><Badge>asleep</Badge></span> : e.compose}</td>
-                      <td className="mono small" title={e.dir}>{e.dir}{e.dirExists === false && <> <Badge tone="bad">missing</Badge></>}</td>
+                      <td className="num">{bytes(m?.diskBytes)}</td>
+                      <td className="num">{m?.activeSessions ?? '–'}</td>
                       <td>
                         <div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
                           {(() => {
@@ -121,7 +133,8 @@ export function Environments() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

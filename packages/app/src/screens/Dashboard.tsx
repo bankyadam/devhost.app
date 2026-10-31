@@ -1,56 +1,38 @@
 import { useEffect, useState } from 'react';
-import type { DashData, EnvListData, SessionReattachData } from '@devhost/contract/lite';
-import { useApp } from '../app-context';
+import type { DashData } from '@devhost/contract/lite';
 import { seriesSlot, seriesVar } from '../lib/colors';
 import { ago, bytes, compact, duration, pct, usd } from '../lib/format';
-import { filterSessions, sortSessions, STATE_LABEL, type Session, type SortDir, type SortKey } from '../lib/sessions';
 import { meterTone } from '../lib/usage';
 import { Legend, StackedColumns, type Series } from '../ui/chart';
-import { RunDialog } from '../ui/run-dialog';
-import { Badge, Empty, Menu, Segmented } from '../ui/primitives';
+import { Badge, Empty, Info, Segmented } from '../ui/primitives';
 import { UpdateClaude } from '../ui/update-claude';
 import { useDash } from '../use-dash';
 import { PluginRunDialog } from '../ui/plugin-run';
 import { usePlugins, usePluginWidgets, type PluginActionInfo, type PluginFilter, type PluginWidget } from '../use-plugins';
-import { openClaude, useWebApps } from '../use-web-apps';
-
 
 export function Dashboard({ params = {}, onParams = () => undefined }: { params?: Record<string, string>; onParams?: (p: Record<string, string>) => void }) {
-  const { client, transport, connection, hostName: hostLabel } = useApp();
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'lastActivityAt', dir: 'desc' });
   const [known, setKnown] = useState<string[]>([]);
-  const [envs, setEnvs] = useState<EnvListData['environments']>([]);
 
-  // Health, environments and sessions: the statistics (and their filters) are the stats plugin's.
+  // Health and alerts: the statistics (and their filters) are the stats plugin's.
   const { dash, loading, error, stale } = useDash('24h', {});
-  const webApps = useWebApps();
   const plugins = usePlugins();
   const widgets = usePluginWidgets(params);
-  const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; session?: string } | null>(null);
-  const [reattach, setReattach] = useState<string | null>(null);
+  const [pluginRun, setPluginRun] = useState<PluginActionInfo | null>(null);
   const [update, setUpdate] = useState(false);
 
   // Account colors follow the account, not its rank: remember every account ever seen, in order.
   useEffect(() => {
     if (dash) setKnown((k) => [...k, ...dash.accounts.map((a) => a.name).filter((n) => !k.includes(n))]);
   }, [dash]);
-  useEffect(() => {
-    if (connection.kind === 'connected') void client.envs().then((e) => setEnvs(e.environments)).catch(() => undefined);
-  }, [client, connection.kind, dash?.environments.length]);
 
   const now = dash?.generatedAt ?? Date.now();
-  const hostName = transport.host.replace(/^.*@/, '');
 
   if (!dash) {
     return <div className="content"><h1>Dashboard</h1><Empty>{error ? `Could not load the dashboard: ${error}` : loading ? 'Loading the dashboard…' : 'No data yet.'}</Empty></div>;
   }
 
   const accountNames = known.length > 0 ? known : dash.accounts.map((a) => a.name);
-  const sessions = sortSessions(filterSessions(dash.sessions, {}), sort.key, sort.dir);
   const waiting = dash.sessions.filter((s) => s.state === 'waiting').length;
-
-
-  const envDir = (name: string | null): string | undefined => envs.find((e) => e.name === name)?.dir;
 
   return (
     <div className="content" style={{ opacity: loading ? 0.6 : 1 }}>
@@ -70,7 +52,7 @@ export function Dashboard({ params = {}, onParams = () => undefined }: { params?
         accountNames={accountNames}
         onParam={(key, value) => onParams({ ...params, [key]: value })}
         actionFor={(w) => (w.action ? plugins.action(w.plugin, w.action) : undefined)}
-        onAction={(action) => setPluginRun({ action })}
+        onAction={setPluginRun}
       />
 
       {dash.alerts.length > 0 && (
@@ -81,71 +63,11 @@ export function Dashboard({ params = {}, onParams = () => undefined }: { params?
         </div>
       )}
 
-      <section className="card" aria-label="Environments">
-        <header><h2>Environments</h2></header>
-        {dash.environments.length === 0 ? <Empty>No environments yet.</Empty> : (
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Environment</th><th>Remote Control</th><th className="num">CPU</th><th className="num">RAM</th><th className="num">Containers</th><th>Ports</th><th className="num">Disk</th><th className="num">Sessions</th></tr></thead>
-              <tbody>
-                {dash.environments.map((e) => (
-                  <tr key={`${e.account}/${e.name}`}>
-                    <td><b>{e.name}</b> <span className="muted">{e.account}</span></td>
-                    <td>{e.service.state === 'running' ? <Badge tone="good">running</Badge> : e.service.state === 'stopped' ? <Badge tone="bad">stopped</Badge> : <Badge>{e.service.state}</Badge>}</td>
-                    <td className="num">{pct(e.cpuPercent)}</td>
-                    <td className="num">{bytes(e.rssBytes)}</td>
-                    <td className="num">{e.containerCpuPercent == null ? '–' : `${pct(e.containerCpuPercent)} · ${bytes(e.containerMemBytes)}`}</td>
-                    <td className="mono">{e.portBase == null ? '–' : `${e.portBase}–${e.portBase + 99}`}</td>
-                    <td className="num">{bytes(e.diskBytes)}</td>
-                    <td className="num">{e.activeSessions}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <section className="card" aria-label="Sessions">
-        <header><h2>Sessions</h2><span className="note">Claude Code sessions on {hostLabel}, all accounts together.</span></header>
-        {sessions.length === 0 ? <Empty>No sessions in this view.</Empty> : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  {([['account', 'Account'], ['env', 'Environment'], ['id', 'Session'], ['state', 'State'], ['startedAt', 'Started'], ['lastActivityAt', 'Last activity'], ['tokensToday', 'Tokens today'], ['costToday', 'Cost today'], ['cpuPercent', 'CPU'], ['rssBytes', 'RAM']] as [SortKey, string][]).map(([key, text]) => (
-                    <th key={key} className={['tokensToday', 'costToday', 'cpuPercent', 'rssBytes'].includes(key) ? 'num' : ''} aria-sort={sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                      <button onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }))}>{text}{sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</button>
-                    </th>
-                  ))}
-                  <th><span className="sr">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envDir(s.env)} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} onReattach={() => setReattach(s.id)} />)}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <p className="note">CPU and RAM per session are best effort (matched by working directory); per-environment numbers above are reliable.</p>
-      </section>
-
       <ul className="note" style={{ margin: 0, paddingLeft: 18 }} aria-label="Known limits">
         {dash.limits.map((l) => <li key={l}>{l}</li>)}
       </ul>
-      {reattach && (
-        <RunDialog<SessionReattachData>
-          title={`Reattach session ${reattach.slice(0, 8)}`}
-          begin={(h) => client.sessionReattach(reattach, h)}
-          terminal={{ kind: 'devhost', args: ['session', 'reattach', reattach] }}
-          onClose={() => setReattach(null)}
-          after={(r) => r.data && <p>Back on Remote Control: <button className="btn sm" onClick={() => void openClaude(transport, webApps.appFor(r.data!.account), r.data!.url)}>Open in Claude</button></p>}
-        >
-          <p className="sec">Runs the session's Remote Control again in its worktree, once. Usually not needed: writing in the session on claude.ai continues it under the environment's service. While this job runs, claude.ai lists a single-session environment named after the worktree instead of the environment.</p>
-        </RunDialog>
-      )}
       {update && <UpdateClaude latest={dash.updates?.claude.latest ?? null} onClose={() => setUpdate(false)} />}
-      {pluginRun && <PluginRunDialog action={pluginRun.action} target={pluginRun.session ? { session: pluginRun.session } : {}} onClose={() => { setPluginRun(null); if (!pluginRun.session) void widgets.refresh(); }} />}
+      {pluginRun && <PluginRunDialog action={pluginRun} target={{}} onClose={() => { setPluginRun(null); void widgets.refresh(); }} />}
     </div>
   );
 }
@@ -207,7 +129,7 @@ function PluginWidgets({ filters, widgets, params, accountNames, onParam, action
   );
 }
 
-/** A plugin's card: status, a line, tiles, a meter, a chart, rows, a note and one action. */
+/** A plugin's card: status, a line, tiles, a meter, a chart, rows and one action; its note and each row's are behind an (i). */
 function WidgetCard({ w, accountNames, action, onAction }: { w: PluginWidget; accountNames: string[]; action?: PluginActionInfo; onAction: (a: PluginActionInfo) => void }) {
   const [asTable, setAsTable] = useState(false);
   const chart = w.chart;
@@ -220,6 +142,7 @@ function WidgetCard({ w, accountNames, action, onAction }: { w: PluginWidget; ac
       <header>
         {w.account && <i style={{ width: 10, height: 10, borderRadius: 2, background: seriesVar(seriesSlot(accountNames, w.account)) }} aria-hidden="true" />}
         <h2>{w.title}</h2>
+        {w.note && <Info text={w.note} label={`About ${w.title}`} />}
         {w.status && STATUS_BADGE[w.status]}
         <span className="push row">
           {chart && <button className="btn sm" aria-pressed={asTable} onClick={() => setAsTable((t) => !t)}>{asTable ? 'Show chart' : 'Show as table'}</button>}
@@ -228,7 +151,7 @@ function WidgetCard({ w, accountNames, action, onAction }: { w: PluginWidget; ac
       </header>
       {w.error ? <div className="note" role="alert">Could not be computed: {w.error}</div> : w.summary && <div className="note">{w.summary}</div>}
       {w.tiles && (
-        <div className="grid" style={{ gridTemplateColumns: `repeat(${Math.min(w.tiles.length, 3)}, 1fr)` }}>
+        <div className="grid tiles">
           {w.tiles.map((t) => <div className="tile" key={t.label}><span className="label">{t.label}</span><span className="value">{t.value}</span>{t.sub && <span className="sub">{t.sub}</span>}</div>)}
         </div>
       )}
@@ -254,53 +177,12 @@ function WidgetCard({ w, accountNames, action, onAction }: { w: PluginWidget; ac
         </>
       )}
       {w.rows && (
-        <table>
-          <tbody>{w.rows.map((r, i) => <tr key={i}><td>{r.label}{r.note && <div className="note">{r.note}</div>}</td><td className="num">{r.value}</td></tr>)}</tbody>
-        </table>
+        <dl className="widget-rows">
+          {w.rows.map((r, i) => <div key={i}><dt>{r.label}{r.note && <Info text={r.note} label={`Details of ${r.label}`} />}</dt><dd className="num">{r.value}</dd></div>)}
+        </dl>
       )}
-      {w.note && <p className="note">{w.note}</p>}
       {action && <div><button className={`btn sm${action.destructive ? ' danger' : ''}`} onClick={() => onAction(action)}>{action.title}{action.destructive ? '…' : ''}</button></div>}
     </section>
-  );
-}
-
-function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onAction, onReattach }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void; onReattach: () => void }) {
-  const { transport, tools } = useApp();
-  return (
-    <tr className={s.state === 'waiting' ? 'waiting' : ''}>
-      <td>{s.account ?? '–'}</td>
-      <td>{s.env ?? '–'}</td>
-      <td className="session" title={s.title ? `${s.titleFromPrompt ? 'Last prompt: ' : ''}${s.title}\n${s.id}` : s.id}>
-        {s.title && <div className={s.titleFromPrompt ? 'last-prompt' : undefined}>{s.title}</div>}
-        <div className={s.title ? 'note mono' : 'mono'}>{s.id.slice(0, 8)}</div>
-        {s.subagents && s.subagents.total > 0 && (
-          <div className="note" title={s.subagents.types.join(', ')}>
-            {s.subagents.running > 0 ? <Badge tone="good">{`+${s.subagents.running} ${s.subagents.running === 1 ? 'subagent' : 'subagents'} running`}</Badge> : null} {s.subagents.total} {s.subagents.total === 1 ? 'subagent' : 'subagents'}{s.subagents.types.length > 0 ? ` (${s.subagents.types.join(', ')})` : ''}
-          </div>
-        )}
-      </td>
-      <td>{s.state === 'waiting' ? <Badge tone="warn">{STATE_LABEL[s.state]}</Badge> : s.state === 'running' ? <Badge tone="good">running</Badge> : <Badge>{STATE_LABEL[s.state]}</Badge>}</td>
-      <td>{ago(s.startedAt, now)}</td>
-      <td>{ago(s.lastActivityAt, now)}</td>
-      <td className="num">{compact(s.tokensToday)}</td>
-      <td className="num">{usd(s.costToday)}</td>
-      <td className="num">{pct(s.cpuPercent)}</td>
-      <td className="num">{bytes(s.rssBytes)}</td>
-      <td>
-        <Menu
-          label="Open"
-          items={[
-            { label: app ? `claude.ai/code (${app})` : 'claude.ai/code', onSelect: () => void openClaude(transport, app, s.remoteSession ? `https://claude.ai/code/${s.remoteSession}` : envUrl) },
-            { label: 'Reattach to Remote Control…', hidden: s.state !== 'ended' || !s.remoteSession, onSelect: onReattach },
-            { label: 'Terminal: resume this session', hidden: !dir || s.state === 'ended', onSelect: () => void transport.openTerminal({ kind: 'resume', dir: dir!, sessionId: s.id }) },
-            { label: 'Terminal: shell in the environment', hidden: !dir, onSelect: () => void transport.openTerminal({ kind: 'shell', dir: dir! }) },
-            { label: 'VS Code (Remote SSH)', hidden: !dir || !tools.code, onSelect: () => void transport.openVscode(dir!) },
-            { label: portBase ? `Dev server (port ${portBase})` : 'Dev server', hidden: portBase == null, onSelect: () => void transport.openUrl(`http://${hostName}:${portBase}`) },
-            ...actions.map((a) => ({ label: `${a.title}${a.destructive ? '…' : ''}`, danger: a.destructive, hidden: s.state === 'ended', onSelect: () => onAction(a) })),
-          ]}
-        />
-      </td>
-    </tr>
   );
 }
 
@@ -315,7 +197,7 @@ function Health({ dash, now, onUpdate }: { dash: DashData; now: number; onUpdate
         {h.online ? <Badge tone="good">online</Badge> : <Badge tone="bad">no recent samples</Badge>}
         <span className="push note">Collector: last sample {ago(dash.collector.lastSampleAt, now)} · telemetry {ago(dash.collector.lastOtelAt, now)}</span>
       </header>
-      <div className="grid cols-4">
+      <div className="grid tiles">
         <div className="tile"><span className="label">Uptime</span><span className="value">{duration(h.uptimeSeconds)}</span></div>
         <div className="tile"><span className="label">CPU</span><span className="value">{pct(h.cpuPercent)}</span></div>
         <div className="tile"><span className="label">Memory</span><span className="value">{pct(h.memPercent)}</span><span className="sub">of {bytes(h.memTotalBytes)}</span></div>
@@ -326,12 +208,8 @@ function Health({ dash, now, onUpdate }: { dash: DashData; now: number; onUpdate
         )}
         {u && (
           <div className="tile" aria-label="Claude Code">
-            <span className="label">Claude Code</span>
+            <span className="label">Claude Code <Info label="About the Claude Code version" text={`${u.claude.outdated ? (u.mode === 'auto' ? `Automatic update${u.waiting ? ` waits: ${u.waiting}` : ' soon'}` : 'Automatic update is off') : u.lastUpdate ? `${u.lastUpdate.message} (${ago(u.lastUpdate.at, now)})` : `Checked ${ago(u.checkedAt, now)}`}${u.packages > 0 ? ` · ${u.packages} other package(s) outdated` : ''}`} /></span>
             <span className="value">{u.claude.installed ?? '–'} {u.claude.outdated ? <Badge tone="warn">{u.claude.latest} available</Badge> : u.lastUpdate && !u.lastUpdate.ok ? <Badge tone="bad">update failed</Badge> : <Badge tone="good">current</Badge>}</span>
-            <span className="sub">
-              {u.claude.outdated ? (u.mode === 'auto' ? `automatic update${u.waiting ? ` waits: ${u.waiting}` : ' soon'}` : 'automatic update is off') : u.lastUpdate ? `${u.lastUpdate.message} (${ago(u.lastUpdate.at, now)})` : `checked ${ago(u.checkedAt, now)}`}
-              {u.packages > 0 ? ` · ${u.packages} other package(s) outdated` : ''}
-            </span>
             {(u.claude.outdated || (u.lastUpdate && !u.lastUpdate.ok)) && <button className="btn sm" onClick={onUpdate}>Update now…</button>}
           </div>
         )}

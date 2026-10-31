@@ -7,6 +7,7 @@ import { Configuration } from './screens/Configuration';
 import { Dashboard } from './screens/Dashboard';
 import { Doctor } from './screens/Doctor';
 import { Environments } from './screens/Environments';
+import { Sessions } from './screens/Sessions';
 import { Logs } from './screens/Logs';
 import type { Transport } from './transport/types';
 import { Badge, ConfirmDialog, Field } from './ui/primitives';
@@ -16,6 +17,7 @@ import { useTraySync } from './use-tray';
 
 const NAV: { id: Screen; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
+  { id: 'sessions', label: 'Sessions' },
   { id: 'environments', label: 'Environments' },
   { id: 'accounts', label: 'Accounts' },
   { id: 'agents', label: 'Agents' },
@@ -141,6 +143,8 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
         {connection.kind === 'incompatible' && <div className="banner bad" role="alert">{connection.message}</div>}
         {connection.kind === 'incompatible' ? null : screen === 'dashboard' ? (
           <Dashboard params={prefs.pluginParams} onParams={(pluginParams) => update({ pluginParams })} />
+        ) : screen === 'sessions' ? (
+          <Sessions />
         ) : screen === 'environments' ? (
           <Environments />
         ) : screen === 'accounts' ? (
