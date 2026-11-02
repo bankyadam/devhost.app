@@ -239,3 +239,8 @@ legend { font-weight: 600; padding: 0 6px; font-size: 13px; }
 
 /* Agents: an account row with its environments under it */
 tr.group > td { background: color-mix(in srgb, var(--ink-2) 8%, transparent); }
+
+/* QR codes of the Remote Control links (a phone reads them off a second monitor) */
+.qr { display: block; border-radius: 4px; }
+.qr-cell { padding: 0; border: 0; background: none; cursor: zoom-in; }
+.qr-large { display: flex; justify-content: center; padding: 8px 0 12px; }

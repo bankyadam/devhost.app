@@ -50,7 +50,7 @@ describe('connection (spec B2, B6)', () => {
     await h.user.type(await screen.findByLabelText('Host'), 'macmini');
     await h.user.click(screen.getByRole('button', { name: 'Connect' }));
     expect(await screen.findByText(/connected · devhost/)).toBeInTheDocument();
-    expect(JSON.parse(storage.getItem('devhost.prefs.v1')!)).toEqual({ host: 'macmini', theme: 'system', pluginParams: {} });
+    expect(JSON.parse(storage.getItem('devhost.prefs.v1')!)).toEqual({ host: 'macmini', theme: 'system', pluginParams: {}, qrCodes: false });
   });
 
   it('changes the host through an in-app confirmation (no window.confirm)', async () => {

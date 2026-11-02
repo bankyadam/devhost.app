@@ -144,9 +144,9 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
         {connection.kind === 'incompatible' ? null : screen === 'dashboard' ? (
           <Dashboard params={prefs.pluginParams} onParams={(pluginParams) => update({ pluginParams })} />
         ) : screen === 'sessions' ? (
-          <Sessions />
+          <Sessions qr={prefs.qrCodes} onQr={(qrCodes) => update({ qrCodes })} />
         ) : screen === 'environments' ? (
-          <Environments />
+          <Environments qr={prefs.qrCodes} onQr={(qrCodes) => update({ qrCodes })} />
         ) : screen === 'accounts' ? (
           <Accounts />
         ) : screen === 'agents' ? (

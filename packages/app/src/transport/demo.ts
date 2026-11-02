@@ -159,7 +159,7 @@ const ACCOUNTS = [
 ];
 
 const ENVS = [
-  { name: 'acme-api', account: 'business', dir: '/Users/me/work/business/acme-api', dirExists: true, portBase: 4100, remoteControl: { enabled: true, spawn: 'worktree', permissionMode: 'acceptEdits' }, compose: 'auto', service: { label: 'com.devhost.rc.business.acme-api', state: 'running', pid: 4242 } },
+  { name: 'acme-api', account: 'business', dir: '/Users/me/work/business/acme-api', dirExists: true, portBase: 4100, remoteControl: { enabled: true, spawn: 'worktree', permissionMode: 'acceptEdits', url: 'https://claude.ai/code?environment=env_01DemoAcmeApi' }, compose: 'auto', service: { label: 'com.devhost.rc.business.acme-api', state: 'running', pid: 4242 } },
   { name: 'blog', account: 'personal', dir: '/Users/me/work/personal/blog', dirExists: true, portBase: 3000, remoteControl: { enabled: true, spawn: 'worktree', permissionMode: 'acceptEdits' }, compose: 'off', service: { label: 'com.devhost.rc.personal.blog', state: 'running', pid: 4301 } },
 ];
 
@@ -229,7 +229,7 @@ function demoDash(at: number, range: DashData['range']): DashData {
       { account: 'personal', name: 'blog', service: { state: 'running', pid: 4301 }, cpuPercent: 0.4, rssBytes: 2.6e8, containerCpuPercent: null, containerMemBytes: null, portBase: 3000, diskBytes: 6.4e8, activeSessions: 1, costToday: 1.2, costLastHour: 0.3, costAlert: { dailyUsd: null, hourlyUsd: null } },
     ],
     sessions: [
-      { id: '7c5dcf5d-aaaa', account: 'business', env: 'acme-api', state: 'waiting', startedAt: at - 3 * 3_600_000, lastActivityAt: at - 95_000, contextTokens: 342_000, handoffAt: null, tokensToday: 2_100_000, costToday: 18.7, cpuPercent: 2.1, rssBytes: 4.8e8 },
+      { id: '7c5dcf5d-aaaa', account: 'business', env: 'acme-api', remoteSession: 'session_01DemoWaiting', state: 'waiting', startedAt: at - 3 * 3_600_000, lastActivityAt: at - 95_000, contextTokens: 342_000, handoffAt: null, tokensToday: 2_100_000, costToday: 18.7, cpuPercent: 2.1, rssBytes: 4.8e8 },
       { id: '19be2a40-bbbb', account: 'business', env: 'acme-api', state: 'running', startedAt: at - 40 * 60_000, lastActivityAt: at - 4_000, contextTokens: 88_000, handoffAt: null, tokensToday: 640_000, costToday: 5.9, cpuPercent: 38.5, rssBytes: 7.1e8 },
       { id: 'd02e8c11-cccc', account: 'personal', env: 'blog', state: 'idle', startedAt: at - 5 * 3_600_000, lastActivityAt: at - 25 * 60_000, contextTokens: 61_000, handoffAt: at - 20 * 60_000, tokensToday: 310_000, costToday: 1.2, cpuPercent: null, rssBytes: null },
       { id: 'a4417f90-dddd', account: 'business', env: null, state: 'ended', startedAt: at - 9 * 3_600_000, lastActivityAt: at - 7 * 3_600_000, tokensToday: 120_000, costToday: 0.9, cpuPercent: null, rssBytes: null },

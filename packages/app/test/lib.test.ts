@@ -9,6 +9,7 @@ import { predictAccountRange, predictEnvBlock } from '../src/lib/ports';
 import { loadPrefs, savePrefs } from '../src/lib/prefs';
 import { sortSessions, type Session } from '../src/lib/sessions';
 import { trayState } from '../src/lib/tray';
+import { qrPath } from '../src/ui/qr';
 import { SERIES_HEX, webAppIconSvg } from '../src/lib/webAppIcon';
 import { BUCKET_MS, buildBuckets, meterTone } from '../src/lib/usage';
 import { deleteAt, fromPointer, readAt, toPointer, writeAt } from '../src/lib/yamlEdit';
@@ -195,13 +196,13 @@ describe('preferences', () => {
   it('store the host name and UI preferences only', () => {
     const mem = new Map<string, string>();
     const storage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
-    savePrefs({ host: 'macmini', theme: 'dark', pluginParams: { 'stats.range': '7d' }, ...({ password: 'x', ssh_key: 'y' } as object) } as never, storage);
+    savePrefs({ host: 'macmini', theme: 'dark', pluginParams: { 'stats.range': '7d' }, qrCodes: true, ...({ password: 'x', ssh_key: 'y' } as object) } as never, storage);
     const raw = JSON.parse([...mem.values()][0]!) as Record<string, unknown>;
-    expect(Object.keys(raw).sort()).toEqual(['host', 'pluginParams', 'theme']);
-    expect(loadPrefs(storage)).toEqual({ host: 'macmini', theme: 'dark', pluginParams: { 'stats.range': '7d' } });
-    expect(loadPrefs({ getItem: () => '{broken' })).toEqual({ host: '', theme: 'system', pluginParams: {} });
+    expect(Object.keys(raw).sort()).toEqual(['host', 'pluginParams', 'qrCodes', 'theme']);
+    expect(loadPrefs(storage)).toEqual({ host: 'macmini', theme: 'dark', pluginParams: { 'stats.range': '7d' }, qrCodes: true });
+    expect(loadPrefs({ getItem: () => '{broken' })).toEqual({ host: '', theme: 'system', pluginParams: {}, qrCodes: false });
     // The dashboard's own time range from before the stats plugin carries over.
-    expect(loadPrefs({ getItem: () => '{"host":"m","theme":"dark","range":"30d"}' })).toEqual({ host: 'm', theme: 'dark', pluginParams: { 'stats.range': '30d' } });
+    expect(loadPrefs({ getItem: () => '{"host":"m","theme":"dark","range":"30d"}' })).toEqual({ host: 'm', theme: 'dark', pluginParams: { 'stats.range': '30d' }, qrCodes: false });
     expect(loadPrefs({ getItem: () => { throw new Error('blocked'); } })).toMatchObject({ host: '' });
   });
 });
@@ -213,5 +214,17 @@ describe('agents grid order', () => {
     const t = (account: string, env: string | null) => ({ scope: env ? 'environment' : 'account', account, env, dir: '', agents: [] }) as never;
     const out = grouped([t('personal', 'kipipa'), t('stylers-group', null), t('personal', null), t('personal', 'devhost'), t('stylers-group', 'api'), t('Beta', null)]) as { account: string; env: string | null }[];
     expect(out.map((x) => `${x.account}/${x.env ?? ''}`)).toEqual(['Beta/', 'personal/', 'personal/devhost', 'personal/kipipa', 'stylers-group/', 'stylers-group/api']);
+  });
+});
+
+describe('qrPath', () => {
+  it('encodes a link with the three finder patterns, sized by its length', () => {
+    const short = qrPath('https://claude.ai/code/session_01Abc');
+    const long = qrPath(`https://claude.ai/code?environment=env_${'x'.repeat(120)}`);
+    expect(short.size).toBeGreaterThanOrEqual(21);
+    expect(long.size).toBeGreaterThan(short.size);
+    // The finder patterns' top-left modules (0,0), (size-7,0) and (0,size-7) are dark.
+    for (const [c, r] of [[0, 0], [short.size - 7, 0], [0, short.size - 7]]) expect(short.d).toContain(`M${c} ${r}h1`);
+    expect(short.d).not.toContain('M7 7h1'); // the separator next to the top-left finder is light
   });
 });
