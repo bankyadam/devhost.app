@@ -99,6 +99,14 @@ export interface DashData {
      * The Remote Control session (session_…) of a session a Remote Control service started in its own worktree; `devhost session reattach` can bring it back after it ended.
      */
     remoteSession?: string | null;
+    /**
+     * The context of the session's last main-thread request (input plus cache read and write tokens): what every next request reads again. Null before the first one.
+     */
+    contextTokens?: number | null;
+    /**
+     * When the session's handoff note was written (unix ms; `devhost session handoff`); null without one.
+     */
+    handoffAt?: number | null;
   }[];
   /**
    * Time buckets, one row per account and bucket start.
@@ -261,4 +269,35 @@ export interface DashData {
         costUsd: number;
       }[]
     | null;
+  /**
+   * Context habits in the selected range, from the raw requests (kept collector.retention.rawDays): main-thread requests over a large context, and resumes after the prompt cache expired. Null without main-thread requests.
+   */
+  context?: {
+    /**
+     * What counts as a large context.
+     */
+    largeTokens: number;
+    mainRequests: number;
+    mainCostUsd: number;
+    /**
+     * Main-thread requests whose context was at least largeTokens.
+     */
+    largeRequests: number;
+    largeCostUsd: number;
+    /**
+     * Main-thread requests more than an hour after the session's previous one that wrote a large part of the context to the cache again.
+     */
+    coldResumes: number;
+    coldCostUsd: number;
+    /**
+     * Sessions whose last main-thread context is at least largeTokens, the largest first (at most 10).
+     */
+    largeSessions: {
+      id: string;
+      account: string;
+      env: string;
+      contextTokens: number;
+      lastAt: number;
+    }[];
+  } | null;
 }

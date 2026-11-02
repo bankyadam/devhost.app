@@ -161,6 +161,10 @@ export interface FakeState {
   upgraded?: string[];
   /** The fake claude acknowledges the trust question but does not record it (it stopped, or lost the write). */
   claudeForgetsTrust: boolean;
+  /** What a `claude -p --resume <id> --fork-session` answers (handoff notes), per session id. */
+  forks?: Record<string, string>;
+  /** The `claude -p` fork commands run. */
+  forked?: string[];
 }
 
 const BREWED = ['git', 'claude', 'colima', 'docker', 'tailscale', 'direnv', 'curl'];
@@ -379,6 +383,12 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     }
     if (line === 'ps -axo pid=,ppid=,pcpu=,rss=,command=') return { stdout: (state.procs ?? []).join('\n') };
     if (line === 'ps -axo command=') return { stdout: (state.procs ?? []).map((p) => p.replace(/^\s*\d+\s+\d+\s+\S+\s+\d+\s+/, '')).join('\n') };
+    const fork = new RegExp(`^${brewBin()}/claude -p --resume (\\S+) --fork-session`).exec(line);
+    if (fork) {
+      (state.forked ??= []).push(fork[1]!);
+      const note = state.forks?.[fork[1]!];
+      return note ? { stdout: note } : { code: 1, stderr: 'No conversation found with session ID' };
+    }
     if (line === `${brewBin()}/claude doctor`) return { stdout: 'Remote Control: available\n' };
     if (line.startsWith('curl -s -m 2 http://127.0.0.1:')) return state.loaded.has('com.devhost.collector') ? { stdout: '{"ok":true}' } : { code: 7 };
     if (line.startsWith('du -sk')) return { stdout: '64\t/x\n' };

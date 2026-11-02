@@ -19,6 +19,7 @@ import { collectorLogsCommand, collectorRunCommand, dashCommand, notifyCommand, 
 import { doctorCommand, statusCommand, uninstallCommand } from './commands-doctor.js';
 import { agentsListCommand } from './commands-agents.js';
 import { sessionReattachCommand } from './reattach.js';
+import { sessionHandoffCommand } from './commands-session.js';
 import { updateCommand } from './update.js';
 import { storageAdoptCommand, storageListCommand, storageMigrateCommand, storagePrepareCommand, storageSetPassphraseCommand, storageStatusCommand, storageWaitCommand } from './commands-storage.js';
 import { pluginInstallCommand, pluginListCommand, pluginRunCommand, pluginToggleCommand, pluginUninstallCommand, pluginWidgetsCommand } from './commands-plugins.js';
@@ -267,6 +268,11 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .description('Bring an ended Remote Control session back (e.g. after a reboot): runs it again in its worktree, once')
     .option('--dry-run', 'only print the plan')
     .action((id: string, o: { dryRun?: boolean }) => run(() => sessionReattachCommand(deps, globals(), id, o.dryRun === true))());
+  session
+    .command('handoff <id>')
+    .description('A summary of the session to continue its work in a new one: shows the note written since its last activity, or writes one')
+    .option('--new', 'write the note again (a one-off fork of the session reads all of it)')
+    .action((id: string, o: { new?: boolean }) => run(() => sessionHandoffCommand(deps, globals(), id, o.new === true))());
 
   const storage = program.command('storage').description('The external work volume for project data (spec A7.12)');
   storage.command('list').description('External disks and their APFS volumes').action(run(() => storageListCommand(deps, globals())));

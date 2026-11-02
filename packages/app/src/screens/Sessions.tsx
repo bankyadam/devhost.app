@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import type { EnvListData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import { ago, bytes, compact, pct, usd } from '../lib/format';
-import { sortSessions, STATE_LABEL, type Session, type SortDir, type SortKey } from '../lib/sessions';
-import { Badge, Empty, Menu } from '../ui/primitives';
+import { LARGE_CONTEXT_TOKENS, sortSessions, STATE_LABEL, type Session, type SortDir, type SortKey } from '../lib/sessions';
+import { Badge, CopyButton, Empty, Menu } from '../ui/primitives';
+import { RunDialog } from '../ui/run-dialog';
+import type { SessionHandoffData } from '@devhost/contract/lite';
 import { useDash } from '../use-dash';
 import { PluginRunDialog } from '../ui/plugin-run';
 import { usePlugins, type PluginActionInfo } from '../use-plugins';
@@ -18,6 +20,7 @@ export function Sessions() {
   const webApps = useWebApps();
   const plugins = usePlugins();
   const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; session: string } | null>(null);
+  const [handoff, setHandoff] = useState<{ session: Session; fresh: boolean } | null>(null);
 
   useEffect(() => {
     if (connection.kind === 'connected') void client.envs().then((e) => setEnvs(e.environments)).catch(() => undefined);
@@ -47,8 +50,8 @@ export function Sessions() {
             <table>
               <thead>
                 <tr>
-                  {([['account', 'Account'], ['env', 'Environment'], ['id', 'Session'], ['state', 'State'], ['startedAt', 'Started'], ['lastActivityAt', 'Last activity'], ['tokensToday', 'Tokens today'], ['costToday', 'Cost today'], ['cpuPercent', 'CPU'], ['rssBytes', 'RAM']] as [SortKey, string][]).map(([key, text]) => (
-                    <th key={key} className={['tokensToday', 'costToday', 'cpuPercent', 'rssBytes'].includes(key) ? 'num' : ''} aria-sort={sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                  {([['account', 'Account'], ['env', 'Environment'], ['id', 'Session'], ['state', 'State'], ['startedAt', 'Started'], ['lastActivityAt', 'Last activity'], ['contextTokens', 'Context'], ['tokensToday', 'Tokens today'], ['costToday', 'Cost today'], ['cpuPercent', 'CPU'], ['rssBytes', 'RAM']] as [SortKey, string][]).map(([key, text]) => (
+                    <th key={key} className={['contextTokens', 'tokensToday', 'costToday', 'cpuPercent', 'rssBytes'].includes(key) ? 'num' : ''} aria-sort={sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <button onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }))}>{text}{sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</button>
                     </th>
                   ))}
@@ -56,19 +59,23 @@ export function Sessions() {
                 </tr>
               </thead>
               <tbody>
-                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envs.find((e) => e.name === s.env)?.dir} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} />)}
+                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envs.find((e) => e.name === s.env)?.dir} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} onHandoff={(fresh) => setHandoff({ session: s, fresh })} />)}
               </tbody>
             </table>
           </div>
         )}
-        <p className="note">CPU and RAM per session are best effort (matched by working directory); the numbers on the Environments screen are reliable.</p>
+        <p className="note">
+          Context is what each next request reads again: over {compact(LARGE_CONTEXT_TOKENS)} a session gets expensive, so /compact it or continue in a new session from its handoff note.
+          A large session left idle gets a handoff note before its prompt cache expires (an hour). CPU and RAM per session are best effort (matched by working directory); the numbers on the Environments screen are reliable.
+        </p>
       </section>
+      {handoff && <HandoffDialog session={handoff.session} fresh={handoff.fresh} onClose={() => setHandoff(null)} />}
       {pluginRun && <PluginRunDialog action={pluginRun.action} target={{ session: pluginRun.session }} onClose={() => setPluginRun(null)} />}
     </div>
   );
 }
 
-function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onAction }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void }) {
+function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onAction, onHandoff }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void; onHandoff: (fresh: boolean) => void }) {
   const { transport, tools } = useApp();
   return (
     <tr className={s.state === 'waiting' ? 'waiting' : ''}>
@@ -86,6 +93,10 @@ function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onA
       <td>{s.state === 'waiting' ? <Badge tone="warn">{STATE_LABEL[s.state]}</Badge> : s.state === 'running' ? <Badge tone="good">running</Badge> : <Badge>{STATE_LABEL[s.state]}</Badge>}</td>
       <td>{ago(s.startedAt, now)}</td>
       <td>{ago(s.lastActivityAt, now)}</td>
+      <td className="num">
+        {s.contextTokens == null ? '–' : s.contextTokens >= LARGE_CONTEXT_TOKENS ? <Badge tone="warn">{compact(s.contextTokens)}</Badge> : compact(s.contextTokens)}
+        {s.handoffAt != null && <div className="note" title={`Handoff note written ${new Date(s.handoffAt).toLocaleString()}`}>note {ago(s.handoffAt, now)}</div>}
+      </td>
       <td className="num">{compact(s.tokensToday)}</td>
       <td className="num">{usd(s.costToday)}</td>
       <td className="num">{pct(s.cpuPercent)}</td>
@@ -95,6 +106,8 @@ function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onA
           label="Open"
           items={[
             { label: app ? `claude.ai/code (${app})` : 'claude.ai/code', onSelect: () => void openClaude(transport, app, s.remoteSession ? `https://claude.ai/code/${s.remoteSession}` : envUrl) },
+            { label: s.handoffAt != null && s.handoffAt >= s.lastActivityAt ? 'Handoff note' : 'Write a handoff note', hidden: s.state === 'running', onSelect: () => onHandoff(false) },
+            { label: 'Write the handoff note again', hidden: s.state === 'running' || s.handoffAt == null || s.handoffAt < s.lastActivityAt, onSelect: () => onHandoff(true) },
             { label: 'Terminal: resume this session', hidden: !dir, onSelect: () => void transport.openTerminal({ kind: 'resume', dir: dir!, sessionId: s.id }) },
             { label: 'Terminal: shell in the environment', hidden: !dir, onSelect: () => void transport.openTerminal({ kind: 'shell', dir: dir! }) },
             { label: 'VS Code (Remote SSH)', hidden: !dir || !tools.code, onSelect: () => void transport.openVscode(dir!) },
@@ -104,5 +117,26 @@ function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onA
         />
       </td>
     </tr>
+  );
+}
+
+/** A session's handoff note: shown, or written by a one-off fork of the session (about one request's cost). */
+function HandoffDialog({ session, fresh, onClose }: { session: Session; fresh: boolean; onClose: () => void }) {
+  const { client } = useApp();
+  return (
+    <RunDialog<SessionHandoffData>
+      title={`Handoff note · ${session.env ?? ''} ${session.id.slice(0, 8)}`}
+      begin={(h) => client.sessionHandoff(session.id, fresh, h)}
+      terminal={{ kind: 'devhost', args: ['session', 'handoff', session.id, ...(fresh ? ['--new'] : [])] }}
+      onClose={onClose}
+      after={(r) => (r.data ? (
+        <>
+          <div className="row"><CopyButton text={r.data.text} label="Copy the note" /><span className="note">{r.data.written ? 'Written now' : `Written ${new Date(r.data.at).toLocaleString()}`} · {r.data.path}</span></div>
+          <pre className="logview" aria-label="Handoff note">{r.data.text}</pre>
+        </>
+      ) : null)}
+    >
+      <p className="sec">Paste it as the first message of a new session to continue where this one stopped.</p>
+    </RunDialog>
   );
 }

@@ -326,6 +326,34 @@ describe('environments', () => {
     expect(mac.runner.lines()).toContain(`sudo -n -- launchctl kickstart -k system/${label}`);
   });
 
+  it('session handoff writes a note from a fork of the session, shows it until the session moves on, and refuses a running one', async () => {
+    const { env, mac, dir } = await created();
+    const now = env.deps.now().getTime();
+    const db = new Db(dbPath(env.home));
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at) VALUES ('5e000000-1111', 'business', 'acme-api', ?, 'idle', ?, ?)", dir, now - 3_600_000, now - 600_000);
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at) VALUES ('5f000000-2222', 'business', 'acme-api', ?, 'running', ?, ?)", dir, now - 3_600_000, now - 1000);
+    db.run("INSERT INTO api_requests (ts, account, env, session_id, model, input_tokens, cache_read_tokens, cache_creation_tokens, source) VALUES (?, 'business', 'acme-api', '5e000000-1111', 'claude-opus-5-5', 1, 80000, 100, 'main')", now - 600_000);
+    db.close();
+    mac.state.forks = { '5e000000-1111': '## Goal\nShip it.\n' };
+
+    env.out.length = 0;
+    expect(await env.run('session', 'handoff', '5e000000', '--json')).toBe(0);
+    const first = lastResult(env);
+    expect(validate('result.session-handoff', first.data).ok).toBe(true);
+    expect(first.data).toMatchObject({ session: '5e000000-1111', env: 'acme-api', text: '## Goal\nShip it.\n', written: true });
+    expect(await readFile(join(env.home, '.local', 'share', 'devhost', 'handoff', '5e000000-1111.md'), 'utf8')).toBe('## Goal\nShip it.\n');
+
+    env.out.length = 0;
+    expect(await env.run('session', 'handoff', '5e000000', '--json')).toBe(0);
+    expect(lastResult(env).data).toMatchObject({ written: false });
+    expect(await env.run('session', 'handoff', '5e000000', '--new', '--json')).toBe(0);
+    expect(mac.state.forked).toEqual(['5e000000-1111', '5e000000-1111']);
+
+    env.out.length = 0;
+    expect(await env.run('session', 'handoff', '5f000000', '--json')).not.toBe(0);
+    expect(lastResult(env).errors?.[0]?.code).toBe('session-busy');
+  });
+
   it('session reattach brings an ended worktree session back as a one-shot service, and clears ended ones', async () => {
     const { env, mac, dir } = await created();
     const wt = join(dir, '.claude', 'worktrees', 'bridge-cse_01Abc');

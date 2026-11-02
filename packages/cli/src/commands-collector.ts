@@ -88,7 +88,7 @@ async function snapshot(deps: Deps, config: DevhostConfig, o: DashOptions, cache
   const path = dbPath(deps.home);
   if (!existsSync(path)) throw new DevhostError('no data yet: the collector has not run', 'no-data', 1, 'Run `devhost apply` to install the collector service, or `devhost collector run` to start it by hand.');
   if (!RANGES.includes(o.range as Range)) throw new UsageError(`--range must be one of ${RANGES.join(', ')}`);
-  const opts = { range: o.range as Range, account: o.account, env: o.env, model: o.model };
+  const opts = { range: o.range as Range, account: o.account, env: o.env, model: o.model, home: deps.home };
   const now = deps.now().getTime();
   const db = new Db(path, { readonly: true });
   try {

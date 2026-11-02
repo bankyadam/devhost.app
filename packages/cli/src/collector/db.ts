@@ -103,6 +103,10 @@ const MIGRATIONS: string[] = [
     requests INTEGER NOT NULL, input REAL NOT NULL, output REAL NOT NULL, cache_read REAL NOT NULL, cache_creation REAL NOT NULL, cost_usd REAL NOT NULL,
     PRIMARY KEY (hour, account, env, source, model));
   `,
+  // A session's last main-thread request (its context, for the dashboard and handoff notes).
+  `
+  CREATE INDEX api_requests_session ON api_requests (session_id, ts);
+  `,
 ];
 
 export class Db {

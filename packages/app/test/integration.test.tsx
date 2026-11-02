@@ -245,6 +245,27 @@ describe('dashboard (spec B3.1, B6)', () => {
     expect(within(row).getByText(/2 subagents \(Explore, Plan\)/)).toBeInTheDocument();
   });
 
+  it("a session's handoff note is written from its Open menu, then shown with a copy button; its context shows, large in warning", async () => {
+    const h = await sessionsScreen();
+    h.mac.state.forks = { 'sess-waiting-1': '## Goal\nFinish the login flow.\n' };
+    const { Db, dbPath } = await import('../../cli/src/collector/db.js');
+    const db = new Db(dbPath(h.env.home));
+    const now = h.env.deps.now().getTime();
+    db.run("INSERT INTO api_requests (ts, account, env, session_id, model, input_tokens, cache_read_tokens, cache_creation_tokens, source) VALUES (?, 'business', 'acme-api', 'sess-waiting-1', 'claude-opus-5-5', 1, 340000, 1000, 'main')", now - 1000);
+    db.close();
+    await screen.findByText('sess-wai');
+    const row = () => screen.getByText('sess-wai').closest('tr')!;
+    expect(await within(row()).findByText('341K', undefined, { timeout: 8000 })).toHaveClass('badge', 'warn');
+
+    await h.user.click(within(row()).getByRole('button', { name: /Open/ }));
+    await h.user.click(await screen.findByRole('menuitem', { name: 'Write a handoff note' }));
+    const dlg = within(await screen.findByRole('dialog', { name: /Handoff note · acme-api sess-wai/ }));
+    expect(await dlg.findByLabelText('Handoff note', undefined, { timeout: 8000 })).toHaveTextContent('Finish the login flow.');
+    expect(dlg.getByRole('button', { name: 'Copy the note' })).toBeInTheDocument();
+    expect(h.mac.state.forked).toEqual(['sess-waiting-1']);
+    expect(h.transport.calls.some((c) => c.join(' ').startsWith('session handoff sess-waiting-1'))).toBe(true);
+  });
+
   it("plugin session actions are in the session's Open menu and ask before they stop anything", async () => {
     const h = await sessionsScreen([], {}, true);
     const row = (await screen.findByText('sess-wai')).closest('tr')!;

@@ -1,7 +1,7 @@
 import type { DashData } from '@devhost/contract/lite';
 
 export type Session = DashData['sessions'][number];
-export type SortKey = 'account' | 'env' | 'id' | 'state' | 'startedAt' | 'lastActivityAt' | 'tokensToday' | 'costToday' | 'cpuPercent' | 'rssBytes';
+export type SortKey = 'account' | 'env' | 'id' | 'state' | 'startedAt' | 'lastActivityAt' | 'contextTokens' | 'tokensToday' | 'costToday' | 'cpuPercent' | 'rssBytes';
 export type SortDir = 'asc' | 'desc';
 
 const STATE_ORDER: Record<Session['state'], number> = { waiting: 0, running: 1, idle: 2, ended: 3 };
@@ -19,6 +19,9 @@ export function sortSessions(sessions: Session[], key: SortKey, dir: SortDir): S
     return c * sign;
   });
 }
+
+/** Over this the session is expensive to go on with (spec A10.6): /compact it, or continue from a handoff note. */
+export const LARGE_CONTEXT_TOKENS = 300_000;
 
 export const STATE_LABEL: Record<Session['state'], string> = {
   running: 'running',

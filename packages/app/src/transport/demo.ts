@@ -81,6 +81,14 @@ export function createDemoTransport(host: string): Transport {
 
     void (async () => {
       const [a, b] = args;
+      if (a === 'session' && b === 'handoff') {
+        emit({ type: 'step', id: 'session.handoff', status: 'start' });
+        await wait(800);
+        emit({ type: 'step', id: 'session.handoff', status: 'changed' });
+        emit({ type: 'result', ok: true, data: { session: args[2], account: 'personal', env: 'blog', path: `~/.local/share/devhost/handoff/${args[2]}.md`, at: Date.now(), text: DEMO_HANDOFF, written: true } });
+        finish(0);
+        return;
+      }
       if (a === 'dash') {
         const range = args[args.indexOf('--range') + 1] as DashData['range'];
         while (!stopped) {
@@ -182,6 +190,17 @@ const DOCTOR = {
   ],
 };
 
+const DEMO_HANDOFF = `## Goal
+Move the blog's comments to the new API (the user asked: keep the old URLs working).
+
+## Done
+- \`src/comments/api.ts\` calls \`/v2/comments\`; tests pass. Committed on \`comments-v2\`, not pushed.
+
+## Next
+1. Redirect \`/comments/:id\` to the new route.
+2. Push and open a PR.
+`;
+
 function demoDash(at: number, range: DashData['range']): DashData {
   const size = { '1h': 5 * 60_000, '24h': 3_600_000, '7d': 6 * 3_600_000, '30d': 86_400_000 }[range];
   const span = { '1h': 3_600_000, '24h': 86_400_000, '7d': 7 * 86_400_000, '30d': 30 * 86_400_000 }[range];
@@ -210,9 +229,9 @@ function demoDash(at: number, range: DashData['range']): DashData {
       { account: 'personal', name: 'blog', service: { state: 'running', pid: 4301 }, cpuPercent: 0.4, rssBytes: 2.6e8, containerCpuPercent: null, containerMemBytes: null, portBase: 3000, diskBytes: 6.4e8, activeSessions: 1 },
     ],
     sessions: [
-      { id: '7c5dcf5d-aaaa', account: 'business', env: 'acme-api', state: 'waiting', startedAt: at - 3 * 3_600_000, lastActivityAt: at - 95_000, tokensToday: 2_100_000, costToday: 18.7, cpuPercent: 2.1, rssBytes: 4.8e8 },
-      { id: '19be2a40-bbbb', account: 'business', env: 'acme-api', state: 'running', startedAt: at - 40 * 60_000, lastActivityAt: at - 4_000, tokensToday: 640_000, costToday: 5.9, cpuPercent: 38.5, rssBytes: 7.1e8 },
-      { id: 'd02e8c11-cccc', account: 'personal', env: 'blog', state: 'idle', startedAt: at - 5 * 3_600_000, lastActivityAt: at - 25 * 60_000, tokensToday: 310_000, costToday: 1.2, cpuPercent: null, rssBytes: null },
+      { id: '7c5dcf5d-aaaa', account: 'business', env: 'acme-api', state: 'waiting', startedAt: at - 3 * 3_600_000, lastActivityAt: at - 95_000, contextTokens: 342_000, handoffAt: null, tokensToday: 2_100_000, costToday: 18.7, cpuPercent: 2.1, rssBytes: 4.8e8 },
+      { id: '19be2a40-bbbb', account: 'business', env: 'acme-api', state: 'running', startedAt: at - 40 * 60_000, lastActivityAt: at - 4_000, contextTokens: 88_000, handoffAt: null, tokensToday: 640_000, costToday: 5.9, cpuPercent: 38.5, rssBytes: 7.1e8 },
+      { id: 'd02e8c11-cccc', account: 'personal', env: 'blog', state: 'idle', startedAt: at - 5 * 3_600_000, lastActivityAt: at - 25 * 60_000, contextTokens: 61_000, handoffAt: at - 20 * 60_000, tokensToday: 310_000, costToday: 1.2, cpuPercent: null, rssBytes: null },
       { id: 'a4417f90-dddd', account: 'business', env: null, state: 'ended', startedAt: at - 9 * 3_600_000, lastActivityAt: at - 7 * 3_600_000, tokensToday: 120_000, costToday: 0.9, cpuPercent: null, rssBytes: null },
     ],
     usage,

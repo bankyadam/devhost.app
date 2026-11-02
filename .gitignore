@@ -6,3 +6,4 @@ coverage/
 *.devhost-bak-*
 target/
 packages/app/src-tauri/gen/
+.claude/worktrees/
