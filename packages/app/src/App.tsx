@@ -18,7 +18,6 @@ import { useTraySync } from './use-tray';
 
 const NAV: { id: Screen; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
-  { id: 'monitor', label: 'Monitor' },
   { id: 'sessions', label: 'Sessions' },
   { id: 'environments', label: 'Environments' },
   { id: 'accounts', label: 'Accounts' },
@@ -36,9 +35,11 @@ export interface AppProps {
   storage?: Pick<Storage, 'getItem' | 'setItem'>;
   retryMs?: number;
   heartbeatMs?: number;
+  /** `monitor`: the monitor window the menu bar opens, only the session cards (spec B3.1.2). */
+  view?: 'main' | 'monitor';
 }
 
-export function App({ makeTransport, storage, retryMs, heartbeatMs }: AppProps) {
+export function App({ makeTransport, storage, retryMs, heartbeatMs, view = 'main' }: AppProps) {
   const [prefs, setPrefs] = useState<Prefs>(() => loadPrefs(storage));
   const [screen, setScreen] = useState<Screen>('dashboard');
   const [transport, setTransport] = useState<Transport | null>(() => (prefs.host ? makeTransport(prefs.host) : null));
@@ -69,8 +70,18 @@ export function App({ makeTransport, storage, retryMs, heartbeatMs }: AppProps) 
 
   return (
     <AppProvider transport={transport} navigate={setScreen} retryMs={retryMs} heartbeatMs={heartbeatMs}>
-      {transport ? <Shell prefs={prefs} update={update} screen={screen} setScreen={setScreen} onHost={changeHost} /> : <HostSetup initial={lastHost} onConnect={changeHost} />}
+      {transport ? view === 'monitor' ? <MonitorWindow /> : <Shell prefs={prefs} update={update} screen={screen} setScreen={setScreen} onHost={changeHost} /> : <HostSetup initial={lastHost} onConnect={changeHost} />}
     </AppProvider>
+  );
+}
+
+function MonitorWindow() {
+  const { connection, hostName } = useApp();
+  return (
+    <div className="monitor-window">
+      {connection.kind === 'unreachable' && <div className="banner bad" role="alert"><b>{hostName} is unreachable.</b> Trying again every few seconds.</div>}
+      {connection.kind === 'incompatible' ? <div className="banner bad" role="alert">The devhost on {hostName} does not match this app; open the main window for details.</div> : <Monitor />}
+    </div>
   );
 }
 
@@ -95,8 +106,6 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
   const tray = useTraySync();
   // Not window.confirm: the macOS webview (WKWebView under Tauri v2) has no native dialog for it and returns false.
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  // The monitor in full screen: no sidebar or top bar, for a second monitor.
-  const [full, setFull] = useState(false);
 
   useEffect(
     () =>
@@ -105,17 +114,6 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
       }),
     [transport, setScreen],
   );
-
-  if (full && screen === 'monitor' && connection.kind !== 'incompatible') {
-    return (
-      <div className="app full">
-        <div className="main">
-          {connection.kind === 'unreachable' && <div className="banner bad" role="alert"><b>{hostName} is unreachable.</b> Trying again every few seconds.</div>}
-          <Monitor full onFull={setFull} />
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="app">
@@ -158,8 +156,6 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
         {connection.kind === 'incompatible' && <div className="banner bad" role="alert">{connection.message}</div>}
         {connection.kind === 'incompatible' ? null : screen === 'dashboard' ? (
           <Dashboard params={prefs.pluginParams} onParams={(pluginParams) => update({ pluginParams })} />
-        ) : screen === 'monitor' ? (
-          <Monitor full={false} onFull={setFull} />
         ) : screen === 'sessions' ? (
           <Sessions qr={prefs.qrCodes} onQr={(qrCodes) => update({ qrCodes })} />
         ) : screen === 'environments' ? (

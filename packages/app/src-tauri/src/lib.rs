@@ -19,11 +19,12 @@ use serde::{Deserialize, Serialize};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::image::Image;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 const SSH: &str = "/usr/bin/ssh";
 const TRAY_ID: &str = "devhost";
 const CLAUDE_CODE_URL: &str = "https://claude.ai/code";
+const MONITOR: &str = "monitor";
 
 #[derive(Default)]
 struct Streams(Mutex<HashMap<String, StreamHandle>>);
@@ -339,6 +340,22 @@ fn show_main(app: &AppHandle, screen: Option<&str>) {
     }
 }
 
+/// The monitor in a window of its own, for a second monitor: the same app on `#monitor`, which
+/// shows only the session cards. A second click brings the open one forward.
+fn show_monitor(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window(MONITOR) {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        return;
+    }
+    let _ = WebviewWindowBuilder::new(app, MONITOR, WebviewUrl::App("index.html#monitor".into()))
+        .title("devhost monitor")
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(480.0, 320.0)
+        .build();
+}
+
 pub fn run() {
     tauri::Builder::default()
         .manage(Streams::default())
@@ -361,6 +378,7 @@ pub fn run() {
             let menu = MenuBuilder::new(app)
                 .item(&MenuItemBuilder::with_id("dashboard", "Dashboard").build(app)?)
                 .item(&MenuItemBuilder::with_id("environments", "Environments").build(app)?)
+                .item(&MenuItemBuilder::with_id(MONITOR, "Monitor").build(app)?)
                 .item(&MenuItemBuilder::with_id("claude", "Open claude.ai/code").build(app)?)
                 .separator()
                 .item(&MenuItemBuilder::with_id("quit", "Quit devhost").build(app)?)
@@ -374,6 +392,7 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "dashboard" => show_main(app, Some("dashboard")),
                     "environments" => show_main(app, Some("environments")),
+                    MONITOR => show_monitor(app),
                     "claude" => {
                         let _ = open_url(CLAUDE_CODE_URL.into());
                     }
@@ -383,9 +402,12 @@ pub fn run() {
                 .build(app)?;
             Ok(())
         })
-        // Closing the window keeps the app (and the menu bar item) alive.
+        // Closing the main window keeps the app (and the menu bar item) alive; the monitor just closes.
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == MONITOR {
+                    return;
+                }
                 api.prevent_close();
                 let _ = window.hide();
             }

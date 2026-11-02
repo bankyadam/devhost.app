@@ -10,6 +10,6 @@ const makeTransport = insideTauri() ? createTauriTransport : createDemoTransport
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App makeTransport={makeTransport} />
+    <App makeTransport={makeTransport} view={location.hash === '#monitor' ? 'monitor' : 'main'} />
   </StrictMode>,
 );
