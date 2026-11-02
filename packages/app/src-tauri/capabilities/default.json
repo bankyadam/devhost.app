@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window may use core APIs (events) and the app's own commands, nothing else.",
-  "windows": ["main"],
+  "description": "The windows may use core APIs (events) and the app's own commands, nothing else.",
+  "windows": ["main", "monitor"],
   "permissions": ["core:default"]
 }

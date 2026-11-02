@@ -45,8 +45,8 @@ export const memoryStorage = (initial: Record<string, string> = {}) => {
 
 export const PREFS = JSON.stringify({ host: 'macmini', theme: 'light', range: '24h' });
 
-export function mount(h: Harness, over: { retryMs?: number; heartbeatMs?: number } = {}) {
-  return render(<App makeTransport={() => h.transport} storage={memoryStorage({ 'devhost.prefs.v1': PREFS })} retryMs={over.retryMs ?? 30} heartbeatMs={over.heartbeatMs ?? 60_000} />);
+export function mount(h: Harness, over: { retryMs?: number; heartbeatMs?: number; view?: 'main' | 'monitor' } = {}) {
+  return render(<App makeTransport={() => h.transport} storage={memoryStorage({ 'devhost.prefs.v1': PREFS })} retryMs={over.retryMs ?? 30} heartbeatMs={over.heartbeatMs ?? 60_000} view={over.view} />);
 }
 
 /** Pre-load answers for prompt events, in the order the CLI asks. */

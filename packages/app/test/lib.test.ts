@@ -8,7 +8,7 @@ import { ago, bytes, compact, duration, pct, usd } from '../src/lib/format';
 import { predictAccountRange, predictEnvBlock } from '../src/lib/ports';
 import { loadPrefs, savePrefs } from '../src/lib/prefs';
 import { sortSessions, type Session } from '../src/lib/sessions';
-import { monitorOrder } from '../src/screens/Monitor';
+import { monitorGrid, monitorOrder } from '../src/screens/Monitor';
 import { trayState } from '../src/lib/tray';
 import { qrPath } from '../src/ui/qr';
 import { SERIES_HEX, webAppIconSvg } from '../src/lib/webAppIcon';
@@ -95,6 +95,17 @@ describe('sessions table', () => {
   it('monitor order: waiting, running, idle, latest activity first; ended left out', () => {
     const more = [...list, session({ id: 'd', state: 'ended', lastActivityAt: 99 }), session({ id: 'e', state: 'idle', lastActivityAt: 40 })];
     expect(monitorOrder(more).map((s) => s.id)).toEqual(['b', 'c', 'e', 'a']);
+  });
+  it('monitor grid: every card fits without scrolling, as large as it can be', () => {
+    for (const n of [1, 4, 9, 16, 30]) {
+      const { cols, cardPx } = monitorGrid(n, 1600, 900);
+      const rows = Math.ceil(n / cols);
+      expect(rows * cardPx + (rows - 1) * 8).toBeLessThanOrEqual(900);
+      expect(cols * cardPx * 2.6 + (cols - 1) * 8).toBeLessThanOrEqual(1600 + 1);
+    }
+    expect(monitorGrid(1, 1600, 900).cardPx).toBe(170); // capped
+    expect(monitorGrid(3, 1280, 800).cols).toBe(2); // at the cap: two columns, not one of very wide cards
+    expect(monitorGrid(4, 500, 900).cols).toBe(1); // narrow window: one column
   });
   it('sorts by any column; empty values sort last in both directions', () => {
     expect(sortSessions(list, 'tokensToday', 'desc').map((s) => s.id)).toEqual(['b', 'c', 'a']);
