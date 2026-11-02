@@ -10,9 +10,10 @@ import { useDash } from '../use-dash';
 import { PluginRunDialog } from '../ui/plugin-run';
 import { usePlugins, type PluginActionInfo } from '../use-plugins';
 import { openClaude, useWebApps } from '../use-web-apps';
+import { QrCell, QrDialog } from '../ui/qr';
 
 /** The sessions that are open now, all accounts together: ended ones are not listed. */
-export function Sessions() {
+export function Sessions({ qr, onQr }: { qr: boolean; onQr: (on: boolean) => void }) {
   const { client, transport, connection, hostName: hostLabel } = useApp();
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'lastActivityAt', dir: 'desc' });
   const [envs, setEnvs] = useState<EnvListData['environments']>([]);
@@ -21,6 +22,7 @@ export function Sessions() {
   const plugins = usePlugins();
   const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; session: string } | null>(null);
   const [handoff, setHandoff] = useState<{ session: Session; fresh: boolean } | null>(null);
+  const [qrOf, setQrOf] = useState<Session | null>(null);
 
   useEffect(() => {
     if (connection.kind === 'connected') void client.envs().then((e) => setEnvs(e.environments)).catch(() => undefined);
@@ -42,6 +44,7 @@ export function Sessions() {
         {waiting > 0 && <Badge tone="warn">{waiting} waiting for input</Badge>}
         {stale && <Badge tone="warn">showing the last data</Badge>}
         {error && <span className="note" role="alert">{error}</span>}
+        <label className="check" style={{ marginLeft: 'auto' }}><input type="checkbox" checked={qr} onChange={(e) => onQr(e.target.checked)} /> QR codes</label>
       </div>
       <section className="card" aria-label="Sessions">
         <header><h2>Idle and active</h2><span className="note">Claude Code sessions on {hostLabel}, all accounts together.</span></header>
@@ -55,11 +58,12 @@ export function Sessions() {
                       <button onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }))}>{text}{sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</button>
                     </th>
                   ))}
+                  {qr && <th>Phone</th>}
                   <th><span className="sr">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
-                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envs.find((e) => e.name === s.env)?.dir} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} onHandoff={(fresh) => setHandoff({ session: s, fresh })} />)}
+                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envs.find((e) => e.name === s.env)?.dir} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} onHandoff={(fresh) => setHandoff({ session: s, fresh })} qr={qr} onQr={() => setQrOf(s)} />)}
               </tbody>
             </table>
           </div>
@@ -69,13 +73,16 @@ export function Sessions() {
           A large session left idle gets a handoff note before its prompt cache expires (an hour). CPU and RAM per session are best effort (matched by working directory); the numbers on the Environments screen are reliable.
         </p>
       </section>
+      {qrOf?.remoteSession && <QrDialog title={`Open on the phone · ${qrOf.env ?? ''} ${qrOf.id.slice(0, 8)}`} url={sessionUrl(qrOf.remoteSession)} note="Scan with the phone's camera: the session opens on claude.ai/code, or in the Claude app when it is installed. You need to be signed in to its account there." onClose={() => setQrOf(null)} />}
       {handoff && <HandoffDialog session={handoff.session} fresh={handoff.fresh} onClose={() => setHandoff(null)} />}
       {pluginRun && <PluginRunDialog action={pluginRun.action} target={{ session: pluginRun.session }} onClose={() => setPluginRun(null)} />}
     </div>
   );
 }
 
-function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onAction, onHandoff }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void; onHandoff: (fresh: boolean) => void }) {
+const sessionUrl = (remoteSession: string): string => `https://claude.ai/code/${remoteSession}`;
+
+function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onAction, onHandoff, qr, onQr }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void; onHandoff: (fresh: boolean) => void; qr: boolean; onQr: () => void }) {
   const { transport, tools } = useApp();
   return (
     <tr className={s.state === 'waiting' ? 'waiting' : ''}>
@@ -101,11 +108,13 @@ function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onA
       <td className="num">{usd(s.costToday)}</td>
       <td className="num">{pct(s.cpuPercent)}</td>
       <td className="num">{bytes(s.rssBytes)}</td>
+      {qr && <td>{s.remoteSession ? <QrCell url={sessionUrl(s.remoteSession)} label={`QR code of session ${s.id.slice(0, 8)}`} onOpen={onQr} /> : <span className="note" title="Not a Remote Control session: it cannot be opened on the phone">–</span>}</td>}
       <td>
         <Menu
           label="Open"
           items={[
-            { label: app ? `claude.ai/code (${app})` : 'claude.ai/code', onSelect: () => void openClaude(transport, app, s.remoteSession ? `https://claude.ai/code/${s.remoteSession}` : envUrl) },
+            { label: app ? `claude.ai/code (${app})` : 'claude.ai/code', onSelect: () => void openClaude(transport, app, s.remoteSession ? sessionUrl(s.remoteSession) : envUrl) },
+            { label: 'QR code for the phone', hidden: !s.remoteSession, onSelect: onQr },
             { label: s.handoffAt != null && s.handoffAt >= s.lastActivityAt ? 'Handoff note' : 'Write a handoff note', hidden: s.state === 'running', onSelect: () => onHandoff(false) },
             { label: 'Write the handoff note again', hidden: s.state === 'running' || s.handoffAt == null || s.handoffAt < s.lastActivityAt, onSelect: () => onHandoff(true) },
             { label: 'Terminal: resume this session', hidden: !dir, onSelect: () => void transport.openTerminal({ kind: 'resume', dir: dir!, sessionId: s.id }) },

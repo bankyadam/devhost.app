@@ -7,6 +7,7 @@ import { seriesSlot, seriesVar } from '../lib/colors';
 import { bytes, pct, usd } from '../lib/format';
 import { ENV_SLUG, predictEnvBlock } from '../lib/ports';
 import { Badge, Dialog, Empty, Field, Menu, WizardStep } from '../ui/primitives';
+import { QrCell, QrDialog } from '../ui/qr';
 import { RunDialog } from '../ui/run-dialog';
 import { useDash } from '../use-dash';
 import { PluginRunDialog } from '../ui/plugin-run';
@@ -31,7 +32,7 @@ export function byAccount(envs: Env[], order: readonly string[] = []): [string, 
   return [...groups];
 }
 
-export function Environments() {
+export function Environments({ qr, onQr }: { qr: boolean; onQr: (on: boolean) => void }) {
   const { client, transport, connection, reportUnreachable, hostName } = useApp();
   const [envs, setEnvs] = useState<Env[] | null>(null);
   // CPU, memory, disk and sessions per environment come from the collector.
@@ -44,7 +45,7 @@ export function Environments() {
   const [accountOrder, setAccountOrder] = useState<string[]>([]);
   // The dashboard colors accounts by their place in the config: the same here.
   const accountNames = accountOrder.length > 0 ? accountOrder : envs ? byAccount(envs).map(([a]) => a) : [];
-  const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'sleep'; env: Env; action: 'sleep' | 'wake' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env } | { kind: 'setup'; env: Env } | { kind: 'cost'; env: Env; live: EnvLive | undefined }>(null);
+  const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'sleep'; env: Env; action: 'sleep' | 'wake' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env } | { kind: 'setup'; env: Env } | { kind: 'cost'; env: Env; live: EnvLive | undefined } | { kind: 'qr'; env: Env; url: string }>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -69,7 +70,8 @@ export function Environments() {
     <div className="content">
       <div className="row">
         <h1>Environments</h1>
-        <span className="push" style={{ marginLeft: 'auto' }}><button className="btn primary" onClick={() => setDialog({ kind: 'create' })}>New environment</button></span>
+        <label className="check" style={{ marginLeft: 'auto' }}><input type="checkbox" checked={qr} onChange={(ev) => onQr(ev.target.checked)} /> QR codes</label>
+        <span className="push"><button className="btn primary" onClick={() => setDialog({ kind: 'create' })}>New environment</button></span>
       </div>
       {error && <div className="notice bad" role="alert">{error}</div>}
       {volume && (
@@ -90,7 +92,7 @@ export function Environments() {
             </header>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Environment</th><th>Remote Control</th><th className="num">CPU</th><th className="num">RAM</th><th className="num">Containers</th><th>Ports</th><th>Compose</th><th className="num">Disk</th><th className="num">Sessions</th><th className="num">Cost today</th><th><span className="sr">Actions</span></th></tr></thead>
+                <thead><tr><th>Environment</th><th>Remote Control</th><th className="num">CPU</th><th className="num">RAM</th><th className="num">Containers</th><th>Ports</th><th>Compose</th><th className="num">Disk</th><th className="num">Sessions</th><th className="num">Cost today</th>{qr && <th>Phone</th>}<th><span className="sr">Actions</span></th></tr></thead>
                 <tbody>
                   {list.map((e) => {
                     const m = dash?.environments.find((x) => x.account === e.account && x.name === e.name);
@@ -116,6 +118,7 @@ export function Environments() {
                           </span>
                         ) : '–'}
                       </td>
+                      {qr && <td>{e.remoteControl.url ? <QrCell url={e.remoteControl.url} label={`QR code of ${e.name}'s Remote Control environment`} onOpen={() => setDialog({ kind: 'qr', env: e, url: e.remoteControl.url! })} /> : <span className="note" title="No Remote Control link logged yet">–</span>}</td>}
                       <td>
                         <div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
                           {(() => {
@@ -141,6 +144,7 @@ export function Environments() {
                               { label: 'Put compose to sleep', hidden: e.compose === 'off' || !!e.asleep, onSelect: () => setDialog({ kind: 'sleep', env: e, action: 'sleep' }) },
                               { label: 'Wake compose', hidden: !e.asleep, onSelect: () => setDialog({ kind: 'sleep', env: e, action: 'wake' }) },
                               { label: 'Logs', onSelect: () => setDialog({ kind: 'logs', env: e }) },
+                              { label: 'QR code for the phone', hidden: !e.remoteControl.url, onSelect: () => setDialog({ kind: 'qr', env: e, url: e.remoteControl.url! }) },
                               { label: 'Cost alerts…', onSelect: () => setDialog({ kind: 'cost', env: e, live: m }) },
                               { label: 'Run setup again', onSelect: () => setDialog({ kind: 'setup', env: e }) },
                               ...plugins.actions('environment').map((a) => ({ label: `${a.title}${a.destructive ? '…' : ''}`, danger: a.destructive, onSelect: () => setPluginRun({ action: a, env: e.name }) })),
@@ -193,6 +197,7 @@ export function Environments() {
           <p className="sec">{dialog.action === 'sleep' ? 'Stops the compose services running now. Only these start again, with the next session in this environment.' : `Starts ${dialog.env.asleep?.services.join(', ') ?? 'the services it had running'}.`}</p>
         </RunDialog>
       )}
+      {dialog?.kind === 'qr' && <QrDialog title={`Open on the phone · ${dialog.env.name}`} url={dialog.url} note={`Scan with the phone's camera: ${dialog.env.name}'s Remote Control environment opens on claude.ai/code (or in the Claude app), where a new session starts in this environment. You need to be signed in to ${dialog.env.account} there.`} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'cost' && <CostAlertDialog env={dialog.env} live={dialog.live} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'delete' && <DeleteFlow env={dialog.env} onClose={() => { setDialog(null); void refresh(); }} />}
       {dialog?.kind === 'logs' && <LogViewer title={`${dialog.env.name} · Remote Control log`} load={() => client.envLogs(dialog.env.name, 300).then((l) => l.lines)} onClose={() => setDialog(null)} />}

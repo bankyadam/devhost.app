@@ -640,6 +640,8 @@ Its own screen: the sessions open now (running, waiting for input, idle), all ac
 ### B3.2 Environments
 
 - Grouped by account (one card per account, in the config's order, with the account's color); status, CPU/RAM (process tree + its containers), port block, disk size, open sessions; ▶ opens the environment's Remote Control link; start / stop / restart; compose asleep (badge, with since when and what starts with the next session), put compose to sleep / wake compose (A7.9); logs; run setup again; plugin environment actions; delete.
+- Estimated cost today per environment, flagged when over its daily or hourly limit; "…" → *Cost alerts…* sets both (A10.5), written to the config at once.
+- **QR codes** (a toggle on Environments and Sessions, remembered as a UI preference, off by default): a code of each environment's Remote Control link, and on Sessions of each Remote Control session's claude.ai/code link, so a phone can open it off the screen (e.g. the app on a second monitor); a click, or "…" → *QR code for the phone*, shows a large one with the link. Dark on white in both themes. Sessions without a Remote Control link show none.
 - With a work volume: its status (mounted, free space, encrypted) above the list; environments whose volume is missing are marked.
 - **Create wizard:** account → name → repo URL (or empty) → Remote Control on/off, permission mode → compose auto/off → review (shows allocated port block and generated paths) → run `devhost env create --json` with a live step log. Prompt events (e.g. workspace trust) are handled in-app; a failed setup can be tried again.
 - **Delete:** shows unpushed commits/branches from the CLI; typed-name confirmation; files kept unless explicitly chosen.

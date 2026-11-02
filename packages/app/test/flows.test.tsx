@@ -347,6 +347,23 @@ describe('environments (spec B3.2)', () => {
     expect(yaml).toMatch(/dailyCostUsd: null/);
   });
 
+  it('QR codes: the toggle adds a code of the Remote Control link per environment; a click enlarges it', async () => {
+    const h = await makeHarness();
+    await withBusiness(h);
+    await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    await mkdir(join(h.env.home, 'Library', 'Logs', 'devhost'), { recursive: true });
+    await writeFile(join(h.env.home, 'Library', 'Logs', 'devhost', 'rc-business-acme-api.log'), 'Continue coding in the Claude mobile app or https://claude.ai/code?environment=env_01Abc\n');
+    mount(h);
+    await goto(h, 'Environments');
+    await screen.findByRole('button', { name: 'Open Claude for acme-api' });
+    expect(screen.queryByRole('img', { name: /QR code/ })).toBeNull();
+    await h.user.click(screen.getByRole('checkbox', { name: 'QR codes' }));
+    await h.user.click(await screen.findByRole('img', { name: "QR code of acme-api's Remote Control environment" }));
+    const dlg = within(await screen.findByRole('dialog', { name: 'Open on the phone · acme-api' }));
+    expect(dlg.getByRole('img', { name: 'QR code of https://claude.ai/code?environment=env_01Abc' })).toBeInTheDocument();
+  });
+
   it('shows the service log in a viewer', async () => {
     const h = await makeHarness();
     await withBusiness(h);
