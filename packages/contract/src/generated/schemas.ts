@@ -285,6 +285,32 @@ export const schemas = {
               },
               "uniqueItems": true,
               "description": "Agents (subagent definitions) written for the Claude Code sessions here: names from the built-in catalog or from `agents.custom`."
+            },
+            "alerts": {
+              "type": "object",
+              "additionalProperties": false,
+              "default": {},
+              "description": "Estimated cost alerts for this environment (API-equivalent, not billed money); null = no alert.",
+              "properties": {
+                "dailyCostUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "default": null,
+                  "description": "Alert when the environment's estimated cost since local midnight reaches this."
+                },
+                "hourlyCostUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "default": null,
+                  "description": "Alert when the environment's estimated cost over the last 60 minutes reaches this: a session that runs away (a loop, a huge context) shows here first. Clears below 80% of it."
+                }
+              }
             }
           }
         }
@@ -1557,7 +1583,10 @@ export const schemas = {
             "containerMemBytes",
             "portBase",
             "diskBytes",
-            "activeSessions"
+            "activeSessions",
+            "costToday",
+            "costLastHour",
+            "costAlert"
           ],
           "properties": {
             "account": {
@@ -1629,6 +1658,36 @@ export const schemas = {
             },
             "activeSessions": {
               "type": "integer"
+            },
+            "costToday": {
+              "type": "number",
+              "description": "Estimated cost since local midnight (USD)."
+            },
+            "costLastHour": {
+              "type": "number",
+              "description": "Estimated cost over the last 60 minutes (USD)."
+            },
+            "costAlert": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "dailyUsd",
+                "hourlyUsd"
+              ],
+              "properties": {
+                "dailyUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "hourlyUsd": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              }
             }
           }
         }

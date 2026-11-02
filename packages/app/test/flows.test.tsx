@@ -322,6 +322,31 @@ describe('environments (spec B3.2)', () => {
     expect(h.mac.state.composeUp.has('devhost-acme-api')).toBe(true);
   });
 
+  it('cost alerts: created from the CLI flags, shown and changed in the dialog, empty turns one off', async () => {
+    const h = await makeHarness();
+    await withBusiness(h);
+    expect(await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc', '--daily-cost-alert', '30', '--hourly-cost-alert', 'x')).toBe(2);
+    expect(await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc', '--daily-cost-alert', '30')).toBe(0);
+    expect(await cfg(h)).toMatch(/dailyCostUsd: 30/);
+    mount(h);
+    await goto(h, 'Environments');
+    await envAction(h, 'acme-api', 'Cost alerts…');
+    const dlg = within(await screen.findByRole('dialog', { name: 'Cost alerts · acme-api' }));
+    const daily = dlg.getByLabelText('Daily limit in USD');
+    await waitFor(() => expect(daily).toHaveValue('30'));
+    const hourly = dlg.getByLabelText('Hourly limit in USD');
+    await h.user.type(hourly, 'abc');
+    expect(dlg.getByRole('button', { name: 'Save' })).toBeDisabled();
+    await h.user.clear(hourly);
+    await h.user.type(hourly, '5');
+    await h.user.clear(daily);
+    await h.user.click(dlg.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const yaml = await cfg(h);
+    expect(yaml).toMatch(/hourlyCostUsd: 5/);
+    expect(yaml).toMatch(/dailyCostUsd: null/);
+  });
+
   it('shows the service log in a viewer', async () => {
     const h = await makeHarness();
     await withBusiness(h);

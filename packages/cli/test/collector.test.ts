@@ -12,7 +12,7 @@ import { envLocations, parseHook } from '../src/collector/hooks.js';
 import { Ingestor } from '../src/collector/ingest.js';
 import { createNotifier, maskTopic, NtfyNotifier, type Notification, type Notifier } from '../src/collector/notify.js';
 import { CumulativeTracker, parseLogs, parseMetrics, parseToolRuns, sourceOf } from '../src/collector/otlp.js';
-import { buildDash } from '../src/collector/query.js';
+import { buildDash, envCosts } from '../src/collector/query.js';
 import { buildProfile, merge, subtract, toolClass, total } from '../src/collector/profile.js';
 import type { PluginContext, WidgetContent } from '../src/plugins/api.js';
 import { retain, rollup } from '../src/collector/rollup.js';
@@ -35,7 +35,7 @@ accounts:
   - { name: personal, default: true, root: ${HOME}/work/personal, portRange: [3000, 3999], git: { name: A, email: a@b.c } }
   - { name: business, configDir: ${HOME}/.claude-business, root: ${HOME}/work/business, portRange: [4000, 4999], git: { name: A, email: a@b.c }, alerts: { dailyCostUsd: 10 } }
 environments:
-  - { name: acme-api, account: business, portBase: 4100 }
+  - { name: acme-api, account: business, portBase: 4100, alerts: { dailyCostUsd: 5, hourlyCostUsd: 2 } }
 `,
   '/c',
 );
@@ -606,6 +606,43 @@ describe('alerts', () => {
     expect(notifier.sent[2]!.message).toContain('valid again');
   });
 
+  it('environment cost: a daily limit, and an hourly one over the last 60 minutes that names the top session and clears at 80%', async () => {
+    const db = new Db(':memory:');
+    const notifier = new Recorder();
+    let now = T0;
+    const engine = new AlertEngine(db, notifier, () => now);
+    const th = { memoryPercent: 90, diskFreePercent: 15, dailyCostUsd: new Map(), envCost: new Map([['business/acme-api', { dailyUsd: 5, hourlyUsd: 2 }], ['personal/web', { dailyUsd: null, hourlyUsd: null }]]) };
+    const evalAt = () => engine.evaluate(th, { memPct: null, diskFreePct: null, costToday: new Map(), restarts: new Map(), auth: new Map(), envCost: envCosts(db, now) });
+    const msgs = () => notifier.sent.map((n) => n.message);
+    const cost = (ts: number, env: string, session: string, value: number) => db.run("INSERT INTO usage VALUES (?, 'business', ?, ?, 'm', 'cost', ?)", ts, env, session, value);
+
+    cost(now - 10 * 60_000, 'acme-api', 'sess-small00', 0.5);
+    cost(now - 5 * 60_000, 'acme-api', 'sess-loop1234', 1.8);
+    db.run("INSERT INTO usage VALUES (?, 'personal', 'web', 's', 'm', 'cost', 99)", now); // no limits: no alert
+    await evalAt();
+    expect(msgs()).toEqual([expect.stringContaining('Environment business/acme-api spent $2.30 in the last hour (limit $2)')]);
+    expect(notifier.sent[0]!.message).toContain('session sess-loo');
+    expect(notifier.sent[0]!.priority).toBe('high');
+
+    // Still at 85% of the limit an hour later: not cleared yet (hysteresis), no new notification.
+    now += 50 * 60_000;
+    cost(now, 'acme-api', 'sess-loop1234', 1.7);
+    await evalAt();
+    expect(notifier.sent).toHaveLength(1);
+    now += 15 * 60_000; // the 1.8 and 0.5 left the window: 1.7 is 85% of 2
+    await evalAt();
+    expect(notifier.sent).toHaveLength(1);
+    now += 50 * 60_000; // nothing in the last hour
+    await evalAt();
+    expect(msgs().at(-1)).toContain('below');
+
+    // Daily: 0.5 + 1.8 + 1.7 + 1.5 passes $5.
+    cost(now, 'acme-api', 'sess-other00', 1.5);
+    await evalAt();
+    expect(msgs().filter((m) => m.includes('Estimated cost today in environment business/acme-api is $5.50 (limit $5)'))).toHaveLength(1);
+    expect(engine.active().map((a) => a.id)).toContain('envcost:business/acme-api');
+  });
+
   it('a failing notifier does not break evaluation', async () => {
     const db = new Db(':memory:');
     const failing: Notifier = { provider: 'x', send: async () => { throw new Error('offline'); } };
@@ -738,7 +775,7 @@ describe('dashboard', () => {
     const business = data.accounts.find((a) => a.name === 'business')!;
     expect(business).toMatchObject({ loggedIn: false, today: { tokens: 1200, costUsd: 1.25 }, dailyCostAlertUsd: 10 });
     expect(data.accounts.find((a) => a.name === 'personal')).toMatchObject({ loggedIn: true, today: { tokens: 0, costUsd: 0 } });
-    expect(data.environments[0]).toMatchObject({ account: 'business', name: 'acme-api', service: { state: 'running', pid: 123 }, cpuPercent: 7, containerMemBytes: 1048576, portBase: 4100, activeSessions: 1 });
+    expect(data.environments[0]).toMatchObject({ account: 'business', name: 'acme-api', service: { state: 'running', pid: 123 }, cpuPercent: 7, containerMemBytes: 1048576, portBase: 4100, activeSessions: 1, costToday: 1.25, costLastHour: 1.25, costAlert: { dailyUsd: 5, hourlyUsd: 2 } });
     expect(data.sessions[0]).toMatchObject({ id: 'sess-aaaa1111', state: 'waiting', tokensToday: 1200, costToday: 1.25, cpuPercent: 3 });
     expect(data.usage.reduce((a, r) => a + r.input + r.output, 0)).toBe(1200);
     expect(data.limits.join(' ')).toContain('estimate');

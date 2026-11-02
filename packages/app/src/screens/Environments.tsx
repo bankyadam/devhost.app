@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { AccountListData, EnvListData, StorageStatusData } from '@devhost/contract/lite';
+import type { AccountListData, DashData, EnvListData, StorageStatusData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import { envCreateArgs, type EnvCreateInput } from '../client/client';
 import { errorMessage } from '../client/errors';
 import { seriesSlot, seriesVar } from '../lib/colors';
-import { bytes, pct } from '../lib/format';
+import { bytes, pct, usd } from '../lib/format';
 import { ENV_SLUG, predictEnvBlock } from '../lib/ports';
 import { Badge, Dialog, Empty, Field, Menu, WizardStep } from '../ui/primitives';
 import { RunDialog } from '../ui/run-dialog';
@@ -14,6 +14,14 @@ import { usePlugins, type PluginActionInfo } from '../use-plugins';
 import { openClaude, useWebApps } from '../use-web-apps';
 
 type Env = EnvListData['environments'][number];
+type EnvLive = DashData['environments'][number];
+
+/** Which cost limit the environment is over now, if any (spec A10.5: the hourly one clears lower, the collector decides that). */
+export function overCost(m: Pick<EnvLive, 'costToday' | 'costLastHour' | 'costAlert'>): 'day' | 'hour' | null {
+  if (m.costAlert.hourlyUsd !== null && m.costLastHour >= m.costAlert.hourlyUsd) return 'hour';
+  if (m.costAlert.dailyUsd !== null && m.costToday >= m.costAlert.dailyUsd) return 'day';
+  return null;
+}
 
 /** Environments grouped by account: accounts in `order` (the config's) first, then any other in order of appearance. */
 export function byAccount(envs: Env[], order: readonly string[] = []): [string, Env[]][] {
@@ -36,7 +44,7 @@ export function Environments() {
   const [accountOrder, setAccountOrder] = useState<string[]>([]);
   // The dashboard colors accounts by their place in the config: the same here.
   const accountNames = accountOrder.length > 0 ? accountOrder : envs ? byAccount(envs).map(([a]) => a) : [];
-  const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'sleep'; env: Env; action: 'sleep' | 'wake' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env } | { kind: 'setup'; env: Env }>(null);
+  const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'sleep'; env: Env; action: 'sleep' | 'wake' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env } | { kind: 'setup'; env: Env } | { kind: 'cost'; env: Env; live: EnvLive | undefined }>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -82,7 +90,7 @@ export function Environments() {
             </header>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Environment</th><th>Remote Control</th><th className="num">CPU</th><th className="num">RAM</th><th className="num">Containers</th><th>Ports</th><th>Compose</th><th className="num">Disk</th><th className="num">Sessions</th><th><span className="sr">Actions</span></th></tr></thead>
+                <thead><tr><th>Environment</th><th>Remote Control</th><th className="num">CPU</th><th className="num">RAM</th><th className="num">Containers</th><th>Ports</th><th>Compose</th><th className="num">Disk</th><th className="num">Sessions</th><th className="num">Cost today</th><th><span className="sr">Actions</span></th></tr></thead>
                 <tbody>
                   {list.map((e) => {
                     const m = dash?.environments.find((x) => x.account === e.account && x.name === e.name);
@@ -100,6 +108,14 @@ export function Environments() {
                       <td>{e.asleep ? <span title={`Since ${new Date(e.asleep.at).toLocaleString()}. Starts with the next session: ${e.asleep.services.join(', ')}`}><Badge>asleep</Badge></span> : e.compose}</td>
                       <td className="num">{bytes(m?.diskBytes)}</td>
                       <td className="num">{m?.activeSessions ?? '–'}</td>
+                      <td className="num">
+                        {m ? (
+                          <span title={`Last hour ${usd(m.costLastHour)}. Alerts: ${m.costAlert.dailyUsd === null ? 'no daily limit' : `${usd(m.costAlert.dailyUsd)} a day`}, ${m.costAlert.hourlyUsd === null ? 'no hourly limit' : `${usd(m.costAlert.hourlyUsd)} an hour`}. An estimate, not billed money.`}>
+                            {usd(m.costToday)}
+                            {overCost(m) && <> <Badge tone="warn">{overCost(m) === 'hour' ? 'over hourly limit' : 'over daily limit'}</Badge></>}
+                          </span>
+                        ) : '–'}
+                      </td>
                       <td>
                         <div className="row" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
                           {(() => {
@@ -125,6 +141,7 @@ export function Environments() {
                               { label: 'Put compose to sleep', hidden: e.compose === 'off' || !!e.asleep, onSelect: () => setDialog({ kind: 'sleep', env: e, action: 'sleep' }) },
                               { label: 'Wake compose', hidden: !e.asleep, onSelect: () => setDialog({ kind: 'sleep', env: e, action: 'wake' }) },
                               { label: 'Logs', onSelect: () => setDialog({ kind: 'logs', env: e }) },
+                              { label: 'Cost alerts…', onSelect: () => setDialog({ kind: 'cost', env: e, live: m }) },
                               { label: 'Run setup again', onSelect: () => setDialog({ kind: 'setup', env: e }) },
                               ...plugins.actions('environment').map((a) => ({ label: `${a.title}${a.destructive ? '…' : ''}`, danger: a.destructive, onSelect: () => setPluginRun({ action: a, env: e.name }) })),
                               { label: 'Delete…', danger: true, onSelect: () => setDialog({ kind: 'delete', env: e }) },
@@ -141,7 +158,7 @@ export function Environments() {
           </section>
         ))
       )}
-      <p className="note">Start, stop and restart change a system service, so they need the sudo password; if it cannot be asked here you get a Terminal window for it. A stopped service stays stopped until you start it or {hostName} reboots. Compose services go to sleep after an hour without a session (docker.idleSleepMinutes) and wake with the next one; what was stopped by hand stays stopped.</p>
+      <p className="note">Start, stop and restart change a system service, so they need the sudo password; if it cannot be asked here you get a Terminal window for it. A stopped service stays stopped until you start it or {hostName} reboots. Compose services go to sleep after an hour without a session (docker.idleSleepMinutes) and wake with the next one; what was stopped by hand stays stopped. Cost is Claude Code's API-equivalent estimate; an environment's cost alerts notify you when its day, or its last hour, passes the limit.</p>
 
       {pluginRun && <PluginRunDialog action={pluginRun.action} target={{ env: pluginRun.env }} onClose={() => setPluginRun(null)} />}
       {dialog?.kind === 'setup' && (
@@ -176,6 +193,7 @@ export function Environments() {
           <p className="sec">{dialog.action === 'sleep' ? 'Stops the compose services running now. Only these start again, with the next session in this environment.' : `Starts ${dialog.env.asleep?.services.join(', ') ?? 'the services it had running'}.`}</p>
         </RunDialog>
       )}
+      {dialog?.kind === 'cost' && <CostAlertDialog env={dialog.env} live={dialog.live} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'delete' && <DeleteFlow env={dialog.env} onClose={() => { setDialog(null); void refresh(); }} />}
       {dialog?.kind === 'logs' && <LogViewer title={`${dialog.env.name} · Remote Control log`} load={() => client.envLogs(dialog.env.name, 300).then((l) => l.lines)} onClose={() => setDialog(null)} />}
     </div>
@@ -342,6 +360,74 @@ function CreateWizard({ onClose }: { onClose: () => void }) {
         </dl>
       )}
       </WizardStep>
+    </Dialog>
+  );
+}
+
+/** An environment's cost alerts (spec A10.5): written to the config at once, the collector reads them on its next check. */
+function CostAlertDialog({ env, live, onClose }: { env: Env; live: EnvLive | undefined; onClose: () => void }) {
+  const { client } = useApp();
+  const text = (v: number | null | undefined): string => (v === null || v === undefined ? '' : String(v));
+  const [daily, setDaily] = useState(text(live?.costAlert.dailyUsd));
+  const [hourly, setHourly] = useState(text(live?.costAlert.hourlyUsd));
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  // The config is the source: the dashboard may not have this environment yet.
+  useEffect(() => {
+    let current = true;
+    client.configGet().then(
+      (config) => {
+        const alerts = (config.environments ?? []).find((e) => e.name === env.name && e.account === env.account)?.alerts;
+        if (!current || !alerts) return;
+        setDaily(text(alerts.dailyCostUsd));
+        setHourly(text(alerts.hourlyCostUsd));
+      },
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, [client, env.name, env.account]);
+  const parse = (v: string): number | null | undefined => {
+    if (v.trim() === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  };
+  const [d, h] = [parse(daily), parse(hourly)];
+  const save = async (): Promise<void> => {
+    if (d === undefined || h === undefined) return;
+    setSaving(true);
+    try {
+      const config = await client.configGet();
+      const i = (config.environments ?? []).findIndex((e) => e.name === env.name && e.account === env.account);
+      if (i < 0) throw new Error(`${env.name} is not in the config any more`);
+      await client.configSet(`/environments/${i}/alerts`, { dailyCostUsd: d, hourlyCostUsd: h });
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e));
+      setSaving(false);
+    }
+  };
+  return (
+    <Dialog
+      title={`Cost alerts · ${env.name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" disabled={saving || d === undefined || h === undefined} onClick={() => void save()}>Save</button>
+        </>
+      }
+    >
+      {error && <div className="notice bad" role="alert">{error}</div>}
+      {live && <p className="note">Today {usd(live.costToday)} · last hour {usd(live.costLastHour)}</p>}
+      <Field label="Daily limit in USD" hint="A notification when the environment's estimated cost since midnight passes it. Empty: no alert." error={d === undefined ? 'Enter a number, or leave it empty.' : null}>
+        {(id) => <input id={id} className="input" inputMode="decimal" value={daily} onChange={(e) => setDaily(e.target.value)} />}
+      </Field>
+      <Field label="Hourly limit in USD" hint="A notification when the last 60 minutes pass it, naming the session that spent most: a session stuck in a loop shows here first. Empty: no alert." error={h === undefined ? 'Enter a number, or leave it empty.' : null}>
+        {(id) => <input id={id} className="input" inputMode="decimal" value={hourly} onChange={(e) => setHourly(e.target.value)} />}
+      </Field>
+      <p className="note">Cost is Claude Code's API-equivalent estimate: on a subscription it is not billed money.</p>
     </Dialog>
   );
 }

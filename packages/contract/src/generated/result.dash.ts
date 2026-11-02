@@ -64,6 +64,18 @@ export interface DashData {
     portBase: number | null;
     diskBytes: number | null;
     activeSessions: number;
+    /**
+     * Estimated cost since local midnight (USD).
+     */
+    costToday: number;
+    /**
+     * Estimated cost over the last 60 minutes (USD).
+     */
+    costLastHour: number;
+    costAlert: {
+      dailyUsd: number | null;
+      hourlyUsd: number | null;
+    };
   }[];
   sessions: {
     id: string;

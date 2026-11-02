@@ -233,6 +233,33 @@ export function readDash(db: Db, config: DevhostConfig, opts: DashOptions, now: 
   return { ...snap, ...(snap.range === opts.range ? {} : buildRange(db, opts, now)) };
 }
 
+/**
+ * Estimated cost per environment (key `account/env`) since local midnight and over the last 60
+ * minutes, with the session that spent most of that hour: for the dashboard and the cost alerts.
+ */
+export function envCosts(db: Db, now: number): Map<string, { today: number; lastHour: number; topSession: { id: string; cost: number } | null }> {
+  const out = new Map<string, { today: number; lastHour: number; topSession: { id: string; cost: number } | null }>();
+  const get = (account: string, env: string) => {
+    const key = `${account}/${env}`;
+    const cur = out.get(key) ?? { today: 0, lastHour: 0, topSession: null };
+    out.set(key, cur);
+    return cur;
+  };
+  for (const r of db.all<{ account: string; env: string; cost: number }>("SELECT account, env, SUM(value) AS cost FROM usage WHERE kind = 'cost' AND ts >= ? AND env <> '' GROUP BY account, env", localMidnight(now))) {
+    get(r.account, r.env).today = Number(r.cost);
+  }
+  for (const r of db.all<{ account: string; env: string; session_id: string; cost: number }>(
+    "SELECT account, env, session_id, SUM(value) AS cost FROM usage WHERE kind = 'cost' AND ts >= ? AND env <> '' GROUP BY account, env, session_id",
+    now - HOUR,
+  )) {
+    const cur = get(r.account, r.env);
+    const cost = Number(r.cost);
+    cur.lastHour += cost;
+    if (r.session_id && (!cur.topSession || cost > cur.topSession.cost)) cur.topSession = { id: r.session_id, cost };
+  }
+  return out;
+}
+
 /** The state now: host, collector, alerts, accounts, environments, sessions, volume, updates. */
 export function buildLive(db: Db, config: DevhostConfig, opts: DashOptions, now: number, hostName: string, dbSizeBytes: number | null): LiveParts {
   const midnight = localMidnight(now);
@@ -275,6 +302,7 @@ export function buildLive(db: Db, config: DevhostConfig, opts: DashOptions, now:
     sessionToday.set(r.session_id, cur);
   }
 
+  const costs = envCosts(db, now);
   const environments = environmentsOf(config)
     .filter((e) => (!opts.account || e.account === opts.account) && (!opts.env || e.name === opts.env))
     .map((e) => {
@@ -297,6 +325,9 @@ export function buildLive(db: Db, config: DevhostConfig, opts: DashOptions, now:
         portBase: e.portBase ?? null,
         diskBytes: disk?.bytes ?? null,
         activeSessions: active,
+        costToday: costs.get(`${e.account}/${e.name}`)?.today ?? 0,
+        costLastHour: costs.get(`${e.account}/${e.name}`)?.lastHour ?? 0,
+        costAlert: { dailyUsd: e.alerts?.dailyCostUsd ?? null, hourlyUsd: e.alerts?.hourlyCostUsd ?? null },
       };
     });
 

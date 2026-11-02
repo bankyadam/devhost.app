@@ -14,7 +14,7 @@ import { Executor } from '../runner/executor.js';
 import { AlertEngine, RESTART_WINDOW_MS, type AlertThresholds } from './alerts.js';
 import { checkAuth } from './auth.js';
 import { dbPath, type Db } from './db.js';
-import { buildLive, buildRange, type RangeParts } from './query.js';
+import { buildLive, buildRange, envCosts, type RangeParts } from './query.js';
 import { Sources, TIMEOUT } from './sources.js';
 import { TitleCache } from './titles.js';
 import { envLocations, type EnvLocation } from './hooks.js';
@@ -620,7 +620,9 @@ export class Collector {
       memoryPercent: cfg.collector?.alerts?.memoryPercent ?? 90,
       diskFreePercent: cfg.collector?.alerts?.diskFreePercent ?? 15,
       dailyCostUsd: new Map(accountsOf(cfg).map((a: Account) => [a.name, a.alerts?.dailyCostUsd ?? null])),
+      envCost: new Map(environmentsOf(cfg).map((e) => [`${e.account}/${e.name}`, { dailyUsd: e.alerts?.dailyCostUsd ?? null, hourlyUsd: e.alerts?.hourlyCostUsd ?? null }])),
     };
+    const envCost = envCosts(this.db, now);
     const costToday = new Map<string, number>();
     for (const r of this.db.all<{ account: string; cost: number }>("SELECT account, SUM(value) AS cost FROM usage WHERE kind = 'cost' AND ts >= ? GROUP BY account", midnight(now))) {
       costToday.set(r.account, r.cost);
@@ -637,7 +639,7 @@ export class Collector {
     }
     const vol = workVolumeOf(cfg) ? (JSON.parse(this.db.kvGet('volume') ?? 'null') as null | { label: string; mountPoint: string; mounted: boolean; uuidMatch: boolean; markerMatch: boolean; doubleMount: boolean; strayDirectory: boolean; freePct: number | null; freeLimit: number }) : null;
     const volume = vol ? { label: vol.label, mountPoint: vol.mountPoint, mounted: vol.mounted, identityOk: vol.uuidMatch && vol.markerMatch, doubleMount: vol.doubleMount, strayDirectory: vol.strayDirectory, freePct: vol.freePct, freeLimit: vol.freeLimit } : null;
-    await this.alerts.evaluate(thresholds, { memPct: sys?.mem_pct ?? null, diskFreePct: sys?.disk_free_pct ?? null, costToday, restarts, auth, volume });
+    await this.alerts.evaluate(thresholds, { memPct: sys?.mem_pct ?? null, diskFreePct: sys?.disk_free_pct ?? null, costToday, envCost, restarts, auth, volume });
   }
 
   // ---- lifecycle ----

@@ -84,6 +84,19 @@ export interface DevhostConfig {
      * Agents (subagent definitions) written for the Claude Code sessions here: names from the built-in catalog or from `agents.custom`.
      */
     agents?: string[];
+    /**
+     * Estimated cost alerts for this environment (API-equivalent, not billed money); null = no alert.
+     */
+    alerts?: {
+      /**
+       * Alert when the environment's estimated cost since local midnight reaches this.
+       */
+      dailyCostUsd?: number | null;
+      /**
+       * Alert when the environment's estimated cost over the last 60 minutes reaches this: a session that runs away (a loop, a huge context) shows here first. Clears below 80% of it.
+       */
+      hourlyCostUsd?: number | null;
+    };
   }[];
   packages?: {
     brew?: string[];

@@ -26,7 +26,7 @@ const dash = (o: Partial<DashData> = {}): DashData => ({
   collector: { lastSampleAt: 1, lastOtelAt: null, lastHookAt: null, dbSizeBytes: 1, schemaVersion: 1 },
   alerts: [],
   accounts: [{ name: 'a', loggedIn: true, lastAuthCheckAt: null, today: { tokens: 0, costUsd: 0 }, week: { tokens: 0, costUsd: 0 }, dailyCostAlertUsd: null }],
-  environments: [{ account: 'a', name: 'e', service: { state: 'running', pid: 1 }, cpuPercent: 0, rssBytes: 0, containerCpuPercent: null, containerMemBytes: null, portBase: 3000, diskBytes: null, activeSessions: 0 }],
+  environments: [{ account: 'a', name: 'e', service: { state: 'running', pid: 1 }, cpuPercent: 0, rssBytes: 0, containerCpuPercent: null, containerMemBytes: null, portBase: 3000, diskBytes: null, activeSessions: 0, costToday: 0, costLastHour: 0, costAlert: { dailyUsd: null, hourlyUsd: null } }],
   sessions: [],
   usage: [],
   limits: [],
