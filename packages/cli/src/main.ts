@@ -192,11 +192,16 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .option('--compose <mode>', 'auto | off', 'auto')
     .option('--spawn <mode>', 'worktree | same-dir')
     .option('--permission-mode <mode>', 'permission mode for Remote Control sessions')
+    .option('--daily-cost-alert <usd>', "alert when the environment's estimated cost today passes this", (v) => Number(v))
+    .option('--hourly-cost-alert <usd>', "alert when the environment's estimated cost in the last hour passes this", (v) => Number(v))
     .action(
       run(() => {
-        const o = env.commands.find((c) => c.name() === 'create')!.opts<{ account: string; name: string; repo?: string; rc: boolean; compose: string; spawn?: string; permissionMode?: string }>();
+        const o = env.commands.find((c) => c.name() === 'create')!.opts<{ account: string; name: string; repo?: string; rc: boolean; compose: string; spawn?: string; permissionMode?: string; dailyCostAlert?: number; hourlyCostAlert?: number }>();
         if (o.compose !== 'auto' && o.compose !== 'off') throw new UsageError('--compose must be auto or off');
-        return envCreateCommand(deps, globals(), { account: o.account, name: o.name, repo: o.repo, noRc: !o.rc, compose: o.compose, spawn: o.spawn, permissionMode: o.permissionMode });
+        for (const [flag, v] of [['--daily-cost-alert', o.dailyCostAlert], ['--hourly-cost-alert', o.hourlyCostAlert]] as const) {
+          if (v !== undefined && !(Number.isFinite(v) && v >= 0)) throw new UsageError(`${flag} must be a number of USD, 0 or more`);
+        }
+        return envCreateCommand(deps, globals(), { account: o.account, name: o.name, repo: o.repo, noRc: !o.rc, compose: o.compose, spawn: o.spawn, permissionMode: o.permissionMode, dailyCostAlert: o.dailyCostAlert, hourlyCostAlert: o.hourlyCostAlert });
       }),
     );
   env

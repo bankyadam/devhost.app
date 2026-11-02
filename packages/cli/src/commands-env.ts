@@ -96,6 +96,9 @@ export interface EnvCreateOptions {
   compose: 'auto' | 'off';
   spawn?: string;
   permissionMode?: string;
+  /** Estimated cost alerts (USD), spec A10.5. */
+  dailyCostAlert?: number;
+  hourlyCostAlert?: number;
 }
 
 export function envCreateCommand(deps: Deps, g: GlobalOptions, opts: EnvCreateOptions): Promise<number> {
@@ -137,6 +140,9 @@ export function envCreateCommand(deps: Deps, g: GlobalOptions, opts: EnvCreateOp
         portBase,
         remoteControl: { enabled: rcEnabled, spawn: opts.spawn ?? 'worktree', permissionMode: opts.permissionMode ?? 'acceptEdits' },
         compose: opts.compose,
+        ...(opts.dailyCostAlert !== undefined || opts.hourlyCostAlert !== undefined
+          ? { alerts: { dailyCostUsd: opts.dailyCostAlert ?? null, hourlyCostUsd: opts.hourlyCostAlert ?? null } }
+          : {}),
       };
       reporter.step('config', 'start', `add environment ${opts.name} to ${g.configPath}`);
       ({ config } = await editConfigFile(g.configPath, deps.now(), (doc) => appendTo(doc, 'environments', entry)));

@@ -270,7 +270,10 @@
           "containerMemBytes",
           "portBase",
           "diskBytes",
-          "activeSessions"
+          "activeSessions",
+          "costToday",
+          "costLastHour",
+          "costAlert"
         ],
         "properties": {
           "account": {
@@ -342,6 +345,36 @@
           },
           "activeSessions": {
             "type": "integer"
+          },
+          "costToday": {
+            "type": "number",
+            "description": "Estimated cost since local midnight (USD)."
+          },
+          "costLastHour": {
+            "type": "number",
+            "description": "Estimated cost over the last 60 minutes (USD)."
+          },
+          "costAlert": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "dailyUsd",
+              "hourlyUsd"
+            ],
+            "properties": {
+              "dailyUsd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "hourlyUsd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
           }
         }
       }

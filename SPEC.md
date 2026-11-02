@@ -104,6 +104,7 @@ environments:                        # managed by `devhost env ...`, editable by
     portBase: 4100                       # allocated automatically if omitted: 100-port block inside portRange
     remoteControl: { enabled: true, spawn: worktree, permissionMode: acceptEdits }
     compose: auto                        # auto (start if compose file exists) | off
+    alerts: { dailyCostUsd: 40, hourlyCostUsd: 10 }   # estimates; null or omitted = no alert
 
 packages:
   brew: [git, gh, tmux, mosh, direnv, jq, ripgrep]
@@ -248,7 +249,7 @@ A failed `docker compose up` does not stop the setup: the Remote Control service
 
 `devhost env delete <name>`: stops and removes the service, `docker compose down`, removes the config entry. Deletes the directory only with `--delete-files`, after showing unpushed commits/branches and requiring a typed confirmation of the name.
 
-`env create` refuses to run if the target account does not exist.
+`env create` refuses to run if the target account does not exist. `--daily-cost-alert <usd>` and `--hourly-cost-alert <usd>` set the new entry's `alerts` (A10.5); later they are changed in the config or in the app (Environments → … → *Cost alerts…*).
 
 **Agents** (step `agents`): `agents: [name, …]` on an account or an environment lists the subagents Claude Code sessions there can use; names come from devhost's built-in catalog (`explorer`, `reviewer`, `test-runner`, `docs`) or the top-level `agents.custom` (`name`, `description`, `prompt`, optional `model`, `tools`). `apply` writes each as a Claude Code agent file (markdown with frontmatter) to `<Claude config dir>/agents/` for an account and `<environment>/.claude/agents/` for an environment. Files carry a mark in the frontmatter (`# managed by devhost`): only marked files are rewritten or removed when the list changes, a file of the same name without the mark is the user's and is left alone. An unknown name is a config error. Running sessions see new agents after they restart. With `agents.delegation: true` the shared CLAUDE.md (A8) gets a short "Subagents" block: hand broad searches, test runs and reviews to the agents above, start independent subtasks in parallel, do small edits yourself. `devhost agents list` returns the catalog, `agents.delegation` and what each account and environment has (`result.agents-list`). The app's **Agents** screen shows it: the catalog, the delegation checkbox, and a grid of agents per account and environment; ticking one runs `config set` (validated by the CLI), and *Apply changes* runs `apply --only agents accounts.claude` in a live dialog.
 
@@ -416,7 +417,7 @@ A single long-running process, `devhost collector`, run by launchd (LaunchDaemon
 
 ### A10.5 Alerts
 
-Notify (ntfy in v1, provider behind a small interface) when: memory above `alerts.memoryPercent` for 5 min; free internal disk below `alerts.diskFreePercent`; an account's estimated daily cost crosses that account's `alerts.dailyCostUsd`; a Remote Control service restarts more than 3 times in 10 min; auth invalid (A10.4). With a work volume: volume missing or unmounted (including hot-unplug), uuid or marker mismatch, **double mount** (`/Volumes/<label> 1` exists), free space below `storage.workVolume.alerts.freePercent`. One notification per condition per state change.
+Notify (ntfy in v1, provider behind a small interface) when: memory above `alerts.memoryPercent` for 5 min; free internal disk below `alerts.diskFreePercent`; an account's estimated daily cost crosses that account's `alerts.dailyCostUsd`; an environment's estimated cost since midnight crosses its `alerts.dailyCostUsd`, or its cost over the last 60 minutes crosses its `alerts.hourlyCostUsd` (rolling window, high priority; the message names the session that spent most, to catch one stuck in a loop; it clears below 80% of the limit so it does not flap); cost alerts only notify, they never stop a session; a Remote Control service restarts more than 3 times in 10 min; auth invalid (A10.4). With a work volume: volume missing or unmounted (including hot-unplug), uuid or marker mismatch, **double mount** (`/Volumes/<label> 1` exists), free space below `storage.workVolume.alerts.freePercent`. One notification per condition per state change.
 
 ### A10.6 Query interface
 

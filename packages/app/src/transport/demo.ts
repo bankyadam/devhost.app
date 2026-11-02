@@ -143,7 +143,7 @@ accounts:
   - { name: personal, default: true, configDir: null, root: ~/work/personal, portRange: [3000, 3999], git: { name: Ada, email: ada@example.com } }
   - { name: business, configDir: ~/.claude-business, root: ~/work/business, portRange: [4000, 4999], git: { name: Ada, email: ada@work.example }, alerts: { dailyCostUsd: 50 } }
 environments:
-  - { name: acme-api, account: business, portBase: 4100 }
+  - { name: acme-api, account: business, portBase: 4100, alerts: { dailyCostUsd: 40, hourlyCostUsd: 10 } }
   - { name: blog, account: personal, portBase: 3000 }
 packages:
   brew: [git, gh, tmux, mosh, direnv, jq, ripgrep, mise]
@@ -225,8 +225,8 @@ function demoDash(at: number, range: DashData['range']): DashData {
       { name: 'business', loggedIn: true, lastAuthCheckAt: at - 600_000, today: { tokens: 4_820_000, costUsd: 41.2 }, week: { tokens: 23_100_000, costUsd: 188.6 }, dailyCostAlertUsd: 50 },
     ],
     environments: [
-      { account: 'business', name: 'acme-api', service: { state: 'running', pid: 4242 }, cpuPercent: 12.5, rssBytes: 1.4e9, containerCpuPercent: 3.2, containerMemBytes: 8.2e8, portBase: 4100, diskBytes: 3.1e9, activeSessions: 2 },
-      { account: 'personal', name: 'blog', service: { state: 'running', pid: 4301 }, cpuPercent: 0.4, rssBytes: 2.6e8, containerCpuPercent: null, containerMemBytes: null, portBase: 3000, diskBytes: 6.4e8, activeSessions: 1 },
+      { account: 'business', name: 'acme-api', service: { state: 'running', pid: 4242 }, cpuPercent: 12.5, rssBytes: 1.4e9, containerCpuPercent: 3.2, containerMemBytes: 8.2e8, portBase: 4100, diskBytes: 3.1e9, activeSessions: 2, costToday: 24.6, costLastHour: 11.2, costAlert: { dailyUsd: 40, hourlyUsd: 10 } },
+      { account: 'personal', name: 'blog', service: { state: 'running', pid: 4301 }, cpuPercent: 0.4, rssBytes: 2.6e8, containerCpuPercent: null, containerMemBytes: null, portBase: 3000, diskBytes: 6.4e8, activeSessions: 1, costToday: 1.2, costLastHour: 0.3, costAlert: { dailyUsd: null, hourlyUsd: null } },
     ],
     sessions: [
       { id: '7c5dcf5d-aaaa', account: 'business', env: 'acme-api', state: 'waiting', startedAt: at - 3 * 3_600_000, lastActivityAt: at - 95_000, contextTokens: 342_000, handoffAt: null, tokensToday: 2_100_000, costToday: 18.7, cpuPercent: 2.1, rssBytes: 4.8e8 },
