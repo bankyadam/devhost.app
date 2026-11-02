@@ -8,6 +8,7 @@ import { ago, bytes, compact, duration, pct, usd } from '../src/lib/format';
 import { predictAccountRange, predictEnvBlock } from '../src/lib/ports';
 import { loadPrefs, savePrefs } from '../src/lib/prefs';
 import { sortSessions, type Session } from '../src/lib/sessions';
+import { monitorOrder } from '../src/screens/Monitor';
 import { trayState } from '../src/lib/tray';
 import { qrPath } from '../src/ui/qr';
 import { SERIES_HEX, webAppIconSvg } from '../src/lib/webAppIcon';
@@ -91,6 +92,10 @@ describe('sessions table', () => {
     session({ id: 'b', state: 'waiting', account: 'y', env: 'q', tokensToday: 50, cpuPercent: null, lastActivityAt: 10 }),
     session({ id: 'c', state: 'running', account: 'x', env: 'q', tokensToday: 20, cpuPercent: 80, lastActivityAt: 20 }),
   ];
+  it('monitor order: waiting, running, idle, latest activity first; ended left out', () => {
+    const more = [...list, session({ id: 'd', state: 'ended', lastActivityAt: 99 }), session({ id: 'e', state: 'idle', lastActivityAt: 40 })];
+    expect(monitorOrder(more).map((s) => s.id)).toEqual(['b', 'c', 'e', 'a']);
+  });
   it('sorts by any column; empty values sort last in both directions', () => {
     expect(sortSessions(list, 'tokensToday', 'desc').map((s) => s.id)).toEqual(['b', 'c', 'a']);
     expect(sortSessions(list, 'cpuPercent', 'desc').map((s) => s.id)).toEqual(['c', 'a', 'b']);

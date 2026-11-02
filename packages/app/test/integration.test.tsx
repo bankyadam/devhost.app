@@ -98,7 +98,7 @@ describe('dashboard (spec B3.1, B6)', () => {
     advice: [{ check: 'system.disk', on: ['ok', 'warn', 'fail'], async run() { return { message: '1 GB in caches', action: 'clean' }; } }],
   };`;
 
-  async function dashboard(webApps: string[] = [], transcripts: Record<string, string> = {}, plugin = false) {
+  async function dashboard(webApps: string[] = [], transcripts: Record<string, string> = {}, plugin = false, remote?: string) {
     const h = await makeHarness();
     webApps.forEach((a) => h.transport.webAppsInstalled.add(a));
     await withBusiness(h);
@@ -116,11 +116,32 @@ describe('dashboard (spec B3.1, B6)', () => {
     }
     await h.cli('account', 'add', '--name', 'personal', '--git-email', 'me@example.com', '--no-login');
     await h.cli('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc');
-    seedUsage(h, await configText(h));
+    seedUsage(h, await configText(h), remote);
     mount(h);
     await screen.findByLabelText('Host health');
     return h;
   }
+
+  it('Monitor (B3.1.2): cards with a state lamp, the prompt icon and QR code on the waiting Remote Control session, full screen hides the sidebar', async () => {
+    const h = await dashboard([], {}, false, 'Mon1');
+    await h.user.click(screen.getByRole('button', { name: 'Monitor' }));
+    const cards = await screen.findAllByRole('article');
+    expect(cards).toHaveLength(2);
+    const waiting = within(cards[0]!); // waiting first
+    expect(waiting.getByRole('img', { name: 'waiting for input' })).toBeInTheDocument();
+    expect(waiting.getByRole('img', { name: 'Waiting for your input' })).toBeInTheDocument();
+    expect(waiting.getByRole('img', { name: /^QR code of session / })).toBeInTheDocument();
+    const running = within(cards[1]!);
+    expect(running.getByRole('img', { name: 'running' })).toBeInTheDocument();
+    expect(running.queryByRole('img', { name: 'Waiting for your input' })).toBeNull();
+    expect(running.getByText('local session')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('At a glance')).getByText('Waiting for input').nextSibling).toHaveTextContent('1');
+
+    await h.user.click(screen.getByRole('button', { name: 'Full screen' }));
+    expect(screen.queryByRole('button', { name: 'Sessions' })).toBeNull();
+    await h.user.keyboard('{Escape}');
+    expect(await screen.findByRole('button', { name: 'Sessions' })).toBeInTheDocument();
+  });
 
   /** The dashboard's harness, on the Sessions screen. */
   async function sessionsScreen(...args: Parameters<typeof dashboard>) {
