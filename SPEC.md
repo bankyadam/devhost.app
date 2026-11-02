@@ -637,6 +637,15 @@ Its own screen: the sessions open now (running, waiting for input, idle), all ac
 
 **Session actions:** open in claude.ai/code (the session itself for worktree sessions; through the account's web app when it has one), resume in Terminal, shell in the environment, open the environment in VS Code (`code --remote ssh-remote+<host> <path>`), open dev server URLs from the port block, plugin session actions, the session's handoff note (A10.10; written or shown, with a copy button). An ended session is reattached with `devhost session reattach` (A7.9), which the app no longer offers.
 
+### B3.1.2 Monitor
+A view to leave open on a second monitor. Every idle or active session is a card, the ones waiting for input first, then the running ones, then the idle ones, the latest activity first within each. Each card shows:
+- a lamp for the state: green and pulsing while running (steady under reduced motion), yellow while waiting, grey while idle;
+- a prompt icon, and a highlighted border, while the session waits for input;
+- its title, account, environment and id, context (warning over 300K), cost today, subagents, start, and handoff note;
+- the QR code of its Remote Control session for a phone to open, whatever the *QR codes* setting; a local session has none.
+
+A strip above the cards shows, at a glance: sessions waiting for input, running and idle, agents at work (now and the peak), estimated cost today and in the last hour, host CPU and memory, and alerts. *Full screen* hides the sidebar and the top bar; Esc or *Leave full screen* brings them back.
+
 ### B3.2 Environments
 
 - Grouped by account (one card per account, in the config's order, with the account's color); status, CPU/RAM (process tree + its containers), port block, disk size, open sessions; ▶ opens the environment's Remote Control link; start / stop / restart; compose asleep (badge, with since when and what starts with the next session), put compose to sleep / wake compose (A7.9); logs; run setup again; plugin environment actions; delete.

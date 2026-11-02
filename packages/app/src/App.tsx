@@ -9,6 +9,7 @@ import { Doctor } from './screens/Doctor';
 import { Environments } from './screens/Environments';
 import { Sessions } from './screens/Sessions';
 import { Logs } from './screens/Logs';
+import { Monitor } from './screens/Monitor';
 import type { Transport } from './transport/types';
 import { Badge, ConfirmDialog, Field } from './ui/primitives';
 import { Plugins } from './screens/Plugins';
@@ -17,6 +18,7 @@ import { useTraySync } from './use-tray';
 
 const NAV: { id: Screen; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
+  { id: 'monitor', label: 'Monitor' },
   { id: 'sessions', label: 'Sessions' },
   { id: 'environments', label: 'Environments' },
   { id: 'accounts', label: 'Accounts' },
@@ -93,6 +95,8 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
   const tray = useTraySync();
   // Not window.confirm: the macOS webview (WKWebView under Tauri v2) has no native dialog for it and returns false.
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  // The monitor in full screen: no sidebar or top bar, for a second monitor.
+  const [full, setFull] = useState(false);
 
   useEffect(
     () =>
@@ -101,6 +105,17 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
       }),
     [transport, setScreen],
   );
+
+  if (full && screen === 'monitor' && connection.kind !== 'incompatible') {
+    return (
+      <div className="app full">
+        <div className="main">
+          {connection.kind === 'unreachable' && <div className="banner bad" role="alert"><b>{hostName} is unreachable.</b> Trying again every few seconds.</div>}
+          <Monitor full onFull={setFull} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -143,6 +158,8 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
         {connection.kind === 'incompatible' && <div className="banner bad" role="alert">{connection.message}</div>}
         {connection.kind === 'incompatible' ? null : screen === 'dashboard' ? (
           <Dashboard params={prefs.pluginParams} onParams={(pluginParams) => update({ pluginParams })} />
+        ) : screen === 'monitor' ? (
+          <Monitor full={false} onFull={setFull} />
         ) : screen === 'sessions' ? (
           <Sessions qr={prefs.qrCodes} onQr={(qrCodes) => update({ qrCodes })} />
         ) : screen === 'environments' ? (
