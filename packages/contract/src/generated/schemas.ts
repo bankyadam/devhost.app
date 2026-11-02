@@ -442,6 +442,26 @@ export const schemas = {
             "pattern": "^([01]\\d|2[0-3]):[0-5]\\d-([01]\\d|2[0-3]):[0-5]\\d$",
             "default": "02:00-06:00",
             "description": "Local time range (HH:MM-HH:MM, may wrap midnight) in which the automatic update may run."
+          },
+          "handoff": {
+            "type": "object",
+            "additionalProperties": false,
+            "default": {},
+            "description": "Handoff notes: a session left idle for idleMinutes gets a summary another session can continue from (written by a one-off fork of it; costs about one request over the session's context). Kept in ~/.local/share/devhost/handoff/.",
+            "properties": {
+              "idleMinutes": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 55,
+                "description": "Write the note after this many minutes without activity, just before the prompt cache (1 hour) expires; 0 turns automatic notes off (`devhost session handoff` still works)."
+              },
+              "minContextTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 50000,
+                "description": "Only sessions whose context is at least this large get a note automatically: a small one is cheap to resume."
+              }
+            }
           }
         }
       },
@@ -1718,6 +1738,20 @@ export const schemas = {
                 "null"
               ],
               "description": "The Remote Control session (session_…) of a session a Remote Control service started in its own worktree; `devhost session reattach` can bring it back after it ended."
+            },
+            "contextTokens": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The context of the session's last main-thread request (input plus cache read and write tokens): what every next request reads again. Null before the first one."
+            },
+            "handoffAt": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "When the session's handoff note was written (unix ms; `devhost session handoff`); null without one."
             }
           }
         }
@@ -2182,6 +2216,82 @@ export const schemas = {
             },
             "costUsd": {
               "type": "number"
+            }
+          }
+        }
+      },
+      "context": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "description": "Context habits in the selected range, from the raw requests (kept collector.retention.rawDays): main-thread requests over a large context, and resumes after the prompt cache expired. Null without main-thread requests.",
+        "required": [
+          "largeTokens",
+          "mainRequests",
+          "mainCostUsd",
+          "largeRequests",
+          "largeCostUsd",
+          "coldResumes",
+          "coldCostUsd",
+          "largeSessions"
+        ],
+        "properties": {
+          "largeTokens": {
+            "type": "number",
+            "description": "What counts as a large context."
+          },
+          "mainRequests": {
+            "type": "integer"
+          },
+          "mainCostUsd": {
+            "type": "number"
+          },
+          "largeRequests": {
+            "type": "integer",
+            "description": "Main-thread requests whose context was at least largeTokens."
+          },
+          "largeCostUsd": {
+            "type": "number"
+          },
+          "coldResumes": {
+            "type": "integer",
+            "description": "Main-thread requests more than an hour after the session's previous one that wrote a large part of the context to the cache again."
+          },
+          "coldCostUsd": {
+            "type": "number"
+          },
+          "largeSessions": {
+            "type": "array",
+            "description": "Sessions whose last main-thread context is at least largeTokens, the largest first (at most 10).",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "account",
+                "env",
+                "contextTokens",
+                "lastAt"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "account": {
+                  "type": "string"
+                },
+                "env": {
+                  "type": "string"
+                },
+                "contextTokens": {
+                  "type": "number"
+                },
+                "lastAt": {
+                  "type": "integer"
+                }
+              }
             }
           }
         }
@@ -3126,6 +3236,50 @@ export const schemas = {
             }
           }
         }
+      }
+    }
+  },
+  "result.session-handoff": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.session-handoff.schema.json",
+    "title": "SessionHandoffData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "session",
+      "account",
+      "env",
+      "path",
+      "at",
+      "text",
+      "written"
+    ],
+    "properties": {
+      "session": {
+        "type": "string",
+        "description": "The local session id."
+      },
+      "account": {
+        "type": "string"
+      },
+      "env": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string",
+        "description": "The note's file (~/.local/share/devhost/handoff/<session>.md)."
+      },
+      "at": {
+        "type": "integer",
+        "description": "When the note was written (unix ms)."
+      },
+      "text": {
+        "type": "string",
+        "description": "The note: Markdown to paste into a new session."
+      },
+      "written": {
+        "type": "boolean",
+        "description": "True when this call wrote it; false when an existing note was shown."
       }
     }
   },

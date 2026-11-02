@@ -48,7 +48,7 @@ export async function reattachLabels(): Promise<string[]> {
   }
 }
 
-function sessionRow(home: string, id: string): { session_id: string; account: string; env: string; cwd: string; state: string } {
+export function sessionRow(home: string, id: string): { session_id: string; account: string; env: string; cwd: string; state: string } {
   if (!/^[A-Za-z0-9-]{8,}$/.test(id)) throw new UsageError('give a session id (at least its first 8 characters)');
   if (!existsSync(dbPath(home))) throw new UsageError('the collector has no sessions yet');
   const db = new Db(dbPath(home), { readonly: true });

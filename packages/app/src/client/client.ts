@@ -18,6 +18,7 @@ import {
   type PluginListData,
   type PluginRunData,
   type PluginWidgetsData,
+  type SessionHandoffData,
   type UpdateData,
   type StorageChangeData,
   type StorageListData,
@@ -207,6 +208,9 @@ export class DevhostClient {
   envService = (name: string, action: 'start' | 'stop' | 'restart', h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', action, name], h);
   /** Stop an environment's compose services until a session uses it, or start the ones it had (A7.9). */
   envSleep = (name: string, action: 'sleep' | 'wake', h?: LongHandlers): LongRun<EnvChangeData> => this.run(['env', action, name], h);
+
+  /** A session's handoff note (spec A10.10): the one written since its last activity, or a new one (`fresh` always writes). */
+  sessionHandoff = (id: string, fresh: boolean, h?: LongHandlers): LongRun<SessionHandoffData> => this.run<SessionHandoffData>(['session', 'handoff', id, ...(fresh ? ['--new'] : [])], h);
 
   /** Update Claude Code (restarts the Remote Control services, reattaches their sessions); `all` also upgrades the Brewfile packages. */
   update = (o: { all?: boolean; force?: boolean }, h?: LongHandlers): LongRun<UpdateData> => this.run<UpdateData>(['update', ...(o.all ? ['--all'] : []), ...(o.force ? ['--force'] : [])], h);

@@ -43,7 +43,7 @@ export function pluginContext(c: { config: DevhostConfig; name: string; home: st
       if (!existsSync(path)) return null;
       const db = new Db(path, { readonly: true });
       try {
-        return readDash(db, c.config, q, (c.now ?? Date.now)(), hostname(), null);
+        return readDash(db, c.config, { ...q, home: c.home }, (c.now ?? Date.now)(), hostname(), null);
       } finally {
         db.close();
       }

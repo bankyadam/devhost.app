@@ -71,7 +71,7 @@ const attribution = () => {
 describe('db', () => {
   it('migrates once and keeps the version', () => {
     const db = new Db(':memory:');
-    expect(db.schemaVersion).toBe(6);
+    expect(db.schemaVersion).toBe(7);
     db.kvSet('a', '1', 5);
     expect(db.kvGet('a')).toBe('1');
     expect(db.kvGet('missing')).toBeNull();
@@ -742,7 +742,7 @@ describe('dashboard', () => {
     expect(data.sessions[0]).toMatchObject({ id: 'sess-aaaa1111', state: 'waiting', tokensToday: 1200, costToday: 1.25, cpuPercent: 3 });
     expect(data.usage.reduce((a, r) => a + r.input + r.output, 0)).toBe(1200);
     expect(data.limits.join(' ')).toContain('estimate');
-    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 6 });
+    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 7 });
 
     expect(buildDash(db, CONFIG, { range: '24h', account: 'personal' }, now, 'm', null).sessions).toEqual([]);
     expect(buildDash(db, CONFIG, { range: '24h', env: 'acme-api', model: 'other' }, now, 'm', null).usage).toEqual([]);
@@ -1063,5 +1063,88 @@ describe('time profile (spec A10.8)', () => {
     const mem = (await statsPlugin.widgets!.find((w) => w.id === 'memory')!.run(ctx, { range: '24h' })) as WidgetContent;
     expect(mem).toMatchObject({ status: 'warn', summary: 'Under memory pressure 50% of the time' });
     expect(mem.tiles!.find((t) => t.label === 'Swap peak')!.value).toBe('3.0 GB');
+  });
+});
+
+describe('handoff notes', () => {
+  const NOTE = '## Goal\nShip it.\n';
+  async function handing(over: { minutes?: number; ctx?: number; claude?: Partial<{ code: number; stdout: string }> } = {}) {
+    const home = await mkdtemp(join(tmpdir(), 'devhost-handoff-'));
+    const cwd = join(home, 'work', 'business', 'acme-api');
+    await mkdir(cwd, { recursive: true });
+    const runner = new MockRunner().on(/claude -p --resume/, over.claude ?? { stdout: NOTE });
+    const config = parseConfig(
+      `machine: { hostname: macmini }\nnotify: { topic: devhost-abcdefgh }\nclaude: { handoff: { idleMinutes: ${over.minutes ?? 55} } }\naccounts:\n  - { name: business, default: true, root: ${home}/work/business, portRange: [4000, 4999], git: { name: A, email: a@b.c } }\nenvironments:\n  - { name: acme-api, account: business, portBase: 4100 }\n`,
+      '/c',
+    );
+    const s = setup({ runner, config, home });
+    const last = T0 - 56 * 60_000;
+    s.db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at) VALUES ('sess-bbbb2222', 'business', 'acme-api', ?, 'idle', ?, ?)", cwd, T0 - 3 * H, last);
+    s.db.run("INSERT INTO api_requests (ts, account, env, session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, source) VALUES (?, 'business', 'acme-api', 'sess-bbbb2222', 'claude-opus-5-5', 10, 100, ?, 1000, 0.5, 'main')", last - 1000, over.ctx ?? 120_000);
+    const claudeCalls = () => runner.calls.filter((c) => c.args[0] === '-p');
+    return { ...s, home, cwd, claudeCalls };
+  }
+
+  it('writes a note for a large session about to lose its cache, once, in its directory, with its model', async () => {
+    const h = await handing();
+    await h.collector.handoffTick();
+    expect(h.claudeCalls()).toHaveLength(1);
+    const call = h.claudeCalls()[0]!;
+    expect(call.args).toEqual(expect.arrayContaining(['--resume', 'sess-bbbb2222', '--fork-session', '--no-session-persistence', '--model', 'claude-opus-5-5']));
+    expect(call.opts?.cwd).toBe(h.cwd);
+    expect(call.opts?.env?.OTEL_RESOURCE_ATTRIBUTES).toBe('devhost.account=business,devhost.env=acme-api');
+    expect(await readFile(join(h.home, '.local/share/devhost/handoff/sess-bbbb2222.md'), 'utf8')).toBe(NOTE);
+    expect(h.notifier.sent).toEqual([expect.objectContaining({ title: 'devhost: handoff note for acme-api', tags: ['memo'] })]);
+    expect(h.notifier.sent[0]!.message).toContain('devhost session handoff sess-bbb');
+
+    await h.collector.handoffTick();
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(buildDash(h.db, h.collector['config'], { range: '24h', home: h.home }, T0, 'm', null).sessions[0]).toMatchObject({ contextTokens: 121_010, handoffAt: expect.any(Number) });
+  });
+
+  it('leaves small, recent, long-gone sessions and turned-off notes alone', async () => {
+    const small = await handing({ ctx: 1000 });
+    await small.collector.handoffTick();
+    expect(small.claudeCalls()).toEqual([]);
+
+    const early = await handing();
+    early.clock.now = T0 - 10 * 60_000;
+    await early.collector.handoffTick();
+    early.clock.now = T0 + 20 * 60_000;
+    await early.collector.handoffTick();
+    expect(early.claudeCalls()).toEqual([]);
+
+    const off = await handing({ minutes: 0 });
+    await off.collector.handoffTick();
+    expect(off.claudeCalls()).toEqual([]);
+  });
+
+  it('does not retry a failed note until the session is active again', async () => {
+    const h = await handing({ claude: { code: 1, stdout: '' } });
+    await h.collector.handoffTick();
+    await h.collector.handoffTick();
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(h.notifier.sent).toEqual([]);
+    h.db.run("UPDATE sessions SET last_activity_at = ? WHERE session_id = 'sess-bbbb2222'", T0 - 55 * 60_000);
+    await h.collector.handoffTick();
+    expect(h.claudeCalls()).toHaveLength(2);
+  });
+});
+
+describe('context habits', () => {
+  it('counts requests over 300K and resumes after the cache expired, with their cost', () => {
+    const db = new Db(':memory:');
+    const req = (ts: number, session: string, read: number, write: number, cost: number) =>
+      db.run("INSERT INTO api_requests (ts, account, env, session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, source) VALUES (?, 'business', 'acme-api', ?, 'm1', 10, 100, ?, ?, ?, 'main')", ts, session, read, write, cost);
+    req(T0 - 5 * H, 's1', 100_000, 5_000, 0.2);
+    req(T0 - 3 * H, 's1', 0, 105_000, 1.5); // two hours later: the cache was gone
+    req(T0 - 2 * H, 's2', 310_000, 2_000, 0.6);
+    req(T0 - 2 * H + 60_000, 's2', 312_000, 1_000, 0.6);
+    const data = buildDash(db, CONFIG, { range: '24h' }, T0, 'm', null);
+    expect(validate('result.dash', data).ok, JSON.stringify(validate('result.dash', data).issues)).toBe(true);
+    expect(data.context).toMatchObject({ largeTokens: 300_000, mainRequests: 4, largeRequests: 2, largeCostUsd: 1.2, coldResumes: 1, coldCostUsd: 1.5 });
+    expect(data.context!.mainCostUsd).toBeCloseTo(2.9);
+    expect(data.context!.largeSessions).toEqual([expect.objectContaining({ id: 's2', contextTokens: 313_010 })]);
+    expect(buildDash(new Db(':memory:'), CONFIG, { range: '24h' }, T0, 'm', null).context).toBeNull();
   });
 });

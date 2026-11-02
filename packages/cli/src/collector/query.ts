@@ -3,6 +3,7 @@ import { accountsOf, environmentsOf } from '../config/accounts.js';
 import type { Db } from './db.js';
 import { buildProfile } from './profile.js';
 import { remoteSessionOf } from '../reattach.js';
+import { handoffAt, lastMainRequest } from '../handoff.js';
 
 export type Range = DashData['range'];
 export const RANGES: Range[] = ['1h', '24h', '7d', '30d'];
@@ -12,6 +13,8 @@ export interface DashOptions {
   account?: string;
   env?: string;
   model?: string;
+  /** The user's home: sessions then say when their handoff note was written. */
+  home?: string;
 }
 
 const MIN = 60_000;
@@ -89,7 +92,7 @@ const totals = (rows: UsageAgg[], pick: (r: UsageAgg) => boolean = () => true): 
 const recent = (ts: number | null | undefined, now: number, windowMs = MIN): boolean => ts != null && now - ts <= windowMs;
 
 /** What depends on the time range: usage over time, agents at work, models, the time profile. */
-export type RangeParts = Pick<DashData, 'range' | 'usage' | 'agents' | 'models' | 'profile' | 'sources'>;
+export type RangeParts = Pick<DashData, 'range' | 'usage' | 'agents' | 'models' | 'profile' | 'sources' | 'context'>;
 /** Everything else: the state now, what the collector precomputes every tick (kv `snapshot`). */
 export type LiveParts = Omit<DashData, keyof RangeParts>;
 
@@ -122,7 +125,56 @@ export function buildRange(db: Db, opts: DashOptions, now: number): RangeParts {
     ).map((r) => r.model),
     profile: buildProfile(db, from, now, { account: opts.account, env: opts.env }),
     sources: sourcesOf(db, from, rolled, { account: opts.account, env: opts.env, model: opts.model }),
+    context: contextOf(db, from, { account: opts.account, env: opts.env, model: opts.model }),
   };
+}
+
+/** A context this large makes every request expensive (spec A10.6): worth a /compact or a handoff. */
+export const LARGE_CONTEXT_TOKENS = 300_000;
+/** The prompt cache's lifetime: a session resumed later writes its whole context to the cache again. */
+const CACHE_TTL_MS = HOUR;
+
+/**
+ * Context habits in the range, from the raw main-thread requests (older ones are rolled up without
+ * their context): requests over a large context, and cold resumes, the first request more than an
+ * hour after the session's previous one that wrote much of the context to the cache again.
+ */
+function contextOf(db: Db, from: number, f: { account?: string | undefined; env?: string | undefined; model?: string | undefined }): DashData['context'] {
+  const where = ["source = 'main'", 'ts >= ?'];
+  const params: (string | number)[] = [from - CACHE_TTL_MS];
+  for (const [col, val] of [['account', f.account], ['env', f.env], ['model', f.model]] as const) {
+    if (val !== undefined && val !== '') {
+      where.push(`${col} = ?`);
+      params.push(val);
+    }
+  }
+  const rows = db.all<{ session_id: string; account: string; env: string; ts: number; prev: number | null; ctx: number; cc: number; cost: number }>(
+    `SELECT session_id, account, env, ts, LAG(ts) OVER (PARTITION BY session_id ORDER BY ts) AS prev,
+            COALESCE(input_tokens, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) AS ctx,
+            COALESCE(cache_creation_tokens, 0) AS cc, COALESCE(cost_usd, 0) AS cost
+       FROM api_requests WHERE ${where.join(' AND ')}`,
+    ...params,
+  ).filter((r) => r.ts >= from);
+  if (rows.length === 0) return null;
+  const out = { largeTokens: LARGE_CONTEXT_TOKENS, mainRequests: 0, mainCostUsd: 0, largeRequests: 0, largeCostUsd: 0, coldResumes: 0, coldCostUsd: 0 };
+  const latest = new Map<string, { id: string; account: string; env: string; contextTokens: number; lastAt: number }>();
+  for (const r of rows) {
+    out.mainRequests++;
+    out.mainCostUsd += r.cost;
+    if (r.ctx >= LARGE_CONTEXT_TOKENS) {
+      out.largeRequests++;
+      out.largeCostUsd += r.cost;
+    }
+    // Most of a large context written again: not a few new tool results.
+    if (r.prev !== null && r.ts - r.prev > CACHE_TTL_MS && r.cc >= 20_000 && r.cc >= r.ctx / 2) {
+      out.coldResumes++;
+      out.coldCostUsd += r.cost;
+    }
+    const cur = latest.get(r.session_id);
+    if (!cur || r.ts >= cur.lastAt) latest.set(r.session_id, { id: r.session_id, account: r.account, env: r.env, contextTokens: Number(r.ctx), lastAt: Number(r.ts) });
+  }
+  const largeSessions = [...latest.values()].filter((x) => x.contextTokens >= LARGE_CONTEXT_TOKENS).sort((a, b) => b.contextTokens - a.contextTokens).slice(0, 10);
+  return { ...out, largeSessions };
 }
 
 /** Tokens and cost by request source in the range, the largest cost first; null when no request carried one. */
@@ -299,6 +351,8 @@ export function buildLive(db: Db, config: DevhostConfig, opts: DashOptions, now:
         rssBytes: fresh ? live.rss_bytes : null,
         subagents: subagentsOf(db, s.session_id),
         remoteSession: remoteSessionOf(s.cwd)?.id ?? null,
+        contextTokens: lastMainRequest(db, s.session_id)?.contextTokens ?? null,
+        handoffAt: opts.home ? handoffAt(opts.home, s.session_id) : null,
       };
     }),
     limits: KNOWN_LIMITS,

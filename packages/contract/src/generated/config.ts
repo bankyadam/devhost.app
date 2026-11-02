@@ -129,6 +129,19 @@ export interface DevhostConfig {
      * Local time range (HH:MM-HH:MM, may wrap midnight) in which the automatic update may run.
      */
     updateWindow?: string;
+    /**
+     * Handoff notes: a session left idle for idleMinutes gets a summary another session can continue from (written by a one-off fork of it; costs about one request over the session's context). Kept in ~/.local/share/devhost/handoff/.
+     */
+    handoff?: {
+      /**
+       * Write the note after this many minutes without activity, just before the prompt cache (1 hour) expires; 0 turns automatic notes off (`devhost session handoff` still works).
+       */
+      idleMinutes?: number;
+      /**
+       * Only sessions whose context is at least this large get a note automatically: a small one is cheap to resume.
+       */
+      minContextTokens?: number;
+    };
   };
   collector?: {
     port?: number;

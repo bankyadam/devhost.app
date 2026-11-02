@@ -350,7 +350,7 @@ Commands (`devhost storage …`, A11):
 Every command accepts `--json`. The contract is versioned and lives in the shared `contract` package as JSON Schemas with generated TypeScript types.
 
 - **Short commands:** one JSON object on stdout: `{ "contractVersion": 1, "ok": true, "data": {...}, "errors": [] }`.
-- **Long-running commands** (`apply`, `env create`, `login`, `dash --follow`, `plugin run`, `session reattach`, `storage prepare|migrate`): NDJSON on stdout, one event per line:
+- **Long-running commands** (`apply`, `env create`, `login`, `dash --follow`, `plugin run`, `session reattach|handoff`, `storage prepare|migrate`): NDJSON on stdout, one event per line:
   - `{"type":"step","id":"docker","status":"start|ok|changed|skipped|failed","message":"..."}`
   - `{"type":"log","level":"info|warn|error","message":"..."}`
   - `{"type":"prompt","id":"auth-code","kind":"open-url|input|confirm","url":"...","message":"..."}` → answered by writing `{"id":"auth-code","value":"..."}` as one line to stdin
@@ -424,6 +424,7 @@ Notify (ntfy in v1, provider behind a small interface) when: memory above `alert
 - `devhost dash --follow --json`: NDJSON stream of live updates every `sampleIntervalSeconds`.
 - `devhost top`: the same snapshot as a refreshing terminal table (accounts, environments, sessions, CPU, RAM, tokens today). Usable over SSH from a phone. No charts.
 - Plugins read the same data through `ctx.stats()` (A18); the dashboard statistics are the built-in `stats` plugin's.
+- **Context habits** (`context` in the range parts; the `stats` plugin's "Context" card): main-thread requests whose context (input + cache read + cache write) is 300K or more, and their cost; **cold resumes**, a main-thread request more than an hour (the prompt cache's TTL) after the session's previous one that writes at least 20K and half its context to the cache, and their cost; and the sessions whose last context is over 300K. The card warns when large requests are 25 % of the cost, cold resumes 10 %, or a large session exists. Each session in the snapshot carries `contextTokens` (its last main-thread request's) and `handoffAt` (A10.10).
 
 ### A10.7 Known limits (document in README and show in the UI)
 
@@ -455,6 +456,16 @@ The collector runs on the host it measures, so it must stay light:
 - **Self-monitoring**: every sample records the collector's CPU %, RSS, child processes and overlapping ones (`samples_collector`). `doctor` fails `collector.load` when the CPU averaged over 5 minutes is above 3 % or any command overlapped itself.
 - **Regression**: `npm run soak [-- minutes]` runs a second collector (this host's config and database copied to a temporary home, its own port, no automatic updates) with `dash --follow` for 10 minutes and an `lsof` shim on `PATH`: fails on any `lsof` call, collector CPU averaging 3 % or more, or an overlapping child.
 
+### A10.10 Handoff notes
+
+A session left alone for an hour loses its prompt cache, and a Remote Control session often its process too; continuing it then costs a full cache write, and a new session starts without its context. A handoff note is a summary a new session can continue from.
+
+- **Written by a fork:** `claude -p --resume <id> --fork-session --no-session-persistence --settings '{"disableAllHooks":true}' --model <its last model> <prompt>` in the session's directory, with its account's config dir and `devhost.account`/`devhost.env` OTel attributes. The session itself is untouched, the fork is not kept and fires no hooks (no SessionStart: it is not a session to track or a reason to wake a sleeping environment). The prompt asks for the goal and constraints, what is done and committed, key files and facts, decisions, open items and next steps, and the user's preferences, in at most about 600 words, without tools.
+- **Cost:** the fork misses the session's prompt cache (measured: a 38K-token session wrote 38.5K tokens to the cache, $0.36, in 27 s), so a note costs about one cache write of the session's context.
+- **Automatic:** every minute the collector writes a note for a session idle or waiting for `claude.handoff.idleMinutes` (default 55, just under the cache's hour; 0 turns it off) whose last main-thread context is at least `claude.handoff.minContextTokens` (default 50,000), once per quiet spell, and sends a notification (`memo`). Only sessions that went quiet within the last 15 minutes past the mark: a collector that was off does not write notes for every old session at once. A failed note is not retried until the session is active again.
+- **Stored** in `~/.local/share/devhost/handoff/<session id>.md`; `handoffAt` in the dashboard is its mtime.
+- **On demand:** `devhost session handoff <id> [--new]` (A11) shows the note written since the session's last activity, or writes one (`--new` always writes); refused for a session in the middle of a turn (`session-busy`). In the app: Sessions → Open → "Write a handoff note" / "Handoff note", shown with a copy button.
+
 ## A11. CLI surface
 
 | Command | Behavior |
@@ -467,6 +478,7 @@ The collector runs on the host it measures, so it must stay light:
 | `devhost login <account> [--switch-login]` | A7.10. |
 | `devhost env list \| create \| delete \| start \| stop \| restart \| sleep \| wake \| logs` | A7.9. `create` flags: `--account`, `--name`, `--repo`, `--no-rc`, `--permission-mode`, `--compose auto\|off`. |
 | `devhost session reattach <id> [--dry-run]` | A7.9. |
+| `devhost session handoff <id> [--new]` | A10.10. |
 | `devhost update [--check] [--all] [--force] [--dry-run]` | A7.5: update Claude Code, restart the Remote Control services onto it, list their detached sessions (they continue from claude.ai); `--all` also upgrades the Brewfile packages. |
 | `devhost storage list \| adopt \| prepare \| status \| wait \| set-passphrase \| migrate` | A7.12. `prepare` and `migrate --cleanup` are the only destructive paths; never run by `apply` or the app (`prepare`). |
 | `devhost plugin list \| run \| widgets \| install \| uninstall \| enable \| disable` | A18. |
@@ -622,7 +634,7 @@ Compact: tiles of the health header and of plugin cards flow at most 8 to a row;
 
 Its own screen: the sessions open now (running, waiting for input, idle), all accounts together; ended ones are not listed. Columns: account, environment, session title (or last prompt) and id, subagents, state, started, last activity, tokens today, estimated cost today, CPU, RAM. Sort by any column. Sessions waiting for input are highlighted.
 
-**Session actions:** open in claude.ai/code (the session itself for worktree sessions; through the account's web app when it has one), resume in Terminal, shell in the environment, open the environment in VS Code (`code --remote ssh-remote+<host> <path>`), open dev server URLs from the port block, plugin session actions. An ended session is reattached with `devhost session reattach` (A7.9), which the app no longer offers.
+**Session actions:** open in claude.ai/code (the session itself for worktree sessions; through the account's web app when it has one), resume in Terminal, shell in the environment, open the environment in VS Code (`code --remote ssh-remote+<host> <path>`), open dev server URLs from the port block, plugin session actions, the session's handoff note (A10.10; written or shown, with a copy button). An ended session is reattached with `devhost session reattach` (A7.9), which the app no longer offers.
 
 ### B3.2 Environments
 

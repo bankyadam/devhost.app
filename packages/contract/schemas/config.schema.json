@@ -439,6 +439,26 @@
           "pattern": "^([01]\\d|2[0-3]):[0-5]\\d-([01]\\d|2[0-3]):[0-5]\\d$",
           "default": "02:00-06:00",
           "description": "Local time range (HH:MM-HH:MM, may wrap midnight) in which the automatic update may run."
+        },
+        "handoff": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {},
+          "description": "Handoff notes: a session left idle for idleMinutes gets a summary another session can continue from (written by a one-off fork of it; costs about one request over the session's context). Kept in ~/.local/share/devhost/handoff/.",
+          "properties": {
+            "idleMinutes": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 55,
+              "description": "Write the note after this many minutes without activity, just before the prompt cache (1 hour) expires; 0 turns automatic notes off (`devhost session handoff` still works)."
+            },
+            "minContextTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 50000,
+              "description": "Only sessions whose context is at least this large get a note automatically: a small one is cheap to resume."
+            }
+          }
         }
       }
     },

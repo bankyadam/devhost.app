@@ -93,7 +93,7 @@ const NO_DATA: WidgetContent = { summary: 'No data yet: the collector has not ru
 export const stats = definePlugin({
   name: 'stats',
   version: '1.0.0',
-  description: 'Usage statistics on the dashboard: per account, tokens or cost over time, agents at work, where tokens and cost go',
+  description: 'Usage statistics on the dashboard: per account, tokens or cost over time, agents at work, where tokens and cost go, context habits',
   filters: [
     { id: 'range', label: 'Time range', kind: 'segmented', default: '24h', options: async () => RANGES },
     { id: 'account', label: 'Account', kind: 'select', allLabel: 'All accounts', options: async (ctx: PluginContext) => (ctx.config.accounts ?? []).map((a) => ({ value: a.name, label: a.name })) },
@@ -191,6 +191,39 @@ export const stats = definePlugin({
             note: `${pct(x.costUsd, cost)} of the cost · ${compact(tokens(x))} tokens (${compact(x.cacheRead)} cache read) · ${x.requests} request${x.requests === 1 ? '' : 's'} · ${per(x)}`,
           })),
           note: 'By where Claude Code made the request: the main thread, each built-in subagent type, custom agents (all together: their names are not reported), compaction. A subagent keeps long searches and test output out of the main context, which every later main-thread request would read again; compare the main thread\'s tokens per request before and after you start using agents. Requests from before this update are not in this list.',
+        };
+      },
+    },
+    {
+      id: 'context',
+      title: 'Context',
+      size: 'wide',
+      refreshSeconds: REFRESH,
+      async run(ctx, p) {
+        const d = await ctx.stats(query(p));
+        if (!d) return NO_DATA;
+        const c = d.context;
+        if (!c) return { summary: 'No main-thread requests in this range.' };
+        const pct = (v: number): string => (c.mainCostUsd > 0 ? `${Math.round((v / c.mainCostUsd) * 100)}%` : '–');
+        const large = compact(c.largeTokens);
+        const warn = c.largeCostUsd / Math.max(c.mainCostUsd, 1e-9) >= 0.25 || c.coldCostUsd / Math.max(c.mainCostUsd, 1e-9) >= 0.1 || c.largeSessions.length > 0;
+        return {
+          status: warn ? 'warn' : 'ok',
+          summary: [
+            c.largeRequests > 0 ? `${pct(c.largeCostUsd)} of the main thread's cost was spent over ${large} tokens of context` : `No request over ${large} tokens of context`,
+            c.coldResumes > 0 ? `${c.coldResumes} resume${c.coldResumes === 1 ? '' : 's'} after the cache expired (${usd(c.coldCostUsd)})` : null,
+          ].filter(Boolean).join(' · '),
+          tiles: [
+            { label: `Over ${large}`, value: usd(c.largeCostUsd), sub: `${pct(c.largeCostUsd)} of ${usd(c.mainCostUsd)} · ${c.largeRequests} of ${c.mainRequests} requests` },
+            { label: 'Cold resumes', value: String(c.coldResumes), sub: `${usd(c.coldCostUsd)} · ${pct(c.coldCostUsd)} of the cost` },
+            { label: 'Large sessions now', value: String(c.largeSessions.length), sub: `last context over ${large}` },
+          ],
+          rows: c.largeSessions.map((s) => ({
+            label: `${s.env} · ${s.id.slice(0, 8)}`,
+            value: `${compact(s.contextTokens)} tokens`,
+            note: `${s.account} · last request ${new Date(s.lastAt).toLocaleString()}. Every request in it reads this much again: /compact it, or continue in a new session from its handoff note.`,
+          })),
+          note: `Every main-thread request reads the whole context again, so a long session gets more expensive with each turn: over ${large} tokens, /compact or a new session (from a handoff note) is cheaper. The prompt cache lives an hour: a session resumed after that writes its whole context to the cache again, which costs more than reading it. A handoff note is written for a large session before that hour runs out (claude.handoff). From the raw requests, kept for collector.retention.rawDays (7 days by default).`,
         };
       },
     },

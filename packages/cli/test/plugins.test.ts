@@ -207,6 +207,27 @@ describe('built-in stats plugin', () => {
   });
 });
 
+describe('built-in stats plugin: context', () => {
+  it('warns about sessions over 300K and resumes after the prompt cache expired', async () => {
+    const env = await makeEnv(fakeMac().runner);
+    await env.run('init', '--yes', '--no-tailscale');
+    const now = env.deps.now().getTime();
+    const db = new Db(dbPath(env.home));
+    const req = (ts: number, session: string, read: number, write: number, cost: number) =>
+      db.run("INSERT INTO api_requests (ts, account, env, session_id, model, input_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, source) VALUES (?, 'default', '', ?, 'claude-opus-5-5', 10, ?, ?, ?, 'main')", ts, session, read, write, cost);
+    req(now - 5 * 3_600_000, 's1', 100_000, 5_000, 0.2);
+    req(now - 3 * 3_600_000, 's1', 0, 105_000, 1.5);
+    req(now - 60_000, 's2-abcdefgh', 330_000, 2_000, 0.7);
+    db.close();
+
+    env.out.length = 0;
+    expect(await env.run('plugin', 'widgets', '--json')).toBe(0);
+    const context = (lastEnvelope(env).data as PluginWidgetsData).widgets.find((w) => w.plugin === 'stats' && w.id === 'context')!;
+    expect(context).toMatchObject({ title: 'Context', size: 'wide', status: 'warn' });
+    expect(context.tiles!.map((t) => [t.label, t.value])).toEqual([['Over 300K', '$0.70'], ['Cold resumes', '1'], ['Large sessions now', '1']]);
+  });
+});
+
 describe('plugin install / uninstall', () => {
   it('understands GitHub URLs, owner/repo and refs, and refuses anything that could be an option', () => {
     expect(parsePluginSource('bankyadam/devhost-plugin-disk-cleanup')).toEqual({ spec: 'bankyadam/devhost-plugin-disk-cleanup', url: 'https://github.com/bankyadam/devhost-plugin-disk-cleanup.git', name: 'disk-cleanup' });

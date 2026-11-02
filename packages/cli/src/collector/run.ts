@@ -9,6 +9,7 @@ import { tailscaleStatus, toSample } from '../tailscale-status.js';
 import type { Deps } from '../deps.js';
 import { daemonState } from '../launchd.js';
 import { sleepEnv, sleepState, wakeEnv } from '../sleep.js';
+import { handoffAt, lastMainRequest, writeHandoff, type HandoffSession } from '../handoff.js';
 import { Executor } from '../runner/executor.js';
 import { AlertEngine, RESTART_WINDOW_MS, type AlertThresholds } from './alerts.js';
 import { checkAuth } from './auth.js';
@@ -177,7 +178,7 @@ export class Collector {
     const path = dbPath(this.opts.deps.home);
     const size = await stat(path).then((s) => s.size, () => null);
     const wal = await stat(`${path}-wal`).then((s) => s.size, () => 0);
-    const live = buildLive(this.db, this.config, { range: '24h' }, now, hostname(), size === null ? null : size + wal);
+    const live = buildLive(this.db, this.config, { range: '24h', home: this.opts.deps.home }, now, hostname(), size === null ? null : size + wal);
     if (!this.range || now - this.range.at >= RANGE_MS) this.range = { at: now, parts: buildRange(this.db, { range: '24h' }, now) };
     const dirs = [...new Set(accountsOf(this.config).map((a) => effectiveClaudeDir(a, this.opts.deps.home)))];
     const cwds = new Map(this.db.all<{ session_id: string; cwd: string }>("SELECT session_id, cwd FROM sessions WHERE state <> 'ended' OR ended_at >= ?", now - 2 * 86_400_000).map((r) => [r.session_id, r.cwd]));
@@ -453,6 +454,50 @@ export class Collector {
     });
   }
 
+  // ---- handoff notes (A10.10) ----
+
+  /**
+   * Every minute: a session idle or waiting for claude.handoff.idleMinutes (default 55, just under
+   * the prompt cache's hour) whose context is large gets a handoff note, once per quiet spell. Only
+   * sessions that went quiet in the last 15 minutes past the mark: a collector that was off does not
+   * write notes for every old session at once. One at a time; a failure is not retried until the
+   * session is active again.
+   */
+  async handoffTick(): Promise<void> {
+    const cfg = this.config.claude?.handoff;
+    const minutes = cfg?.idleMinutes ?? 55;
+    if (minutes <= 0) return;
+    await this.sources.run('handoff', async () => {
+      const now = this.now();
+      const due = this.db.all<HandoffSession & { last_activity_at: number }>(
+        `SELECT session_id, account, env, cwd, last_activity_at FROM sessions
+          WHERE state IN ('idle', 'waiting') AND last_activity_at <= ? AND last_activity_at > ? ORDER BY last_activity_at`,
+        now - minutes * 60_000, now - (minutes + 15) * 60_000,
+      );
+      for (const s of due) {
+        if ((handoffAt(this.opts.deps.home, s.session_id) ?? 0) >= s.last_activity_at) continue;
+        if (Number(this.db.kvGet(`handoff_failed:${s.session_id}`) ?? 0) >= s.last_activity_at) continue;
+        const last = lastMainRequest(this.db, s.session_id);
+        if (!last || last.contextTokens < (cfg?.minContextTokens ?? 50_000)) continue;
+        await this.safe(`handoff ${s.session_id.slice(0, 8)}`, async () => {
+          try {
+            const note = await writeHandoff(this.exec, this.opts.deps.home, this.config, s, last.model);
+            this.log(`handoff note for ${s.session_id.slice(0, 8)} (${s.env}) written: ${note.path}`);
+            const title = await this.titles.get([...new Set(accountsOf(this.config).map((a) => effectiveClaudeDir(a, this.opts.deps.home)))], s.cwd, s.session_id);
+            await this.opts.notifier.send({
+              title: `devhost: handoff note for ${s.env}`,
+              message: `${title ? `"${title.title}" ` : ''}(${s.session_id.slice(0, 8)}) has been idle ${minutes} min. Its handoff note is ready to continue in a new session: Sessions in the app, or \`devhost session handoff ${s.session_id.slice(0, 8)}\`.`,
+              tags: ['memo'],
+            });
+          } catch (err) {
+            this.db.kvSet(`handoff_failed:${s.session_id}`, String(s.last_activity_at), now);
+            throw err;
+          }
+        });
+      }
+    });
+  }
+
   /**
    * Every minute: Tailscale's state, without peers. tailscaled answers on its unix socket (no child
    * process); `dash`, `doctor` and `status` read this sample instead of asking themselves.
@@ -612,6 +657,7 @@ export class Collector {
     every(15_000, () => this.dockerTick());
     every(60_000, () => this.tailscaleTick());
     every(60_000, () => this.sleepTick());
+    every(60_000, () => this.handoffTick());
     every(Math.max(1, this.config.collector?.authCheckMinutes ?? 60) * 60_000, () => this.authTick());
     every(10 * 60_000, () => this.maintenanceTick());
     every(24 * 3_600_000, () => this.diskUsageTick());
