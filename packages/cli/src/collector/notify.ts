@@ -15,7 +15,7 @@ export interface Notifier {
   send(n: Notification): Promise<void>;
 }
 
-export type FetchLike = (url: string, init: { method: string; body: string; headers: Record<string, string> }) => Promise<{ ok: boolean; status: number }>;
+export type FetchLike = (url: string, init: { method: string; body: string; headers: Record<string, string>; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number }>;
 
 export class NtfyNotifier implements Notifier {
   readonly provider = 'ntfy';
@@ -28,6 +28,8 @@ export class NtfyNotifier implements Notifier {
   async send(n: Notification): Promise<void> {
     const res = await this.fetchImpl(`${this.server.replace(/\/$/, '')}/${encodeURIComponent(this.topic)}`, {
       method: 'POST',
+      // A dead ntfy server must not hold anything up for long.
+      signal: AbortSignal.timeout(5000),
       body: n.message,
       headers: {
         Title: n.title,

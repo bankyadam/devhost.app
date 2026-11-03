@@ -63,7 +63,8 @@ export function attrsOf(list: KeyValue[] | undefined): Attrs {
   return out;
 }
 
-const str = (a: Attrs, k: string): string => (a[k] === undefined ? '' : String(a[k]));
+/** Attribute values are capped: a sender can put anything in them. */
+const str = (a: Attrs, k: string): string => (a[k] === undefined ? '' : String(a[k]).slice(0, 256));
 const num = (a: Attrs, k: string): number | null => {
   const v = a[k];
   if (v === undefined) return null;

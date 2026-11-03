@@ -52,7 +52,7 @@ export async function keychainFreeDockerConfig(exec: Executor, home: string): Pr
   if (config === null) return null;
   const dir = keychainFreeDir(home);
   await exec.mkdirp(dir, { mode: 0o700 });
-  if ((await exec.readText(join(dir, 'config.json'))) !== config) await exec.writeText(join(dir, 'config.json'), config, { mode: 0o600 });
+  if ((await exec.readText(join(dir, 'config.json'))) !== config) await exec.writeText(join(dir, 'config.json'), config, { mode: 0o600, credential: true });
   for (const name of await readdir(src).catch(() => [] as string[])) {
     if (name !== 'config.json' && !name.startsWith('config.json.')) await exec.symlink(join(src, name), join(dir, name));
   }

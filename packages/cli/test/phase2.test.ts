@@ -46,6 +46,17 @@ async function setup() {
 }
 
 describe('claude settings merge', () => {
+  it('carries the collector bearer token in the OTLP headers and the hook URLs, and still merges and removes', () => {
+    const cfg = parseConfig('machine: { hostname: m }\nnotify: { topic: devhost-abcdefgh }', '/x');
+    const token = 'ab'.repeat(24);
+    const m = managedSettings(cfg, { name: 'business' }, token);
+    expect((m['env'] as Record<string, string>)['OTEL_EXPORTER_OTLP_HEADERS']).toBe(`Authorization=Bearer ${token}`);
+    expect(JSON.stringify(m['hooks'])).toContain(`/hooks?account=business&token=${token}`);
+    expect(m['allowedHttpHookUrls']).toEqual(['http://127.0.0.1:4318/hooks*']);
+    const merged = mergeSettings({}, m, 4318);
+    expect(removeManaged(merged, m, 4318)).toEqual({});
+  });
+
   const config = parseConfig('machine: { hostname: m }\nnotify: { topic: devhost-abcdefgh }', '/x');
   const managed = managedSettings(config, { name: 'business' });
 
@@ -183,10 +194,10 @@ describe('plist', () => {
 
   describe.runIf(process.platform === 'darwin')('root helper (templates/devhost-root.js)', () => {
     const helper = join(templatesDir, 'devhost-root.js');
-    const check = async (text: string, label = 'com.devhost.rc.a.b', user = 'adam', home = '/Users/adam') => {
+    const check = async (text: string, label = 'com.devhost.rc.a.b', user = 'adam', home = '/Users/adam', volumes?: string) => {
       const dir = await mkdtemp(join(tmpdir(), 'helper-'));
       await writeFile(join(dir, 'p.plist'), text);
-      const r = spawnSync('/usr/bin/osascript', ['-l', 'JavaScript', helper, 'check', join(dir, 'p.plist'), label, user, home], { encoding: 'utf8' });
+      const r = spawnSync('/usr/bin/osascript', ['-l', 'JavaScript', helper, 'check', join(dir, 'p.plist'), label, user, home, ...(volumes ? [volumes] : [])], { encoding: 'utf8' });
       return { ok: r.status === 0, error: r.stderr };
     };
     const spec = { label: 'com.devhost.rc.a.b', args: ['/usr/local/bin/claude', 'remote-control'], workingDirectory: '/Users/adam/work/a/b', env: { HOME: '/Users/adam' }, logPath: '/Users/adam/Library/Logs/devhost/rc-a-b.log' };
@@ -205,6 +216,29 @@ describe('plist', () => {
       expect((await check(good, 'com.devhost.other')).error).toContain('Label must be com.devhost.other');
       expect((await check(good.replace('/Users/adam/work/a/b', '/etc'))).error).toContain('WorkingDirectory must be inside /Users/adam');
       expect((await check('not a plist')).ok).toBe(false);
+    });
+
+    it('accepts a WorkingDirectory on the work volume (marker = diskutil UUID) and under /Users/Shared, nothing else', async () => {
+      const uuid = '0A1B2C3D-0000-4000-8000-123456789ABC';
+      const volumes = await mkdtemp(join(tmpdir(), 'volumes-'));
+      const volume = async (name: string, marker: string | null, info: string) => {
+        await mkdir(join(volumes, name), { recursive: true });
+        if (marker !== null) await writeFile(join(volumes, name, '.devhost-volume'), `${marker}\n`);
+        await writeFile(join(volumes, name, '.diskutil-info.plist'), `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>VolumeUUID</key><string>${info}</string><key>MountPoint</key><string>/Volumes/${name}</string></dict></plist>`);
+      };
+      await volume('Work', uuid, uuid);
+      await volume('Other', '0A1B2C3D-0000-4000-8000-000000000000', uuid); // marker names another volume
+      await volume('Bare', null, uuid); // a plain folder: no marker
+      const at = async (dir: string) => check((await renderPlist({ ...spec, workingDirectory: dir }, 'adam')), 'com.devhost.rc.a.b', 'adam', '/Users/adam', volumes);
+      expect((await at('/Volumes/Work/dev/a/b')).ok).toBe(true);
+      expect((await at('/Volumes/Work')).ok).toBe(true);
+      expect((await at('/Users/Shared/work/a/b')).ok).toBe(true);
+      expect((await at('/Volumes/Other/dev')).error).toContain('WorkingDirectory must be inside');
+      expect((await at('/Volumes/Bare/dev')).ok).toBe(false);
+      expect((await at('/Volumes/Missing/dev')).ok).toBe(false);
+      expect((await at('/Volumes/Work/../../etc')).ok).toBe(false);
+      expect((await at('/Users/SharedEvil/x')).ok).toBe(false);
+      expect((await at('/etc')).ok).toBe(false);
     });
   });
 });

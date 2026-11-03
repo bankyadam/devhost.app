@@ -152,7 +152,14 @@ export async function acceptWorkspace(ctx: LoginContext, info: EnvInfo): Promise
 
   if (ctx.interactive) {
     ctx.reporter.log('info', `Answer the questions below for ${info.dir}, then press Ctrl+C once the server is up.`);
-    await deps.runner.run(rcArgs[0]!, rcArgs.slice(1), { ...opts, interactive: true });
+    // The human ends the server with Ctrl+C, which the terminal also delivers to us: that SIGINT
+    // belongs to the child, so it must not cancel the run that is waiting for it.
+    const cancelled = deps.cancel.cancelled;
+    try {
+      await deps.runner.run(rcArgs[0]!, rcArgs.slice(1), { ...opts, interactive: true });
+    } finally {
+      deps.cancel.cancelled = cancelled;
+    }
     // Its output went to the terminal, so check the outcome: Claude Code may have stopped before asking
     // (too old for Remote Control, not logged in) or the questions were answered "no".
     return workspaceTrusted(ctx.stepContext(), ctx.account, info.dir);
@@ -373,6 +380,8 @@ export async function loginAccount(ctx: LoginContext): Promise<LoginData> {
     const steps = selectSteps(buildSteps(config), envs.map((e) => `env.${e.name}`));
     const outcome = await runSteps(steps, ctx.stepContext(), reporter, deps.cancel);
     if (outcome.error) throw outcome.error;
+    // Cancelled (the flag stays set for the command): no restarts half way through.
+    if (outcome.cancelled) return { account: a.name, loggedIn: true, trusted, restarted: [], remaining: envs.map((e) => `env.${e.name}`) };
     // A service whose plist did not change is left running by its step, still on the old login
     // (its sessions are gone from claude.ai), so restart it here.
     for (const e of envs) {

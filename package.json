@@ -18,7 +18,8 @@
     "typecheck": "tsc -b packages/contract packages/cli && tsc -p tsconfig.test.json && tsc -p packages/app --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "check": "npm run lint && npm run typecheck && npm run test && npm run test:rust",
+    "check:gen": "npm run gen && git diff --exit-code -- packages/contract/src/generated",
+    "check": "npm run check:gen && npm run lint && npm run typecheck && npm run test && npm run test:rust",
     "build:core": "tsc -b packages/contract packages/cli",
     "test:rust": "cargo test --manifest-path packages/app/core/Cargo.toml",
     "soak": "npm run build:core && node scripts/collector-soak.mjs"

@@ -12,7 +12,7 @@ import { envLocations, parseHook } from '../src/collector/hooks.js';
 import { Ingestor } from '../src/collector/ingest.js';
 import { createNotifier, maskTopic, NtfyNotifier, type Notification, type Notifier } from '../src/collector/notify.js';
 import { CumulativeTracker, parseLogs, parseMetrics, parseToolRuns, sourceOf } from '../src/collector/otlp.js';
-import { buildDash, envCosts } from '../src/collector/query.js';
+import { buildDash, buildRange, envCosts } from '../src/collector/query.js';
 import { buildProfile, merge, subtract, toolClass, total } from '../src/collector/profile.js';
 import type { PluginContext, WidgetContent } from '../src/plugins/api.js';
 import { retain, rollup } from '../src/collector/rollup.js';
@@ -22,6 +22,10 @@ import { createCollectorServer, listen } from '../src/collector/server.js';
 import { projectSlug, sessionTitle } from '../src/collector/titles.js';
 import { renderTop } from '../src/collector/top.js';
 import { parseConfig } from '../src/config/load.js';
+import { collectorToken, tokenPath } from '../src/collector/token.js';
+import { collectorSpec } from '../src/steps/collector.js';
+import type { StepContext } from '../src/steps/types.js';
+import { stat } from 'node:fs/promises';
 import { MockRunner } from '../src/runner/mock.js';
 import { sleepState } from '../src/sleep.js';
 import { fakeMac, makeEnv, ndjson } from './helpers.js';
@@ -71,7 +75,7 @@ const attribution = () => {
 describe('db', () => {
   it('migrates once and keeps the version', () => {
     const db = new Db(':memory:');
-    expect(db.schemaVersion).toBe(7);
+    expect(db.schemaVersion).toBe(8);
     db.kvSet('a', '1', 5);
     expect(db.kvGet('a')).toBe('1');
     expect(db.kvGet('missing')).toBeNull();
@@ -172,7 +176,7 @@ describe('hooks', () => {
     const cwd = `${HOME}/work/business/acme-api/.claude/worktrees/feature-x`;
     for (const [event, state] of [['SessionStart', 'idle'], ['UserPromptSubmit', 'running'], ['Notification', 'waiting'], ['Stop', 'idle'], ['SessionEnd', 'ended']] as const) {
       now += 1000;
-      expect(ingest.hook({ hook_event_name: event, session_id: 's1', cwd }, '')).toBe(true);
+      expect(ingest.hook({ hook_event_name: event, session_id: 's1', cwd, notification_type: 'permission_prompt' }, '')).toBe(true);
       expect(db.get<{ state: string }>('SELECT state FROM sessions WHERE session_id = ?', 's1')?.state).toBe(state);
     }
     expect(db.get('SELECT account, env, ended_at FROM sessions')).toMatchObject({ account: 'business', env: 'acme-api', ended_at: T0 + 5000 });
@@ -751,7 +755,7 @@ describe('dashboard', () => {
     const now = T0 + 30 * 60_000;
     const ingest = new Ingestor(db, () => now - 600_000, () => envLocations(CONFIG, HOME));
     ingest.hook({ hook_event_name: 'SessionStart', session_id: 'sess-aaaa1111', cwd: `${HOME}/work/business/acme-api` }, 'business');
-    ingest.hook({ hook_event_name: 'Notification', session_id: 'sess-aaaa1111', cwd: `${HOME}/work/business/acme-api` }, 'business');
+    ingest.hook({ hook_event_name: 'Notification', notification_type: 'permission_prompt', session_id: 'sess-aaaa1111', cwd: `${HOME}/work/business/acme-api` }, 'business');
     ingest.metrics(metricsBody({ account: 'business', env: 'acme-api', points: [
       { name: 'claude_code.token.usage', value: 1000, attrs: { type: 'input', model: 'm1', 'session.id': 'sess-aaaa1111' } },
       { name: 'claude_code.token.usage', value: 200, attrs: { type: 'output', model: 'm1', 'session.id': 'sess-aaaa1111' } },
@@ -779,7 +783,7 @@ describe('dashboard', () => {
     expect(data.sessions[0]).toMatchObject({ id: 'sess-aaaa1111', state: 'waiting', tokensToday: 1200, costToday: 1.25, cpuPercent: 3 });
     expect(data.usage.reduce((a, r) => a + r.input + r.output, 0)).toBe(1200);
     expect(data.limits.join(' ')).toContain('estimate');
-    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 7 });
+    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 8 });
 
     expect(buildDash(db, CONFIG, { range: '24h', account: 'personal' }, now, 'm', null).sessions).toEqual([]);
     expect(buildDash(db, CONFIG, { range: '24h', env: 'acme-api', model: 'other' }, now, 'm', null).usage).toEqual([]);
@@ -1134,7 +1138,7 @@ describe('handoff notes', () => {
     const home = await mkdtemp(join(tmpdir(), 'devhost-handoff-'));
     const cwd = join(home, 'work', 'business', 'acme-api');
     await mkdir(cwd, { recursive: true });
-    const runner = new MockRunner().on(/claude -p --resume/, over.claude ?? { stdout: NOTE });
+    const runner = new MockRunner().on(/claude -p --resume=/, over.claude ?? { stdout: NOTE });
     const config = parseConfig(
       `machine: { hostname: macmini }\nnotify: { topic: devhost-abcdefgh }\nclaude: { handoff: { idleMinutes: ${over.minutes ?? 55} } }\naccounts:\n  - { name: business, default: true, root: ${home}/work/business, portRange: [4000, 4999], git: { name: A, email: a@b.c } }\nenvironments:\n  - { name: acme-api, account: business, portBase: 4100 }\n`,
       '/c',
@@ -1152,7 +1156,7 @@ describe('handoff notes', () => {
     await h.collector.handoffTick();
     expect(h.claudeCalls()).toHaveLength(1);
     const call = h.claudeCalls()[0]!;
-    expect(call.args).toEqual(expect.arrayContaining(['--resume', 'sess-bbbb2222', '--fork-session', '--no-session-persistence', '--model', 'claude-opus-5-5']));
+    expect(call.args).toEqual(expect.arrayContaining(['--resume=sess-bbbb2222', '--fork-session', '--no-session-persistence', '--model=claude-opus-5-5']));
     expect(call.opts?.cwd).toBe(h.cwd);
     expect(call.opts?.env?.OTEL_RESOURCE_ATTRIBUTES).toBe('devhost.account=business,devhost.env=acme-api');
     expect(await readFile(join(h.home, '.local/share/devhost/handoff/sess-bbbb2222.md'), 'utf8')).toBe(NOTE);
@@ -1208,5 +1212,179 @@ describe('context habits', () => {
     expect(data.context!.mainCostUsd).toBeCloseTo(2.9);
     expect(data.context!.largeSessions).toEqual([expect.objectContaining({ id: 's2', contextTokens: 313_010 })]);
     expect(buildDash(new Db(':memory:'), CONFIG, { range: '24h' }, T0, 'm', null).context).toBeNull();
+  });
+});
+
+describe('security and correctness fixes (collector review)', () => {
+  const PROMPT = 'SECRET-PROMPT-TEXT-xyz';
+
+  it('never puts a prompt-derived title in a notification or the stored snapshot (COL-1, COL-2)', async () => {
+    const { mkdir: mk, writeFile: wf } = await import('node:fs/promises');
+    const home = await mkdtemp(join(tmpdir(), 'devhost-privacy-'));
+    const cwd = join(home, 'work', 'business', 'acme-api');
+    await mk(cwd, { recursive: true });
+    const config = parseConfig(
+      `machine: { hostname: macmini }\nnotify: { topic: devhost-abcdefgh }\nclaude: { handoff: { idleMinutes: 55 } }\naccounts:\n  - { name: business, default: true, root: ${home}/work/business, portRange: [4000, 4999], git: { name: A, email: a@b.c } }\nenvironments:\n  - { name: acme-api, account: business, portBase: 4100 }\n`,
+      '/c',
+    );
+    const runner = new MockRunner().on(/claude -p --resume=/, { stdout: '## Goal\n' });
+    const s = setup({ runner, config, home });
+    const dir = join(home, '.claude', 'projects', projectSlug(cwd));
+    await mk(dir, { recursive: true });
+    await wf(join(dir, 'sess-bbbb2222.jsonl'), `${JSON.stringify({ type: 'user', message: { content: PROMPT } })}\n`);
+    const last = T0 - 56 * 60_000;
+    s.db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at) VALUES ('sess-bbbb2222', 'business', 'acme-api', ?, 'idle', ?, ?)", cwd, T0 - 3 * H, last);
+    s.db.run("INSERT INTO api_requests (ts, account, env, session_id, model, input_tokens, cache_read_tokens, cost_usd, source) VALUES (?, 'business', 'acme-api', 'sess-bbbb2222', 'm', 10, 120000, 0.5, 'main')", last - 1000);
+    await s.collector.handoffTick();
+    await s.collector.writeSnapshot();
+    await s.collector.flushNotifications();
+    expect(s.notifier.sent).toHaveLength(1);
+    expect(JSON.stringify(s.notifier.sent)).not.toContain('SECRET');
+    expect(s.notifier.sent[0]!.message).toContain('acme-api (sess-bbb');
+    expect(s.db.kvGet('snapshot')).not.toContain('SECRET');
+    expect(s.db.dumpText()).not.toContain('SECRET');
+    // a real title is still shown
+    await wf(join(dir, 'sess-bbbb2222.jsonl'), `${JSON.stringify({ type: 'custom-title', customTitle: 'Billing refactor' })}\n`);
+    await s.collector.writeSnapshot();
+    expect(s.db.kvGet('snapshot')).toContain('Billing refactor');
+  });
+
+  it('keeps a session mid-turn through a Notification, and maps waiting only for permission questions (COL-3)', () => {
+    const db = new Db(':memory:');
+    let now = T0;
+    const ingest = new Ingestor(db, () => now, () => []);
+    const row = () => db.get<{ state: string; turn_open: number; last_activity_at: number }>("SELECT state, turn_open, last_activity_at FROM sessions WHERE session_id = 's1'")!;
+    ingest.hook({ hook_event_name: 'UserPromptSubmit', session_id: 's1', cwd: '/x' }, 'a');
+    expect(row()).toMatchObject({ state: 'running', turn_open: 1 });
+    now += 1000;
+    ingest.hook({ hook_event_name: 'Notification', session_id: 's1', notification_type: 'idle_prompt' }, 'a');
+    expect(row()).toMatchObject({ state: 'running', turn_open: 1, last_activity_at: T0 });
+    ingest.hook({ hook_event_name: 'Notification', session_id: 's1', notification_type: 'permission_prompt' }, 'a');
+    expect(row()).toMatchObject({ state: 'waiting', turn_open: 1 });
+    // telemetry from the session counts as activity
+    now += 60_000;
+    ingest.logs({ resourceLogs: [{ scopeLogs: [{ logRecords: [{ attributes: [kv('event.name', 'api_request'), kv('session.id', 's1'), kv('model', 'm')] }] }] }] });
+    expect(row().last_activity_at).toBe(now);
+    ingest.hook({ hook_event_name: 'Stop', session_id: 's1', cwd: '/x' }, 'a');
+    expect(row()).toMatchObject({ state: 'idle', turn_open: 0 });
+  });
+
+  it('does not sleep an environment or write a handoff note while a turn is open, even when state says waiting (COL-3)', async () => {
+    const { handingOpen } = await (async () => {
+      const home = await mkdtemp(join(tmpdir(), 'devhost-turn-'));
+      const cwd = join(home, 'work', 'business', 'acme-api');
+      await mkdir(cwd, { recursive: true });
+      const runner = new MockRunner().on(/claude -p --resume=/, { stdout: 'note' });
+      const config = parseConfig(`machine: { hostname: macmini }\nnotify: { topic: devhost-abcdefgh }\naccounts:\n  - { name: business, default: true, root: ${home}/work/business, portRange: [4000, 4999], git: { name: A, email: a@b.c } }\nenvironments:\n  - { name: acme-api, account: business, portBase: 4100 }\n`, '/c');
+      const s = setup({ runner, config, home });
+      const last = T0 - 56 * 60_000;
+      s.db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, turn_open) VALUES ('sess-cccc3333', 'business', 'acme-api', ?, 'waiting', ?, ?, 1)", cwd, T0 - 3 * H, last);
+      s.db.run("INSERT INTO api_requests (ts, account, env, session_id, model, input_tokens, cache_read_tokens, cost_usd, source) VALUES (?, 'business', 'acme-api', 'sess-cccc3333', 'm', 10, 120000, 0.5, 'main')", last);
+      return { handingOpen: { ...s, runner } };
+    })();
+    await handingOpen.collector.handoffTick();
+    expect(handingOpen.runner.calls.filter((c) => c.args[0] === '-p')).toEqual([]);
+  });
+
+  it('refuses browsers, wrong Host, non-JSON content types, bad tokens and gzip bombs (COL-7)', async () => {
+    const db = new Db(':memory:');
+    const ingest = new Ingestor(db, () => T0, () => envLocations(CONFIG, HOME));
+    const server = createCollectorServer(ingest, undefined, { token: 'tok-123' });
+    await listen(server, 0);
+    const port = (server.address() as AddressInfo).port;
+    const url = `http://127.0.0.1:${port}/v1/logs`;
+    const auth = { Authorization: 'Bearer tok-123', 'Content-Type': 'application/json' };
+    expect((await fetch(url, { method: 'POST', headers: auth, body: '{}' })).status).toBe(200);
+    expect((await fetch(url, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json; charset=utf-8' }, body: '{}' })).status).toBe(200);
+    expect((await fetch(url, { method: 'POST', headers: { ...auth, Origin: 'https://evil.example' }, body: '{}' })).status).toBe(403);
+    expect((await fetch(url, { method: 'POST', headers: { ...auth, 'Content-Type': 'text/json' }, body: '{}' })).status).toBe(415);
+    expect((await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status).toBe(401);
+    expect((await fetch(url, { method: 'POST', headers: { ...auth, Authorization: 'Bearer nope' }, body: '{}' })).status).toBe(401);
+    expect((await fetch(`http://127.0.0.1:${port}/hooks?token=tok-123`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status).toBe(200);
+    expect((await fetch(url, { method: 'POST', headers: { ...auth, 'Content-Encoding': 'gzip' }, body: gzipSync(Buffer.alloc(9 * 1024 * 1024, 32)) })).status).toBe(413);
+    const { request } = await import('node:http');
+    const status = await new Promise<number>((resolve, reject) => {
+      const r = request({ host: '127.0.0.1', port, path: '/health', headers: { Host: 'evil.example' } }, (res) => resolve(res.statusCode ?? 0));
+      r.on('error', reject);
+      r.end();
+    });
+    expect(status).toBe(403);
+    await new Promise<void>((r) => server.close(() => r()));
+  });
+
+  it('only takes UUID-like session ids and never passes an odd one to claude (COL-7)', async () => {
+    expect(parseHook({ hook_event_name: 'Stop', session_id: '--dangerous', cwd: '/x' })).toBeNull();
+    expect(parseHook({ hook_event_name: 'Stop', session_id: '../x', cwd: '/x' })).toBeNull();
+    expect(parseHook({ hook_event_name: 'Stop', session_id: 'x'.repeat(65), cwd: '/x' })).toBeNull();
+    expect(parseHook({ hook_event_name: 'Stop', session_id: '3f2b8c1e-5d4a-4e7b-9a10-0c2f6b7d8e91', cwd: 'y'.repeat(5000) })?.cwd).toHaveLength(1024);
+    const { writeHandoff } = await import('../src/handoff.js');
+    const exec = {} as never;
+    await expect(writeHandoff(exec, HOME, CONFIG, { session_id: '--model=x', account: 'business', env: 'e', cwd: '/' }, null)).rejects.toThrow('not a session id');
+  });
+
+  it('applies the 5 s timeout to ntfy requests (COL-8)', async () => {
+    let signal: AbortSignal | undefined;
+    await new NtfyNotifier('https://ntfy.sh', 't', async (_u, init) => {
+      signal = init.signal;
+      return { ok: true, status: 200 };
+    }).send({ title: 'a', message: 'b' });
+    expect(signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('includes the usage of the part of an hour before the boundary in the 1h range (COL-4)', () => {
+    const db = new Db(':memory:');
+    const hour = new Date(2026, 9, 12, 10, 0, 0).getTime();
+    const ins = (ts: number, v: number) => db.run("INSERT INTO usage (ts, account, env, session_id, model, kind, value) VALUES (?, 'a', 'e', 's', 'm', 'output', ?)", ts, v);
+    ins(hour + 30 * 60_000, 7);
+    ins(hour + 50 * 60_000, 11);
+    ins(hour + 70 * 60_000, 13);
+    const now = hour + 80 * 60_000; // 11:20: the 1h range starts at 10:20, inside a rolled-up hour
+    rollup(db, now);
+    const out = buildRange(db, { range: '1h' }, now).usage;
+    expect(out.map((u) => [u.ts - hour, u.output])).toEqual([[30 * 60_000, 7], [50 * 60_000, 11], [70 * 60_000, 13]]);
+  });
+
+  it('rebuilds the notifier and re-arms the listener and timers when the config changes (COL-19)', async () => {
+    const urls: string[] = [];
+    const fetchImpl = async (u: string) => {
+      urls.push(u);
+      return { ok: true, status: 200 };
+    };
+    let cfg = parseConfig(`machine: { hostname: m }\nnotify: { topic: devhost-first01 }\ncollector: { port: 47318 }\naccounts:\n  - { name: business, default: true, root: ${HOME}/work/business, portRange: [4000, 4999], git: { name: A, email: a@b.c } }\nenvironments: []\n`, '/c');
+    const logs: string[] = [];
+    const db = new Db(':memory:');
+    const collector = new Collector({ db, config: () => cfg, deps: { home: HOME, user: 'op', brewPrefix: '/opt/homebrew', runner: new MockRunner() }, notifier: new NtfyNotifier('https://ntfy.sh', 'devhost-first01', fetchImpl), fetchImpl, now: () => T0, os: fakeOs().os, log: (m) => logs.push(m) });
+    await collector.start();
+    await collector['outbox'].send({ title: 't', message: 'm' });
+    await collector.flushNotifications();
+    cfg = parseConfig(`machine: { hostname: m }\nnotify: { topic: devhost-second2 }\ncollector: { port: 47318, sampleIntervalSeconds: 30 }\naccounts:\n  - { name: business, default: true, root: ${HOME}/work/business, portRange: [4000, 4999], git: { name: A, email: a@b.c } }\nenvironments: []\n`, '/c');
+    await collector['outbox'].send({ title: 't', message: 'm' });
+    await collector.flushNotifications();
+    await collector.reloadIfChanged();
+    await collector.stop();
+    expect(urls).toEqual(['https://ntfy.sh/devhost-first01', 'https://ntfy.sh/devhost-second2']);
+    expect(logs.some((l) => l.includes('re-arming'))).toBe(true);
+  });
+});
+
+describe('collector token and service settings', () => {
+  it('creates the token once, readable only by the user', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'devhost-token-'));
+    const t = collectorToken(home);
+    expect(t).toMatch(/^[0-9a-f]{48}$/);
+    expect(collectorToken(home)).toBe(t);
+    expect(((await stat(tokenPath(home))).mode & 0o777).toString(8)).toBe('600');
+  });
+
+  it('puts a hash of the collector settings in the service plist, so apply restarts it on a change', async () => {
+    const spec = async (yaml: string) => {
+      const ctx = { config: parseConfig(`machine: { hostname: m }\nnotify: { topic: devhost-abcdefgh }\n${yaml}`, '/x'), home: '/h', nodePath: '/n', configPath: '/c' } as unknown as StepContext;
+      return (await collectorSpec(ctx)).env['DEVHOST_COLLECTOR_SETTINGS'];
+    };
+    const a = await spec('collector: { port: 4318 }');
+    expect(a).toBeTruthy();
+    expect(await spec('collector: { port: 4318 }')).toBe(a);
+    expect(await spec('collector: { port: 4319 }')).not.toBe(a);
+    expect(await spec('collector: { port: 4318, sampleIntervalSeconds: 9 }')).not.toBe(a);
   });
 });

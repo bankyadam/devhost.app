@@ -67,7 +67,7 @@ export function seedUsage(h: Harness, config: string, remote?: string): void {
   const dir = join(h.env.home, 'work', 'business', 'acme-api');
   const waitingDir = remote ? join(dir, '.claude', 'worktrees', `bridge-cse_${remote}`) : dir;
   ingest.hook({ hook_event_name: 'SessionStart', session_id: 'sess-waiting-1', cwd: waitingDir }, 'business');
-  ingest.hook({ hook_event_name: 'Notification', session_id: 'sess-waiting-1', cwd: waitingDir }, 'business');
+  ingest.hook({ hook_event_name: 'Notification', notification_type: 'permission_prompt', session_id: 'sess-waiting-1', cwd: waitingDir }, 'business');
   ingest.hook({ hook_event_name: 'SessionStart', session_id: 'sess-running-2', cwd: dir }, 'business');
   ingest.hook({ hook_event_name: 'UserPromptSubmit', session_id: 'sess-running-2', cwd: dir }, 'business');
   ingest.hook({ hook_event_name: 'SubagentStart', session_id: 'sess-running-2', cwd: dir, agent_id: 'agent-1', agent_type: 'Explore' }, 'business');

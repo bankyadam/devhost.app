@@ -4,17 +4,18 @@ import type { DevhostConfig } from '@devhost/contract';
 import { accountsOf, effectiveClaudeDir, envDir, environmentsOf } from '../config/accounts.js';
 import { agentCatalog } from '../agents/catalog.js';
 import { agentFile, MANAGED_MARK } from '../agents/files.js';
+import { isGitRepo } from './env.js';
 import type { StepContext } from './types.js';
 import { ok, todo, type Step } from './types.js';
 
 /** Where agent files go and which agents belong there: per account (its Claude config dir) and per environment (its `.claude/agents`). */
-export function agentTargets(config: DevhostConfig, home: string): { dir: string; names: string[] }[] {
+export function agentTargets(config: DevhostConfig, home: string): { dir: string; names: string[]; env?: string }[] {
   const accounts = accountsOf(config);
   return [
     ...accounts.map((a) => ({ dir: join(effectiveClaudeDir(a, home), 'agents'), names: a.agents ?? [] })),
     ...environmentsOf(config).flatMap((e) => {
       const a = accounts.find((x) => x.name === e.account);
-      return a ? [{ dir: join(envDir(a, e, home), '.claude', 'agents'), names: e.agents ?? [] }] : [];
+      return a ? [{ dir: join(envDir(a, e, home), '.claude', 'agents'), names: e.agents ?? [], env: envDir(a, e, home) }] : [];
     }),
   ];
 }
@@ -28,6 +29,9 @@ async function plan(ctx: StepContext): Promise<Plan> {
   const catalog = agentCatalog((ctx.config.agents?.custom ?? []) as never);
   const out: Plan = { write: [], remove: [] };
   for (const t of agentTargets(ctx.config, ctx.home)) {
+    // An environment that is not a repository yet is the env step's: creating `.claude/agents` in it
+    // first would make that step `git init` where it should clone.
+    if (t.env && !(await isGitRepo(ctx, t.env))) continue;
     const wanted = new Set<string>();
     for (const n of t.names) {
       const def = catalog.get(n);

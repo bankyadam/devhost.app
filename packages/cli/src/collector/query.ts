@@ -67,7 +67,7 @@ interface UsageAgg {
 function usage(db: Db, from: number, bucketMs: number, f: UsageFilter): UsageAgg[] {
   const rolled = Number(db.kvGet('rolled_through') ?? 0);
   const where: string[] = [];
-  const params: (string | number)[] = [from, rolled, from, rolled];
+  const params: (string | number)[] = [from, rolled, rollStart(from), rollStart(from), rolled];
   for (const [col, val] of [['account', f.account], ['env', f.env], ['model', f.model], ['session_id', f.sessionId]] as const) {
     if (val !== undefined && val !== '') {
       where.push(`${col} = ?`);
@@ -76,13 +76,19 @@ function usage(db: Db, from: number, bucketMs: number, f: UsageFilter): UsageAgg
   }
   return db.all<UsageAgg>(
     `SELECT (t / ${bucketMs}) * ${bucketMs} AS t, account, session_id, kind, SUM(value) AS v FROM (
-       SELECT ts AS t, account, env, session_id, model, kind, value FROM usage WHERE ts >= ? AND ts >= ?
+       SELECT ts AS t, account, env, session_id, model, kind, value FROM usage WHERE ts >= ? AND (ts >= ? OR ts < ?)
        UNION ALL
        SELECT hour AS t, account, env, session_id, model, kind, value FROM rollup_usage WHERE hour >= ? AND hour < ?
      ) ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''} GROUP BY 1, account, session_id, kind`,
     ...params,
   );
 }
+
+/**
+ * First hour boundary at or after `from`. Rollups are whole hours: a range starting inside an hour
+ * (the 1 h range, 5 min buckets) takes that hour's part before the boundary from the raw rows.
+ */
+const rollStart = (from: number): number => Math.ceil(from / HOUR) * HOUR;
 
 const totals = (rows: UsageAgg[], pick: (r: UsageAgg) => boolean = () => true): { tokens: number; costUsd: number } => ({
   tokens: rows.filter((r) => pick(r) && TOKEN_KINDS.includes(r.kind)).reduce((a, r) => a + r.v, 0),
@@ -120,8 +126,8 @@ export function buildRange(db: Db, opts: DashOptions, now: number): RangeParts {
     usage: [...series.values()].sort((a, b) => a.ts - b.ts || a.account.localeCompare(b.account)),
     agents: agentConcurrency(db, opts.account ?? '', from, bucketMs, now),
     models: db.all<{ model: string }>(
-      `SELECT DISTINCT model FROM (SELECT model FROM usage WHERE ts >= ? AND ts >= ? UNION ALL SELECT model FROM rollup_usage WHERE hour >= ? AND hour < ?) WHERE model <> '' ORDER BY model`,
-      from, rolled, from, rolled,
+      `SELECT DISTINCT model FROM (SELECT model FROM usage WHERE ts >= ? AND (ts >= ? OR ts < ?) UNION ALL SELECT model FROM rollup_usage WHERE hour >= ? AND hour < ?) WHERE model <> '' ORDER BY model`,
+      from, rolled, rollStart(from), rollStart(from), rolled,
     ).map((r) => r.model),
     profile: buildProfile(db, from, now, { account: opts.account, env: opts.env }),
     sources: sourcesOf(db, from, rolled, { account: opts.account, env: opts.env, model: opts.model }),
@@ -181,7 +187,7 @@ function contextOf(db: Db, from: number, f: { account?: string | undefined; env?
 /** Tokens and cost by request source in the range, the largest cost first; null when no request carried one. */
 function sourcesOf(db: Db, from: number, rolled: number, f: { account?: string | undefined; env?: string | undefined; model?: string | undefined }): DashData['sources'] {
   const where: string[] = [];
-  const params: (string | number)[] = [from, rolled, from, rolled];
+  const params: (string | number)[] = [from, rolled, rollStart(from), rollStart(from), rolled];
   for (const [col, val] of [['account', f.account], ['env', f.env], ['model', f.model]] as const) {
     if (val !== undefined && val !== '') {
       where.push(`${col} = ?`);
@@ -191,7 +197,7 @@ function sourcesOf(db: Db, from: number, rolled: number, f: { account?: string |
   const rows = db.all<{ source: string; requests: number; input: number; output: number; cache_read: number; cache_creation: number; cost: number }>(
     `SELECT source, SUM(requests) AS requests, SUM(input) AS input, SUM(output) AS output, SUM(cache_read) AS cache_read, SUM(cache_creation) AS cache_creation, SUM(cost) AS cost FROM (
        SELECT account, env, source, model, 1 AS requests, COALESCE(input_tokens, 0) AS input, COALESCE(output_tokens, 0) AS output, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(cache_creation_tokens, 0) AS cache_creation, COALESCE(cost_usd, 0) AS cost
-         FROM api_requests WHERE ts >= ? AND ts >= ? AND source <> ''
+         FROM api_requests WHERE ts >= ? AND (ts >= ? OR ts < ?) AND source <> ''
        UNION ALL
        SELECT account, env, source, model, requests, input, output, cache_read, cache_creation, cost_usd FROM rollup_source WHERE hour >= ? AND hour < ?
      ) ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''} GROUP BY source ORDER BY cost DESC, requests DESC`,
@@ -208,7 +214,7 @@ function sourcesOf(db: Db, from: number, rolled: number, f: { account?: string |
  */
 function tokensOf(db: Db, from: number, rolled: number, bucketMs: number, f: { account?: string | undefined; env?: string | undefined; model?: string | undefined }): DashData['tokens'] {
   const where: string[] = [];
-  const params: (string | number)[] = [from, rolled, from, rolled];
+  const params: (string | number)[] = [from, rolled, rollStart(from), rollStart(from), rolled];
   for (const [col, val] of [['account', f.account], ['env', f.env], ['model', f.model]] as const) {
     if (val !== undefined && val !== '') {
       where.push(`${col} = ?`);
@@ -218,7 +224,7 @@ function tokensOf(db: Db, from: number, rolled: number, bucketMs: number, f: { a
   const rows = db.all<{ t: number; model: string; requests: number; input: number; output: number; cache_read: number; cache_creation: number; cost: number }>(
     `SELECT t, model, SUM(requests) AS requests, SUM(input) AS input, SUM(output) AS output, SUM(cache_read) AS cache_read, SUM(cache_creation) AS cache_creation, SUM(cost) AS cost FROM (
        SELECT (ts / ${bucketMs}) * ${bucketMs} AS t, account, env, model, 1 AS requests, COALESCE(input_tokens, 0) AS input, COALESCE(output_tokens, 0) AS output, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(cache_creation_tokens, 0) AS cache_creation, COALESCE(cost_usd, 0) AS cost
-         FROM api_requests WHERE ts >= ? AND ts >= ? AND source <> ''
+         FROM api_requests WHERE ts >= ? AND (ts >= ? OR ts < ?) AND source <> ''
        UNION ALL
        SELECT (hour / ${bucketMs}) * ${bucketMs}, account, env, model, requests, input, output, cache_read, cache_creation, cost_usd FROM rollup_source WHERE hour >= ? AND hour < ?
      ) ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''} GROUP BY t, model ORDER BY t, model`,
@@ -452,12 +458,12 @@ function agentConcurrency(db: Db, account: string, from: number, bucketMs: numbe
   const buckets = db
     .all<{ ts: number; sessions: number; subagents: number; total: number }>(
       `SELECT (t / ${bucketMs}) * ${bucketMs} AS ts, MAX(s) AS sessions, MAX(a) AS subagents, MAX(n) AS total FROM (
-         SELECT ts AS t, sessions AS s, subagents AS a, sessions + subagents AS n FROM samples_agents WHERE account = ? AND ts >= ?
+         SELECT ts AS t, sessions AS s, subagents AS a, sessions + subagents AS n FROM samples_agents WHERE account = ? AND ts >= ? AND (ts >= ? OR ts < ?)
          UNION ALL
          SELECT hour AS t, sessions_max AS s, subagents_max AS a, total_max AS n FROM rollup_agents WHERE account = ? AND hour >= ?
            AND hour < ?
        ) GROUP BY 1 ORDER BY 1`,
-      account, Math.max(from, rolled), account, from, rolled,
+      account, from, rolled, rollStart(from), account, rollStart(from), rolled,
     )
     .map((r) => ({ ts: Number(r.ts), sessions: Number(r.sessions), subagents: Number(r.subagents), total: Number(r.total) }));
   const latest = db.get<{ ts: number; sessions: number; subagents: number }>('SELECT ts, sessions, subagents FROM samples_agents WHERE account = ? ORDER BY ts DESC LIMIT 1', account);

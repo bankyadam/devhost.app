@@ -1,6 +1,7 @@
 import type { DevhostConfig } from '@devhost/contract';
 import { accountsOf, type Account } from '../config/accounts.js';
-import { authStatus, claudeBinary, claudeRunOptions, loginIdentity } from '../login.js';
+import { claudeBinary, claudeRunOptions, loginIdentity } from '../login.js';
+import { TIMEOUT } from './sources.js';
 import type { Deps } from '../deps.js';
 import type { Executor } from '../runner/executor.js';
 import type { Db } from './db.js';
@@ -41,7 +42,10 @@ export async function checkAuth(db: Db, exec: Executor, deps: Pick<Deps, 'home' 
 }
 
 async function accountValid(exec: Executor, deps: Pick<Deps, 'home' | 'runner' | 'brewPrefix'>, a: Account, probe: boolean): Promise<{ valid: boolean | null; raw: string }> {
-  const status = await authStatus({ exec, deps }, a);
+  // `claude auth status` with the collector's own timeout (the generic one is minutes long).
+  const claude0 = await claudeBinary({ exec, deps });
+  const st = await exec.query(claude0, ['auth', 'status'], { ...claudeRunOptions(a, deps.home), timeoutMs: TIMEOUT.auth });
+  const status = st.code === 127 ? { loggedIn: null, raw: st.stderr } : { loggedIn: st.code === 0, raw: st.stdout };
   if (status.loggedIn === null || !status.loggedIn || !probe) return { valid: status.loggedIn, raw: status.raw };
   const claude = await claudeBinary({ exec, deps });
   const r = await exec.query(claude, ['-p', 'ok', '--max-turns', '1'], { ...claudeRunOptions(a, deps.home), timeoutMs: 60_000 });

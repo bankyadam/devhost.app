@@ -3,6 +3,7 @@ import { HumanActionRequired } from '../errors.js';
 import { accountsOf, effectiveClaudeDir, type Account } from '../config/accounts.js';
 import { managedSettings, mergeSettings, parseSettings, stringifySettings } from '../claude-settings.js';
 import { MIN_REMOTE_CONTROL_VERSION, parseVersion, versionAtLeast } from '../claude-version.js';
+import { collectorToken } from '../collector/token.js';
 import { renderTemplate } from '../render.js';
 import { readState, whichBinary, writeState } from '../state.js';
 import { markdownBlock } from './shellblock.js';
@@ -63,7 +64,7 @@ function scoped(ctx: StepContext): Account[] {
 async function wantedSettings(ctx: StepContext, a: Account): Promise<string> {
   const text = await ctx.exec.readText(settingsPathOf(a, ctx.home));
   const port = ctx.config.collector?.port ?? 4318;
-  const merged = mergeSettings(parseSettings(text, settingsPathOf(a, ctx.home)), managedSettings(ctx.config, a), port);
+  const merged = mergeSettings(parseSettings(text, settingsPathOf(a, ctx.home)), managedSettings(ctx.config, a, collectorToken(ctx.home)), port);
   return stringifySettings(merged);
 }
 

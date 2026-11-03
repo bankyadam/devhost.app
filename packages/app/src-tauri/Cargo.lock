@@ -569,6 +569,9 @@ dependencies = [
 [[package]]
 name = "devhost-core"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "devhost-desktop"

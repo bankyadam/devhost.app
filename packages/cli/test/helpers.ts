@@ -1,4 +1,4 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -331,7 +331,14 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       mkdirSync(join(m[1]!, '.git', 'info'), { recursive: true });
       return {};
     }
-    if ((m = /^git clone -- (\S+) (\S+)$/.exec(line))) {
+    if ((m = /^mv (\S+) (\S+)$/.exec(line))) {
+      renameSync(m[1]!, m[2]!);
+      if ((state.commits ??= new Set()).has(dirname(m[1]!))) state.commits.add(dirname(m[2]!));
+      return {};
+    }
+    if (/^git -C \S+ checkout --force --quiet HEAD$/.test(line)) return {};
+    if ((m = /^git -C (\S+) rev-parse --show-toplevel$/.exec(line))) return existsSync(join(m[1]!, '.git')) ? { stdout: `${m[1]}\n` } : { code: 128 };
+    if ((m = /^git clone (?:--no-checkout )?-- (\S+) (\S+)$/.exec(line))) {
       mkdirSync(join(m[2]!, '.git', 'info'), { recursive: true });
       if (!state.emptyRemotes?.has(m[1]!)) (state.commits ??= new Set()).add(m[2]!);
       return {};
@@ -383,7 +390,7 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     }
     if (line === 'ps -axo pid=,ppid=,pcpu=,rss=,command=') return { stdout: (state.procs ?? []).join('\n') };
     if (line === 'ps -axo command=') return { stdout: (state.procs ?? []).map((p) => p.replace(/^\s*\d+\s+\d+\s+\S+\s+\d+\s+/, '')).join('\n') };
-    const fork = new RegExp(`^${brewBin()}/claude -p --resume (\\S+) --fork-session`).exec(line);
+    const fork = new RegExp(`^${brewBin()}/claude -p --resume=(\\S+) --fork-session`).exec(line);
     if (fork) {
       (state.forked ??= []).push(fork[1]!);
       const note = state.forks?.[fork[1]!];

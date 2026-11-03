@@ -6,6 +6,10 @@ import { accountEnv, findAccount } from './config/accounts.js';
 import type { Db } from './collector/db.js';
 import type { Executor } from './runner/executor.js';
 import { toolPath } from './state.js';
+import { SESSION_ID_RE } from './collector/hooks.js';
+
+/** A model name as Claude Code prints it (`claude-opus-4-7`, `sonnet[1m]`); anything else is not passed on. */
+export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
 
 /**
  * Handoff notes (spec A10.10): a summary of a session that a new session can continue from. A
@@ -70,13 +74,14 @@ export interface HandoffSession {
  * reason to wake the environment). Throws when Claude Code fails or answers nothing.
  */
 export async function writeHandoff(exec: Executor, home: string, config: DevhostConfig, s: HandoffSession, model: string | null): Promise<{ at: number; text: string; path: string }> {
+  if (!SESSION_ID_RE.test(s.session_id)) throw new Error('not a session id');
   const account = findAccount(config, s.account);
   if (!account) throw new Error(`account ${s.account} is not in the config any more`);
   if (!s.cwd || !existsSync(s.cwd)) throw new Error(`the session's directory is gone: ${s.cwd || 'none recorded'}`);
   const claude = await toolPath(exec, home, 'claudePath', 'claude', '/opt/homebrew/bin/claude');
   const r = await exec.query(
     claude,
-    ['-p', '--resume', s.session_id, '--fork-session', '--no-session-persistence', '--settings', '{"disableAllHooks":true}', ...(model ? ['--model', model] : []), HANDOFF_PROMPT],
+    ['-p', `--resume=${s.session_id}`, '--fork-session', '--no-session-persistence', '--settings', '{"disableAllHooks":true}', ...(model && MODEL_RE.test(model) ? [`--model=${model}`] : []), HANDOFF_PROMPT],
     {
       cwd: s.cwd,
       timeoutMs: HANDOFF_TIMEOUT_MS,

@@ -13,7 +13,7 @@ import { parseVersion } from './claude-version.js';
 import { REATTACH_PREFIX, reattachLabels } from './reattach.js';
 import type { Reporter } from './reporter.js';
 import type { Executor } from './runner/executor.js';
-import { readState, whichBinary } from './state.js';
+import { readState, whichBinary, writeState } from './state.js';
 import { requiredPackages } from './steps/packages.js';
 import type { StepContext } from './steps/types.js';
 
@@ -95,8 +95,15 @@ export function busySessions(home: string, now: number): string[] {
   if (!existsSync(dbPath(home))) return [];
   const db = new Db(dbPath(home), { readonly: true });
   try {
-    return db
-      .all<{ session_id: string; account: string; env: string }>("SELECT session_id, account, env FROM sessions WHERE state = 'running' AND last_activity_at >= ?", now - 24 * 3_600_000)
+    const busy = (where: string): { session_id: string; account: string; env: string }[] =>
+      db.all<{ session_id: string; account: string; env: string }>(`SELECT session_id, account, env FROM sessions WHERE ${where} AND last_activity_at >= ?`, now - 24 * 3_600_000);
+    let rows;
+    try {
+      rows = busy("turn_open = 1 AND state <> 'ended'");
+    } catch {
+      rows = busy("state = 'running'"); // a database the collector has not migrated yet
+    }
+    return rows
       .map((s) => `${s.account || '?'}/${s.env || '?'} · ${s.session_id.slice(0, 8)}`);
   } finally {
     db.close();
@@ -159,6 +166,35 @@ export interface UpdateOptions {
 }
 
 /**
+ * Restart every label, collecting the failures instead of stopping at the first. The labels still
+ * to restart are recorded in state.json first, and only the failed ones stay there: a run that dies
+ * half way, or a service that would not restart, is retried by the next `devhost update`.
+ */
+async function restartServices(ctx: StepContext, labels: string[], done: string[], dryRun: boolean, already: string[] = []): Promise<{ label: string; error: string }[]> {
+  const { exec, home } = ctx;
+  const failures: { label: string; error: string }[] = [];
+  const mark = async (pending: string[]): Promise<void> => {
+    if (dryRun) return;
+    const state = await readState(exec, home);
+    const next = { ...state };
+    delete next.restartPending;
+    await writeState(exec, home, pending.length ? { ...next, restartPending: pending } : next);
+  };
+  await mark([...new Set([...already, ...labels])]);
+  for (const label of labels) {
+    try {
+      await exec.exec('launchctl', ['kickstart', '-k', `system/${label}`], { sudo: true, reason: `restart ${label} on the new Claude Code` });
+      done.push(label);
+    } catch (err) {
+      failures.push({ label, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  // Labels not loaded any more (already dropped from `labels`) need no restart.
+  await mark(failures.map((f) => f.label));
+  return failures;
+}
+
+/**
  * Update Claude Code: upgrade it, restart every Remote Control service onto it (a service runs its
  * sessions from the versioned path the upgrade removes, so it cannot start new ones until it
  * restarts). The sessions it had open continue under it from claude.ai. Waits while a session is in
@@ -191,6 +227,7 @@ export async function runUpdate(ctx: StepContext, reporter: Reporter, now: numbe
     return { data, human };
   }
 
+  let restartDone = false;
   if (wantClaude) {
     const busy = busySessions(home, now);
     if (busy.length > 0 && !o.force) {
@@ -209,7 +246,8 @@ export async function runUpdate(ctx: StepContext, reporter: Reporter, now: numbe
       if (claude.install === 'brew') await exec.exec('brew', ['upgrade', '--cask', CASK], { env: BREW_ENV, progress: true, reason: 'update Claude Code' });
       else if (claude.path) await exec.exec(claude.path, ['update'], { reason: 'update Claude Code', progress: true });
       const after = o.dryRun ? claude.latest : claude.path ? versionText((await exec.query(claude.path, ['--version'])).stdout) : null;
-      const changed = o.dryRun || (after !== null && after !== before);
+      // An unknown version after the upgrade is no proof that nothing changed: restart anyway.
+      const changed = o.dryRun || after === null || before === null || after !== before;
       data.claude = { ...claude, installed: o.dryRun ? before : after, outdated: o.dryRun ? claude.outdated : false, updated: !o.dryRun && changed };
       reporter.step('update.claude', o.dryRun ? 'ok' : changed ? 'changed' : 'ok', o.dryRun ? 'planned' : changed ? `${before} → ${after}` : `${after} was current`);
 
@@ -219,13 +257,12 @@ export async function runUpdate(ctx: StepContext, reporter: Reporter, now: numbe
         // register its own single-session environment and hide the environment on claude.ai.
         step('update.restart', 'restart the Remote Control services onto it');
         data.restarted = [];
-        for (const label of live.labels) {
-          await exec.exec('launchctl', ['kickstart', '-k', `system/${label}`], { sudo: true, reason: `restart ${label} on the new Claude Code` });
-          data.restarted.push(label);
-        }
+        const failures = await restartServices(ctx, live.labels, data.restarted, o.dryRun);
         for (const label of live.reattachJobs) await removeDaemon(ctx, label);
         if (live.reattachJobs.length) data.removed = live.reattachJobs;
-        reporter.step('update.restart', o.dryRun ? 'ok' : 'changed', `${data.restarted.length} service(s)`);
+        reporter.step('update.restart', failures.length ? 'failed' : o.dryRun ? 'ok' : 'changed', failures.length ? `${failures.length} service(s) not restarted; the next run retries` : `${data.restarted.length} service(s)`);
+        if (failures.length) human.push(`⚠️ Could not restart ${failures.map((f) => f.label).join(', ')}; \`devhost update\` retries them.${failures.map((f) => `\n  ${f.label}: ${f.error}`).join('')}`);
+        restartDone = true;
         data.detached = live.sessions.map((s) => {
           const id = `session_${s.key.slice('cse_'.length)}`;
           return { remoteSession: id, account: s.account, env: s.env, url: `https://claude.ai/code/${id}` };
@@ -238,6 +275,20 @@ export async function runUpdate(ctx: StepContext, reporter: Reporter, now: numbe
     }
   } else {
     human.push(`Claude Code ${claude.installed ?? '(not installed)'} is current.`);
+  }
+
+  // A restart an earlier run could not finish (marker in state.json) is retried now.
+  if (!restartDone && !o.check && !o.dryRun && !data.busy) {
+    const pending = (await readState(exec, home)).restartPending ?? [];
+    if (pending.length > 0) {
+      const live = await liveRemoteSessions(ctx);
+      const labels = pending.filter((l) => live.labels.includes(l));
+      step('update.restart', 'finish restarting the Remote Control services');
+      data.restarted = [];
+      const failures = await restartServices(ctx, labels, data.restarted, false, pending);
+      reporter.step('update.restart', failures.length ? 'failed' : 'changed', failures.length ? `${failures.length} service(s) not restarted; the next run retries` : `${data.restarted.length} service(s)`);
+      human.push(failures.length ? `⚠️ Could not restart ${failures.map((f) => f.label).join(', ')}; \`devhost update\` retries them.` : `✅ ${data.restarted.length} pending service restart(s) done.`);
+    }
   }
 
   if (o.all && packages.length) {

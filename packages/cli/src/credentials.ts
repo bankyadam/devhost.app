@@ -62,6 +62,6 @@ export async function syncCredentialsFromKeychain(exec: Executor, a: Account, ho
   const r = await exec.query('security', ['find-generic-password', '-s', keychainService(a, home), '-w']);
   const secret = r.code === 0 ? r.stdout.trim() : '';
   if (!accessToken(secret)) return false;
-  await exec.writeText(credentialsFile(a, home), `${secret}\n`, { mode: 0o600, description: `copy ${a.name}'s login from the Keychain to ${credentialsFile(a, home)}, which its services read` });
+  await exec.writeText(credentialsFile(a, home), `${secret}\n`, { mode: 0o600, credential: true, description: `copy ${a.name}'s login from the Keychain to ${credentialsFile(a, home)}, which its services read` });
   return true;
 }

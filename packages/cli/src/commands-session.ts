@@ -31,7 +31,7 @@ export function sessionHandoffCommand(deps: Deps, g: GlobalOptions, id: string, 
       const data: SessionHandoffData = { ...base, at: old.at, text: old.text, written: false };
       return { ok: true, data, human: [old.text.trimEnd(), '', `(${base.path}, written ${new Date(old.at).toLocaleString()}; --new writes it again)`] };
     }
-    if (s.state === 'running') throw new DevhostError(`session ${s.session_id.slice(0, 8)} is in the middle of a turn`, 'session-busy', ExitCode.ChecksFailed, 'Write the note when the turn has ended: it would miss what the turn is doing.');
+    if (s.turn_open === 1 && s.state !== 'ended') throw new DevhostError(`session ${s.session_id.slice(0, 8)} is in the middle of a turn`, 'session-busy', ExitCode.ChecksFailed, 'Write the note when the turn has ended: it would miss what the turn is doing.');
     reporter.step('session.handoff', 'start', `writing the handoff note of ${s.session_id.slice(0, 8)} (${s.env})`);
     const exec = newExecutor(deps, g, reporter, false);
     let note: Awaited<ReturnType<typeof writeHandoff>>;

@@ -51,9 +51,11 @@ export function createTauriTransport(host: string): Transport {
 
     openUrl: (url) => invoke('open_url', { url }),
     openTerminal: (request: TerminalRequest) =>
-      invoke('open_terminal', {
+      invoke<void>('open_terminal', {
         host,
-        action: request.kind === 'resume' ? { kind: 'resume', dir: request.dir, sessionId: request.sessionId } : request,
+        action: request,
+      }).catch((e: unknown) => {
+        throw e instanceof Error ? e : new Error(String(e));
       }),
     openVscode: (path) => invoke('open_vscode', { host, path }),
     detectTools: () => invoke('detect_tools'),

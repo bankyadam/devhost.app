@@ -1,7 +1,7 @@
 import type { ApplyData } from '@devhost/contract';
 import { mkdir, readlink, rm, symlink } from 'node:fs/promises';
 import { CommandError, HumanActionRequired } from '../errors.js';
-import { backupFile, readTextIfExists, writeTextWithBackup } from '../fsutil.js';
+import { backupFile, isCredentialPath, readTextIfExists, writeTextWithBackup } from '../fsutil.js';
 import type { Reporter } from '../reporter.js';
 import { helperArgs } from '../root-helper.js';
 import { assertWritable } from '../storage/mount.js';
@@ -191,7 +191,7 @@ export class Executor {
     if (this.opts.dryRun) return;
     if (opts.backup) {
       const text = await readTextIfExists(path);
-      if (text !== null) await backupFile(path, this.opts.now());
+      if (text !== null && !isCredentialPath(path)) await backupFile(path, this.opts.now());
     }
     await rm(path, { recursive: opts.recursive === true, force: true });
   }
@@ -204,13 +204,13 @@ export class Executor {
   async writeText(
     path: string,
     content: string,
-    opts: { mode?: number; dirMode?: number; description?: string } = {},
+    opts: { mode?: number; dirMode?: number; description?: string; credential?: boolean } = {},
   ): Promise<{ backup: string | null }> {
     this.plan.push({ stepId: this.stepId, action: opts.description ?? `write ${path}`, sudo: false });
     if (this.opts.dryRun) return { backup: null };
     assertWritable(path);
     this.trace('write', [path]);
-    return writeTextWithBackup(path, content, { now: this.opts.now(), mode: opts.mode, dirMode: opts.dirMode });
+    return writeTextWithBackup(path, content, { now: this.opts.now(), mode: opts.mode, dirMode: opts.dirMode, credential: opts.credential });
   }
 
   private trace(command: string, args: string[], sudo = false): void {
