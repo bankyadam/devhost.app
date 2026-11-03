@@ -1,6 +1,7 @@
 {
   "name": "@devhost/cli",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "engines": {
     "node": ">=24"
@@ -11,7 +12,11 @@
     "devhost": "dist/cli.js"
   },
   "main": "dist/main.js",
-  "files": ["dist", "templates", "build-info.json"],
+  "files": [
+    "dist",
+    "templates",
+    "build-info.json"
+  ],
   "scripts": {
     "build": "tsc -b && node scripts/build-info.mjs"
   },
