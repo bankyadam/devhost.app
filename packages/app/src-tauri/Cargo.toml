@@ -3,7 +3,7 @@ name = "devhost-desktop"
 version = "0.1.0"
 edition = "2021"
 description = "devhost Desktop: configure and watch the devhost Mac mini from a MacBook"
-license = "UNLICENSED"
+license = "MIT"
 
 [lib]
 name = "devhost_desktop_lib"

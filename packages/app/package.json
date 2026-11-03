@@ -1,6 +1,7 @@
 {
   "name": "@devhost/app",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "devhost Desktop: Tauri v2 + React app that controls the devhost Mac mini over ssh",
   "type": "module",

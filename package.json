@@ -2,6 +2,7 @@
   "name": "devhost-monorepo",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "description": "devhost: turn a Mac mini (Apple Silicon or Intel) into a headless Claude Code dev server",
   "type": "module",
   "workspaces": [

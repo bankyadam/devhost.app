@@ -1,6 +1,7 @@
 {
   "name": "@devhost/contract",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "engines": {
     "node": ">=24"
@@ -20,7 +21,10 @@
     },
     "./schemas/*": "./schemas/*"
   },
-  "files": ["dist", "schemas"],
+  "files": [
+    "dist",
+    "schemas"
+  ],
   "scripts": {
     "gen": "node scripts/gen.mjs",
     "build": "tsc -b"
