@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>devhost — your Mac mini, always on for Claude Code</title>
-<meta name="description" content="Turn a Mac mini into an always-on Claude Code server in one command, and watch every account, project and session from one free Mac app.">
+<title>devhost — your Mac server, always on for Claude Code</title>
+<meta name="description" content="Turn a spare Mac into an always-on Claude Code server in one command, and watch every account, project and session from one free Mac app.">
 <meta name="theme-color" content="#0d0d0d">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d0d0d'/%3E%3Cpath d='M8 10l7 6-7 6' stroke='%233987e5' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M17 22h8' stroke='%23fab219' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
@@ -39,14 +39,14 @@ nav.top{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);background:c
 nav.top .wrap{display:flex;align-items:center;gap:22px;height:60px}
 .logo{font:700 18px var(--mono);text-decoration:none;display:flex;align-items:center;gap:8px}
 .logo i{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:#0d0d0d;color:#3987e5;font-style:normal;font-size:13px}
-nav.top .links{margin-left:auto;display:flex;gap:22px;font-size:15px;color:var(--ink2)}
-nav.top .links a{text-decoration:none}
+nav.top .links{margin-left:auto;display:flex;align-items:center;gap:22px;line-height:1;font-size:15px;color:var(--ink2)}
+nav.top .links a{text-decoration:none;display:inline-flex;align-items:center;gap:6px}
 nav.top .links a:hover{color:var(--ink)}
 .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:12px;font-weight:600;text-decoration:none;border:1px solid var(--line);background:var(--surface);transition:transform .15s,box-shadow .15s}
 .btn:hover{transform:translateY(-2px);box-shadow:0 10px 30px var(--glow)}
 .btn.primary{background:var(--accent);border-color:transparent;color:#fff}
 .btn.small{padding:8px 16px;font-size:14px}
-@media(max-width:700px){nav.top .links a:not(.btn){display:none}nav.top .links{margin-left:auto}}
+@media(max-width:700px){nav.top .links a:not(.btn):not(.gh){display:none}nav.top .links{margin-left:auto}}
 
 /* hero */
 .hero{padding:70px 0 40px;overflow:hidden;position:relative}
@@ -68,7 +68,7 @@ nav.top .links a:hover{color:var(--ink)}
 .term .bar{display:flex;gap:7px;padding:12px 14px;background:rgba(255,255,255,.05)}
 .term .bar i{width:11px;height:11px;border-radius:50%;background:#ff5f57}
 .term .bar i:nth-child(2){background:#febc2e}.term .bar i:nth-child(3){background:#28c840}
-.term pre{padding:18px 20px;min-height:290px;white-space:pre-wrap;font:inherit}
+.term pre{padding:18px 20px;height:330px;overflow:hidden;white-space:pre-wrap;font:inherit}
 .term .p{color:#3987e5}.term .ok{color:#3ecf3e}.term .dim{color:#898781}.term .w{color:#fab219}
 .caret{display:inline-block;width:8px;height:16px;background:#e8e7e3;vertical-align:-3px;animation:blink 1s steps(2) infinite}
 @keyframes blink{50%{opacity:0}}
@@ -102,7 +102,7 @@ nav.top .links a:hover{color:var(--ink)}
 .diagram{margin-top:56px;background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:34px 20px;display:grid;grid-template-columns:1fr 1.1fr 1fr;gap:12px;align-items:center;text-align:center}
 .node{border:1px solid var(--line);border-radius:16px;padding:18px 12px;background:var(--bg)}
 .node b{display:block;font-size:18px}.node span{color:var(--ink3);font-size:14px}
-.node .emo{font-size:34px}
+.node .emo{font-size:34px;display:grid;place-items:center;height:92px}.gfx{color:var(--ink)}.led circle{animation:pulse2 2.4s ease-in-out infinite}.led circle:nth-child(2){animation-delay:-.8s}.led circle:nth-child(3){animation-delay:-1.6s}@keyframes pulse2{50%{opacity:.3}}.spark{animation:spin 24s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .mini{display:flex;flex-direction:column;gap:8px;align-items:stretch}
 .mini div{font:13px var(--mono);border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:var(--bg);display:flex;justify-content:space-between;gap:10px}
 .mini em{font-style:normal;color:var(--ink3)}
@@ -123,6 +123,7 @@ nav.top .links a:hover{color:var(--ink)}
 /* tour */
 .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:36px 0 22px}
 .tabs button{font:600 15px var(--font);padding:9px 18px;border-radius:99px;border:1px solid var(--line);background:var(--surface);color:var(--ink2);cursor:pointer}
+.timer{height:3px;border-radius:3px;background:var(--line);margin:-8px 0 26px;overflow:hidden}.timer i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2))}.timer.run i{animation:fill 6s linear forwards}@keyframes fill{to{width:100%}}
 .tabs button[aria-selected=true]{background:var(--ink);color:var(--bg)}
 .tour{display:grid;grid-template-columns:300px 1fr;gap:30px;align-items:start}
 @media(max-width:900px){.tour{grid-template-columns:1fr}}
@@ -162,13 +163,13 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
 
 <nav class="top"><div class="wrap">
   <a class="logo" href="#"><i>▸_</i>devhost</a>
-  <div class="links"><a href="#how">How it works</a><a href="#features">Features</a><a href="#tour">Screenshots</a><a href="#install">Install</a><a class="btn primary small" href="#install">Get it — free</a></div>
+  <div class="links"><a href="#how">How it works</a><a href="#features">Features</a><a href="#tour">Screenshots</a><a href="#install">Install</a><a class="gh" href="https://github.com/bankyadam/devhost.app" target="_blank" rel="noopener"><svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 014 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a><a class="btn primary small" href="#install">Get it — free</a></div>
 </div></nav>
 
 <header class="hero"><div class="wrap">
   <div class="badge"><b>●</b> Free &amp; open source · macOS 26+ · Apple Silicon and Intel</div>
-  <h1>Your <span class="grad">Mac mini</span>, always on, for Claude&nbsp;Code.</h1>
-  <p class="lead">One command turns a fresh Mac mini into a headless dev server. Every project gets its own Remote Control service, every Claude account is tracked in one place, and a little Mac app shows you what your agents are doing — from anywhere.</p>
+  <h1>Your <span class="grad">Mac server</span>, always on, for Claude&nbsp;Code.</h1>
+  <p class="lead">One command turns a fresh Mac into a headless dev server. Every project gets its own Remote Control service, every Claude account is tracked in one place, and a little Mac app shows you what your agents are doing — from anywhere.</p>
   <div class="cta"><a class="btn primary" href="#install">Set it up in 10 minutes ↓</a><a class="btn" href="#tour">See the app</a><small>No account. No telemetry. No price tag.</small></div>
 
   <div class="stage">
@@ -186,10 +187,10 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
 
 <section id="how"><div class="wrap">
   <div class="rv"><div class="eyebrow">How it works</div>
-  <h2>From a box in a box to a coding farm.</h2>
-  <p class="lead">You never sit at the Mac mini. You set it up once, then work from your phone, your MacBook or any browser.</p></div>
+  <h2>From a spare Mac to a coding farm.</h2>
+  <p class="lead">You never sit at your Mac server. You set it up once, then work from your phone, your MacBook or any browser.</p></div>
   <div class="flow rv">
-    <div class="step"><div class="n">📦</div><h3>Bootstrap</h3><p>Run <code>./bootstrap.sh</code> on the mini. Homebrew, Node, Docker, Tailscale — all installed, idempotently.</p></div>
+    <div class="step"><div class="n">📦</div><h3>Bootstrap</h3><p>Run <code>./bootstrap.sh</code> on the server. Homebrew, Node, Docker, Tailscale — all installed, idempotently.</p></div>
     <div class="step"><div class="n">🔑</div><h3>Add accounts</h3><p><code>devhost account add</code> — personal, business, as many as you have. Each keeps its own login.</p></div>
     <div class="step"><div class="n">🗂️</div><h3>Add projects</h3><p><code>devhost env create</code> — a repo, a port block, a Remote Control service. Back after every reboot.</p></div>
     <div class="step"><div class="n">📱</div><h3>Work anywhere</h3><p>Open the Claude app or claude.ai/code. Your sessions are already there. Watch it all in devhost Desktop.</p></div>
@@ -197,13 +198,13 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
 
   <div class="diagram rv">
     <div class="node"><div class="emo">💻 📱</div><b>You</b><span>MacBook · phone · browser</span></div>
-    <div class="node" style="border-color:var(--accent)"><div class="emo">🖥️</div><b>Mac mini</b><span>always on · headless</span>
+    <div class="node" style="border-color:var(--accent)"><div class="emo"><svg class="gfx" viewBox="0 0 120 84" width="120" height="84" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"><rect x="14" y="6" width="92" height="22" rx="6"/><rect x="14" y="31" width="92" height="22" rx="6"/><rect x="14" y="56" width="92" height="22" rx="6"/></g><g class="led"><circle cx="28" cy="17" r="3.5" fill="#0ca30c"/><circle cx="28" cy="42" r="3.5" fill="#0ca30c"/><circle cx="28" cy="67" r="3.5" fill="#fab219"/></g><g stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity=".45"><path d="M54 17h40M54 42h40M54 67h40"/></g></svg></div><b>Your Mac server</b><span>always on · headless</span>
       <div class="mini" style="margin-top:12px">
         <div>personal / blog <em>:3000</em></div>
         <div>business / acme-api <em>:4100</em></div>
         <div>collector <em>usage · health</em></div>
       </div></div>
-    <div class="node"><div class="emo">☁️</div><b>Claude</b><span>Remote Control · claude.ai/code</span></div>
+    <div class="node"><div class="emo"><svg class="gfx spark" viewBox="-50 -50 100 100" width="84" height="84" aria-hidden="true"><g stroke="#d97757" stroke-width="9" stroke-linecap="round"><path d="M0-40V-12M0 12V40M-40 0H-12M12 0H40M-28-28L-9-9M9 9L28 28M28-28L9-9M-9 9L-28 28"/></g></svg></div><b>Claude</b><span>Remote Control · claude.ai/code</span></div>
     <div class="wires"><span>Tailscale + ssh</span><span>Remote Control</span><span>direnv per account</span><span>git identity per account</span></div>
   </div>
 </div></section>
@@ -231,6 +232,7 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
 </div>
   <p class="lead rv">A native Mac app for your MacBook. Every screenshot here is the built-in demo host — invented projects, invented numbers.</p>
   <div class="tabs" role="tablist" id="tabs"></div>
+  <div class="timer" id="timer" aria-hidden="true"><i></i></div>
   <div class="tour"><div id="copy"></div><div class="shotwrap"><img class="shot" id="big" alt="" width="1440" height="900"></div></div>
   <p class="phone-note">Tip: put the <b>Monitor</b> on a second display and keep every session in sight.</p>
 </div></section>
@@ -248,7 +250,7 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
 <section id="install" style="padding-top:20px"><div class="wrap">
   <div class="rv"><div class="eyebrow">Install</div><h2>Two commands and a coffee.</h2></div>
   <div class="two">
-    <div class="rv"><h3>1 · On the Mac mini</h3>
+    <div class="rv"><h3>1 · On the Mac server</h3>
       <div class="code"><button class="copy" data-c="./bootstrap.sh">Copy</button><span class="c"># from a clone of the repo</span><br>./bootstrap.sh<br><br><span class="c"># add an account and a project</span><br>devhost account add --name personal --default<br>devhost env create --account personal \<br>&nbsp;&nbsp;--name blog --repo git@github.com:me/blog.git<br>devhost doctor</div></div>
     <div class="rv"><h3>2 · On your MacBook</h3>
       <div class="code"><button class="copy" data-c="npm ci &amp;&amp; npm run tauri:build:arm -w @devhost/app">Copy</button><span class="c"># needs Node 24 and Rust</span><br>npm ci<br>npm run tauri:build:arm -w @devhost/app<br><br><span class="c"># or try the UI in a browser, no ssh</span><br>npm run dev -w @devhost/app</div></div>
@@ -295,13 +297,14 @@ const tour=[
   ['monitor','Monitor','For the second monitor','A compact card per session with a state lamp, prompt icon, cost and QR code, plus a strip of the numbers that matter. Opens from the menu bar.',['Always fits on screen','Waiting sessions glow','Full-screen friendly']]
 ];
 const tabs=document.getElementById('tabs'),copy=document.getElementById('copy'),big=document.getElementById('big'),mq=matchMedia('(prefers-color-scheme: dark)'),dark={get checked(){return mq.matches}};
-let cur=0;
+let cur=0,auto=null;
 function show(i){
   cur=i;const [id,name,h,p,li]=tour[i];
   [...tabs.children].forEach((b,j)=>b.setAttribute('aria-selected',j===i));
   copy.innerHTML=`<h3>${h}</h3><p>${p}</p><ul>${li.map(x=>`<li>${x}</li>`).join('')}</ul>`;
   setShot(big,id);big.alt=`${name} screen of devhost Desktop (demo data)`;
   big.style.animation='none';big.offsetWidth;big.style.animation='';
+  const tm=document.getElementById('timer');tm.classList.remove('run');tm.offsetWidth;if(auto!==null)tm.classList.add('run');
 }
 function setShot(img,id){img.src=`shots/${id}-${dark.checked?'dark':'light'}.png`}
 tour.forEach((t,i)=>{const b=document.createElement('button');b.role='tab';b.textContent=t[1];b.onclick=()=>show(i);tabs.append(b)});
@@ -309,8 +312,8 @@ mq.addEventListener('change',()=>{show(cur);document.querySelectorAll('[data-sho
 document.querySelectorAll('[data-shot]').forEach(i=>setShot(i,i.dataset.shot));
 show(0);
 // auto-advance until the visitor interacts
-let auto=setInterval(()=>show((cur+1)%tour.length),6000);
-tabs.addEventListener('click',()=>clearInterval(auto));
+auto=setInterval(()=>show((cur+1)%tour.length),6000);show(cur);
+tabs.addEventListener('click',()=>{clearInterval(auto);auto=null;document.getElementById('timer').classList.remove('run')});
 
 // Copy buttons
 document.querySelectorAll('.copy').forEach(b=>b.onclick=()=>{navigator.clipboard?.writeText(b.dataset.c.replace(/&amp;/g,'&'));b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1400)});
