@@ -306,7 +306,7 @@ function show(i){
   big.style.animation='none';big.offsetWidth;big.style.animation='';
   const tm=document.getElementById('timer');tm.classList.remove('run');tm.offsetWidth;if(auto!==null)tm.classList.add('run');
 }
-function setShot(img,id){img.src=`shots/${id}-${dark.checked?'dark':'light'}.png?v=3`}
+function setShot(img,id){img.src=`shots/${id}-${dark.checked?'dark':'light'}.png?v=4`}
 tour.forEach((t,i)=>{const b=document.createElement('button');b.role='tab';b.textContent=t[1];b.onclick=()=>show(i);tabs.append(b)});
 mq.addEventListener('change',()=>{show(cur);document.querySelectorAll('[data-shot]').forEach(i=>setShot(i,i.dataset.shot))});
 document.querySelectorAll('[data-shot]').forEach(i=>setShot(i,i.dataset.shot));
