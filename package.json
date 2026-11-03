@@ -31,7 +31,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "json-schema-to-typescript": "^15.0.3",
     "typescript": "^5.7.2",
-    "typescript-eslint": "^8.18.0",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^2.1.8"
   }
 }
