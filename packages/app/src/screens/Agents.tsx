@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { AgentsListData, DevhostConfig } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import { errorMessage } from '../client/errors';
 import { Badge, Empty } from '../ui/primitives';
+import { useHostQuery } from '../use-host-query';
 import { RunDialog } from '../ui/run-dialog';
 
 type Target = AgentsListData['targets'][number];
@@ -28,36 +29,27 @@ export function grouped(targets: Target[]): Target[] {
 }
 
 export function Agents() {
-  const { client, connection, reportUnreachable } = useApp();
-  const [data, setData] = useState<AgentsListData | null>(null);
-  const [config, setConfig] = useState<DevhostConfig | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { client } = useApp();
+  const fetchAll = useCallback(async () => {
+    const [d, c] = await Promise.all([client.agents(), client.configGet()]);
+    return { d, c };
+  }, [client]);
+  const { data: loaded, error: loadError, refresh } = useHostQuery(fetchAll);
+  const data: AgentsListData | null = loaded?.d ?? null;
+  const config: DevhostConfig | null = loaded?.c ?? null;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? loadError;
   const [pending, setPending] = useState(false);
   const [apply, setApply] = useState(false);
 
-  const refresh = useCallback(async () => {
-    try {
-      const [d, c] = await Promise.all([client.agents(), client.configGet()]);
-      setData(d);
-      setConfig(c);
-      setError(null);
-    } catch (e) {
-      reportUnreachable(e);
-      setError(errorMessage(e));
-    }
-  }, [client, reportUnreachable]);
-
-  useEffect(() => {
-    if (connection.kind === 'connected') void refresh();
-  }, [connection.kind, refresh]);
-
   const change = async (pointer: string, value: unknown): Promise<void> => {
+    setActionError(null);
     try {
       await client.configSet(pointer, value);
       setPending(true);
       await refresh();
     } catch (e) {
-      setError(errorMessage(e));
+      setActionError(errorMessage(e));
     }
   };
   const toggle = (t: Target, name: string): void => {

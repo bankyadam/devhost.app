@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { AccountListData, DashData, EnvListData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import { accountAddArgs, type AccountAddInput } from '../client/client';
+import { useHostQuery } from '../use-host-query';
 import { errorMessage } from '../client/errors';
 import { ago } from '../lib/format';
 import { predictAccountRange, SLUG } from '../lib/ports';
@@ -13,32 +14,19 @@ import { defaultWebAppName, useWebApps } from '../use-web-apps';
 type Account = AccountListData['accounts'][number];
 
 export function Accounts() {
-  const { client, transport, connection, reportUnreachable } = useApp();
-  const [accounts, setAccounts] = useState<Account[] | null>(null);
-  const [envs, setEnvs] = useState<EnvListData['environments']>([]);
+  const { client, transport } = useApp();
   const [dash, setDash] = useState<DashData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const fetchAll = useCallback(async () => {
+    const [a, e] = await Promise.all([client.accounts(), client.envs()]);
+    void client.dash('1h').then(setDash).catch(() => undefined);
+    return { accounts: a.accounts, envs: e.environments };
+  }, [client]);
+  const { data: loaded, error, refresh } = useHostQuery(fetchAll);
+  const accounts: Account[] | null = loaded?.accounts ?? null;
+  const envs: EnvListData['environments'] = loaded?.envs ?? [];
   const [dialog, setDialog] = useState<null | { kind: 'add' } | { kind: 'login'; account: Account } | { kind: 'remove'; account: Account } | { kind: 'web-app'; account: Account }>(null);
   const names = (accounts ?? []).map((a) => a.name);
   const webApps = useWebApps();
-
-  const refresh = useCallback(async () => {
-    try {
-      const [a, e] = await Promise.all([client.accounts(), client.envs()]);
-      setAccounts(a.accounts);
-      setEnvs(e.environments);
-      setError(null);
-      void client.dash('1h').then(setDash).catch(() => undefined);
-    } catch (e) {
-      reportUnreachable(e);
-      setError(errorMessage(e));
-    }
-  }, [client, reportUnreachable]);
-
-  useEffect(() => {
-    if (connection.kind !== 'connected') return;
-    void refresh();
-  }, [client, connection.kind, refresh]);
 
   return (
     <div className="content">

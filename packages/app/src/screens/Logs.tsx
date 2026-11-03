@@ -1,35 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { EnvListData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
-import { errorMessage } from '../client/errors';
 import { seriesSlot, seriesVar } from '../lib/colors';
 import { Empty } from '../ui/primitives';
+import { useHostQuery } from '../use-host-query';
 import { byAccount, LogPane } from './Environments';
 
 type Source = { id: string; label: string };
 
 /** The collector's and every Remote Control service's log, picked on the left and followed on the right (spec B3.5). */
 export function Logs() {
-  const { client, connection, reportUnreachable } = useApp();
-  const [envs, setEnvs] = useState<EnvListData['environments'] | null>(null);
-  const [accountOrder, setAccountOrder] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const { client } = useApp();
+  const fetchSources = useCallback(async () => {
+    const [e, a] = await Promise.all([client.envs(), client.accounts()]);
+    return { envs: e.environments, accountOrder: a.accounts.map((x) => x.name) };
+  }, [client]);
+  const { data: src, error } = useHostQuery(fetchSources);
+  const envs: EnvListData['environments'] | null = src?.envs ?? null;
+  const accountOrder = src?.accountOrder ?? [];
   const [selected, setSelected] = useState<Source>({ id: 'collector', label: 'Collector' });
-
-  const refresh = useCallback(async () => {
-    try {
-      const [e, a] = await Promise.all([client.envs(), client.accounts()]);
-      setEnvs(e.environments);
-      setAccountOrder(a.accounts.map((x) => x.name));
-      setError(null);
-    } catch (e) {
-      reportUnreachable(e);
-      setError(errorMessage(e));
-    }
-  }, [client, reportUnreachable]);
-  useEffect(() => {
-    if (connection.kind === 'connected') void refresh();
-  }, [connection.kind, refresh]);
 
   const rc = (envs ?? []).filter((e) => e.remoteControl.enabled);
   const load = useMemo(

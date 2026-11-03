@@ -12,27 +12,43 @@ export function useHostQuery<T>(fetcher: () => Promise<T>) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const seq = useRef(0);
-  const refresh = useCallback(async (): Promise<void> => {
-    const mine = ++seq.current;
+  const alive = useRef(true);
+  const flight = useRef<Promise<void> | null>(null);
+  const again = useRef(false);
+  const run = useCallback(async (): Promise<void> => {
     setLoading(true);
     try {
       const d = await fetcher();
-      if (mine !== seq.current) return;
+      if (!alive.current) return;
       setData(d);
       setError(null);
     } catch (e) {
-      if (mine !== seq.current) return;
+      if (!alive.current) return;
       reportUnreachable(e);
       setError(errorMessage(e));
     } finally {
-      if (mine === seq.current) setLoading(false);
+      if (alive.current) setLoading(false);
     }
   }, [fetcher, reportUnreachable]);
+  /** Single flight: a call during a running load schedules exactly one reload after it, and shares its promise. */
+  const refresh = useCallback((): Promise<void> => {
+    if (flight.current) {
+      again.current = true;
+      return flight.current;
+    }
+    const p = (async () => {
+      do {
+        again.current = false;
+        await run();
+      } while (again.current && alive.current);
+    })().finally(() => { flight.current = null; });
+    flight.current = p;
+    return p;
+  }, [run]);
   useEffect(() => {
+    alive.current = true;
     if (connection.kind === 'connected') void refresh();
-    const ref = seq;
-    return () => { ref.current++; };
+    return () => { alive.current = false; };
   }, [connection.kind, refresh]);
   return { data, error, loading, refresh };
 }
