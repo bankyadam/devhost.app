@@ -228,7 +228,7 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
 <section id="tour"><div class="wrap">
   <div class="rv" style="display:flex;align-items:end;gap:20px;flex-wrap:wrap"><div><div class="eyebrow">devhost Desktop</div>
   <h2>A calm window onto a busy machine.</h2></div>
-  <label class="theme" title="Switch screenshot theme"><input type="checkbox" id="dark"> Dark screenshots</label></div>
+</div>
   <p class="lead rv">A native Mac app for your MacBook. Every screenshot here is the built-in demo host — invented projects, invented numbers.</p>
   <div class="tabs" role="tablist" id="tabs"></div>
   <div class="tour"><div id="copy"></div><div class="shotwrap"><img class="shot" id="big" alt="" width="1440" height="900"></div></div>
@@ -294,9 +294,8 @@ const tour=[
   ['doctor','Doctor','Green means green','Read-only checks with a one-line fix each; plugins can add their own.',['Fix hints you can copy','Same checks in the CLI','Plugin advice under a check']],
   ['monitor','Monitor','For the second monitor','A compact card per session with a state lamp, prompt icon, cost and QR code, plus a strip of the numbers that matter. Opens from the menu bar.',['Always fits on screen','Waiting sessions glow','Full-screen friendly']]
 ];
-const tabs=document.getElementById('tabs'),copy=document.getElementById('copy'),big=document.getElementById('big'),dark=document.getElementById('dark');
+const tabs=document.getElementById('tabs'),copy=document.getElementById('copy'),big=document.getElementById('big'),mq=matchMedia('(prefers-color-scheme: dark)'),dark={get checked(){return mq.matches}};
 let cur=0;
-const sysDark=matchMedia('(prefers-color-scheme: dark)').matches;dark.checked=sysDark;
 function show(i){
   cur=i;const [id,name,h,p,li]=tour[i];
   [...tabs.children].forEach((b,j)=>b.setAttribute('aria-selected',j===i));
@@ -306,7 +305,7 @@ function show(i){
 }
 function setShot(img,id){img.src=`shots/${id}-${dark.checked?'dark':'light'}.png`}
 tour.forEach((t,i)=>{const b=document.createElement('button');b.role='tab';b.textContent=t[1];b.onclick=()=>show(i);tabs.append(b)});
-dark.onchange=()=>{show(cur);document.querySelectorAll('[data-shot]').forEach(i=>setShot(i,i.dataset.shot))};
+mq.addEventListener('change',()=>{show(cur);document.querySelectorAll('[data-shot]').forEach(i=>setShot(i,i.dataset.shot))});
 document.querySelectorAll('[data-shot]').forEach(i=>setShot(i,i.dataset.shot));
 show(0);
 // auto-advance until the visitor interacts
