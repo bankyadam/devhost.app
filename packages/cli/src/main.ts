@@ -1,4 +1,4 @@
-import { Command, CommanderError } from 'commander';
+import { Command, CommanderError, InvalidArgumentError } from 'commander';
 import { ExitCode } from '@devhost/contract';
 import {
   applyCommand,
@@ -37,6 +37,12 @@ interface RootOpts {
 }
 
 /** Entry point shared by bin and tests: parse argv, run the command, return the exit code. */
+/** A whole number of at least 1 (`--lines`): "abc" or "-3" would otherwise reach slice() as NaN or a negative. */
+function positiveInt(v: string): number {
+  if (!/^[1-9][0-9]{0,8}$/.test(v)) throw new InvalidArgumentError('give a whole number of at least 1');
+  return Number(v);
+}
+
 export async function main(argv: string[], deps: Deps): Promise<number> {
   try {
     return await mainInner(argv, deps);
@@ -218,7 +224,7 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
   env
     .command('logs <name>')
     .description('Show the Remote Control service log')
-    .option('-n, --lines <n>', 'number of lines', (v) => Number(v), 50)
+    .option('-n, --lines <n>', 'number of lines', positiveInt, 50)
     .option('-f, --follow', 'keep printing new lines (not with --json)')
     .action((name: string, o: { lines: number; follow?: boolean }) => run(() => envLogsCommand(deps, globals(), name, { lines: o.lines, follow: o.follow === true }))());
 
@@ -230,7 +236,7 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
   collector
     .command('logs')
     .description('Show the collector log')
-    .option('-n, --lines <n>', 'number of lines', (v) => Number(v), 50)
+    .option('-n, --lines <n>', 'number of lines', positiveInt, 50)
     .action(run(() => collectorLogsCommand(deps, globals(), { lines: collector.commands.find((c) => c.name() === 'logs')!.opts<{ lines: number }>().lines })));
 
   program

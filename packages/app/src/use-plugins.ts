@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PluginListData, PluginWidgetsData } from '@devhost/contract/lite';
 import { useApp } from './app-context';
 
@@ -43,10 +43,12 @@ export function usePluginWidgets(params: Record<string, string> = {}) {
   const { client, connection } = useApp();
   const [data, setData] = useState<PluginWidgetsData>({ filters: [], widgets: [] });
   const key = JSON.stringify(params);
+  const seq = useRef(0);
   const refresh = useCallback(async () => {
+    const mine = ++seq.current;
     try {
       const d = await client.pluginWidgets(JSON.parse(key) as Record<string, string>);
-      setData({ filters: d.filters ?? [], widgets: d.widgets });
+      if (mine === seq.current) setData({ filters: d.filters ?? [], widgets: d.widgets });
     } catch {
       /* keep the last cards; an older CLI has no `plugin widgets` */
     }
@@ -54,9 +56,14 @@ export function usePluginWidgets(params: Record<string, string> = {}) {
   const everyMs = Math.min(300, ...data.widgets.map((w) => w.refreshSeconds ?? 300)) * 1000;
   useEffect(() => {
     if (connection.kind !== 'connected') return;
-    void refresh();
-    const t = setInterval(() => void refresh(), everyMs);
-    return () => clearInterval(t);
+    // Single-flight: the next poll is scheduled when the previous one finished.
+    let stop = false;
+    let t: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      t = setTimeout(() => void refresh().finally(() => !stop && tick()), everyMs);
+    };
+    void refresh().finally(() => !stop && tick());
+    return () => { stop = true; clearTimeout(t); };
   }, [connection.kind, refresh, everyMs]);
   return { widgets: data.widgets, filters: data.filters, refresh };
 }

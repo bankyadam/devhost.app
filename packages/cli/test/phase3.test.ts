@@ -817,7 +817,7 @@ describe('environments', () => {
     await env.run('env', 'delete', 'acme-api', '--yes');
     env.err.length = 0;
     env.out.length = 0;
-    expect(await env.run('account', 'remove', 'business', '--logout', '--json')).toBe(0);
+    expect(await env.run('account', 'remove', 'business', '--logout', '--yes', '--json')).toBe(0);
     const data = lastResult(env).data;
     expect(validate('result.account-change', data).ok).toBe(true);
     expect(data).toMatchObject({ action: 'removed' });

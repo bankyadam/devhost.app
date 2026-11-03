@@ -11,6 +11,8 @@ export interface StreamHandle {
   cancel(): void;
   /** Resolves with the exit code once the command has ended. */
   done: Promise<number>;
+  /** The last stderr lines of the ended command (why it ended without a result); empty when unknown. */
+  stderrTail?(): string;
 }
 
 export type TerminalRequest =

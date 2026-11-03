@@ -5,6 +5,14 @@
  */
 export interface Envelope {
   contractVersion: 1;
+  /**
+   * Additive revision within contractVersion: new fields and events, never removals.
+   */
+  contractMinor?: number;
+  /**
+   * Optional features this CLI supports, e.g. snapshot-event.
+   */
+  capabilities?: string[];
   ok: boolean;
   data: unknown;
   errors: {

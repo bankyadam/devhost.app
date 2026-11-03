@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { EnvListData } from '@devhost/contract/lite';
+import { devServerUrl } from '../lib/host';
 import { useApp } from '../app-context';
 import { errorMessage } from '../client/errors';
 import { ago, bytes, compact, pct, usd } from '../lib/format';
@@ -30,6 +31,10 @@ export function Sessions({ qr, onQr }: { qr: boolean; onQr: (on: boolean) => voi
     transport.openTerminal(r).catch((e: unknown) => setTermError(`Could not open Terminal: ${errorMessage(e)}`));
   };
 
+  const [dnsName, setDnsName] = useState<string | null>(null);
+  useEffect(() => {
+    if (connection.kind === 'connected') void client.status().then((st) => setDnsName(st.host.tailscale?.dnsName ?? null)).catch(() => undefined);
+  }, [client, connection.kind]);
   useEffect(() => {
     if (connection.kind === 'connected') void client.envs().then((e) => setEnvs(e.environments)).catch(() => undefined);
   }, [client, connection.kind, dash?.environments.length]);
@@ -39,7 +44,6 @@ export function Sessions({ qr, onQr }: { qr: boolean; onQr: (on: boolean) => voi
   }
 
   const now = dash.generatedAt;
-  const hostName = transport.host.replace(/^.*@/, '');
   const sessions = sortSessions(dash.sessions.filter((s) => s.state !== 'ended'), sort.key, sort.dir);
   const waiting = sessions.filter((s) => s.state === 'waiting').length;
 
@@ -70,7 +74,7 @@ export function Sessions({ qr, onQr }: { qr: boolean; onQr: (on: boolean) => voi
                 </tr>
               </thead>
               <tbody>
-                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envs.find((e) => e.name === s.env)?.dir} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} onHandoff={(fresh) => setHandoff({ session: s, fresh })} qr={qr} onQr={() => setQrOf(s)} onTerminal={openTerminal} />)}
+                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envs.find((e) => e.name === s.env)?.dir} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} dnsName={dnsName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} onHandoff={(fresh) => setHandoff({ session: s, fresh })} qr={qr} onQr={() => setQrOf(s)} onTerminal={openTerminal} />)}
               </tbody>
             </table>
           </div>
@@ -89,7 +93,7 @@ export function Sessions({ qr, onQr }: { qr: boolean; onQr: (on: boolean) => voi
 
 const sessionUrl = (remoteSession: string): string => `https://claude.ai/code/${remoteSession}`;
 
-function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onAction, onHandoff, qr, onQr, onTerminal }: { onTerminal: (r: { kind: 'resume'; dir: string; sessionId: string } | { kind: 'shell'; dir: string }) => void; s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void; onHandoff: (fresh: boolean) => void; qr: boolean; onQr: () => void }) {
+function SessionRow({ s, now, dir, portBase, dnsName, app, envUrl, actions, onAction, onHandoff, qr, onQr, onTerminal }: { onTerminal: (r: { kind: 'resume'; dir: string; sessionId: string } | { kind: 'shell'; dir: string }) => void; s: Session; now: number; dir?: string; portBase: number | null; dnsName: string | null; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void; onHandoff: (fresh: boolean) => void; qr: boolean; onQr: () => void }) {
   const { transport, tools } = useApp();
   return (
     <tr className={s.state === 'waiting' ? 'waiting' : ''}>
@@ -127,7 +131,7 @@ function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onA
             { label: 'Terminal: resume this session', hidden: !dir, onSelect: () => onTerminal({ kind: 'resume', dir: dir!, sessionId: s.id }) },
             { label: 'Terminal: shell in the environment', hidden: !dir, onSelect: () => onTerminal({ kind: 'shell', dir: dir! }) },
             { label: 'VS Code (Remote SSH)', hidden: !dir || !tools.code, onSelect: () => void transport.openVscode(dir!) },
-            { label: portBase ? `Dev server (port ${portBase})` : 'Dev server', hidden: portBase == null, onSelect: () => void transport.openUrl(`http://${hostName}:${portBase}`) },
+            { label: portBase ? `Dev server (port ${portBase})` : 'Dev server', hidden: portBase == null, onSelect: () => void transport.openUrl(devServerUrl(transport.host, dnsName, portBase!)) },
             ...actions.map((a) => ({ label: `${a.title}${a.destructive ? '…' : ''}`, danger: a.destructive, onSelect: () => onAction(a) })),
           ]}
         />

@@ -45,13 +45,15 @@ export function useOperation<T = unknown>() {
   }, []);
 
   const onPrompt = useCallback(
-    (p: PromptEvent) =>
+    (p: PromptEvent, signal?: AbortSignal) =>
       new Promise<string | boolean>((resolve) => {
-        answer.current = (v) => {
+        const finish = (v: string | boolean) => {
           answer.current = null;
           setState((s) => ({ ...s, prompt: null }));
           resolve(v);
         };
+        answer.current = finish;
+        signal?.addEventListener('abort', () => finish(false), { once: true });
         setState((s) => ({ ...s, prompt: p }));
       }),
     [],

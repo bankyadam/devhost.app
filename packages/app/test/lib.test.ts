@@ -244,3 +244,12 @@ describe('qrPath', () => {
     expect(short.d).not.toContain('M7 7h1'); // the separator next to the top-left finder is light
   });
 });
+
+describe('host naming', () => {
+  it('dev server URLs prefer the Tailscale DNS name, else the ssh host name', async () => {
+    const { devServerUrl, sshHostName } = await import('../src/lib/host');
+    expect(sshHostName('me@macmini')).toBe('macmini');
+    expect(devServerUrl('me@macmini', 'macmini.tail1.ts.net.', 4001)).toBe('http://macmini.tail1.ts.net:4001');
+    expect(devServerUrl('me@macmini', null, 4001)).toBe('http://macmini:4001');
+  });
+});

@@ -13,5 +13,7 @@ describe('the shell lets the app run every command the client uses', () => {
     const used = new Set([...client.matchAll(/(?:short|run|call)(?:<[^>]*>)?\(\s*\[\s*'([a-z-]+)'/g)].map((m) => m[1]!));
     expect(used.size).toBeGreaterThan(8);
     expect([...used].filter((c) => !allowed.has(c))).toEqual([]);
+    // The list is exactly what the client calls: nothing extra stays reachable from the webview.
+    expect([...allowed].filter((c) => !used.has(c!))).toEqual([]);
   });
 });

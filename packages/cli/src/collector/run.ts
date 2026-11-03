@@ -20,7 +20,7 @@ import { TitleCache } from './titles.js';
 import { envLocations, type EnvLocation } from './hooks.js';
 import { Ingestor } from './ingest.js';
 import { createNotifier, type FetchLike, type Notification, type Notifier } from './notify.js';
-import { retain, rollup } from './rollup.js';
+import { pruneHandoffNotes, retain, rollup } from './rollup.js';
 import { volumeStatus, workVolumeOf } from '../storage/volume.js';
 import { rotateLogs } from './logs.js';
 import {
@@ -239,8 +239,10 @@ export class Collector {
     const pct = this.self ? ((cpu.user - this.self.cpu.user + cpu.system - this.self.cpu.system) / 1000 / Math.max(1, now - this.self.at)) * 100 : 0;
     this.self = { cpu, at: now };
     const children = this.procs.filter((p) => p.ppid === process.pid && !/^(\/bin\/)?ps -axo/.test(p.command));
-    const names = children.map((p) => p.command.split(' ')[0]!.split('/').pop()!);
-    const overlaps = names.length - new Set(names).size;
+    // An overlap is the same full command line running twice at once, not merely the same program
+    // (docker stats and docker compose belong to different sources).
+    const lines = children.map((p) => p.command);
+    const overlaps = lines.length - new Set(lines).size;
     const skipped = [...this.sources.skipped.values()].reduce((a, b) => a + b, 0);
     this.db.run('INSERT INTO samples_collector (ts, cpu_pct, rss_bytes, children, overlaps, skipped) VALUES (?, ?, ?, ?, ?, ?)', now, pct, process.memoryUsage().rss, children.length, overlaps, skipped);
   }
@@ -447,13 +449,43 @@ export class Collector {
   /** When the collector started: an environment counts as used from then on, so a restart does not put everything to sleep. */
   private readonly startedAt: number;
   private waking = new Set<string>();
+  /** Per-environment lock shared by sleep and wake, so the two never interleave their compose calls. */
+  private readonly envLocks = new Map<string, Promise<void>>();
+
+  private async withEnvLock<T>(env: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.envLocks.get(env) ?? Promise.resolve();
+    let done: () => void = () => undefined;
+    const mine = new Promise<void>((r) => (done = r));
+    const chain = prev.then(() => mine);
+    this.envLocks.set(env, chain);
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      done();
+      if (this.envLocks.get(env) === chain) this.envLocks.delete(env);
+    }
+  }
+
+  /** A compose call that cannot hang the lock for good. */
+  private async bounded<T>(what: string, p: Promise<T>, ms = 120_000): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([p, new Promise<never>((_, rej) => (timer = setTimeout(() => rej(new Error(`${what} timed out`)), ms)))]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   /** A session started or got a prompt in an environment: start the services it had when it fell asleep. */
   async wake(where: EnvLocation): Promise<void> {
-    if (this.waking.has(where.env) || !(await sleepState(this.opts.deps.home, where.env))) return;
+    if (this.waking.has(where.env)) return;
     this.waking.add(where.env);
     try {
-      const state = await wakeEnv(this.exec, this.opts.deps.home, where.env, where.dir);
+      const state = await this.withEnvLock(where.env, async () => {
+        if (!(await sleepState(this.opts.deps.home, where.env))) return null;
+        return this.bounded(`wake ${where.env}`, wakeEnv(this.exec, this.opts.deps.home, where.env, where.dir));
+      });
       if (state) {
         this.db.kvSet(`awake:${where.env}`, String(this.now()), this.now());
         this.log(`${where.env} woke up for a session: started ${state.services.join(', ')}`);
@@ -488,7 +520,10 @@ export class Collector {
         );
         if (now - last < minutes * 60_000) continue;
         await this.safe(`sleep ${l.env}`, async () => {
-          const state = await sleepEnv(this.exec, this.opts.deps.home, l.env, l.dir, now);
+          const state = await this.withEnvLock(l.env, async () => {
+            if (await sleepState(this.opts.deps.home, l.env)) return null;
+            return this.bounded(`sleep ${l.env}`, sleepEnv(this.exec, this.opts.deps.home, l.env, l.dir, now));
+          });
           if (state) this.log(`${l.env} fell asleep after ${minutes} min without a session: stopped ${state.services.join(', ')}`);
         });
       }
@@ -522,7 +557,7 @@ export class Collector {
         if (!last || last.contextTokens < (cfg?.minContextTokens ?? 50_000)) continue;
         await this.safe(`handoff ${s.session_id.slice(0, 8)}`, async () => {
           try {
-            const note = await writeHandoff(this.exec, this.opts.deps.home, this.config, s, last.model);
+            const note = await writeHandoff(this.exec, this.opts.deps.home, this.config, s, last.model, this.opts.deps.brewPrefix);
             this.log(`handoff note for ${s.session_id.slice(0, 8)} (${s.env}) written: ${note.path}`);
             const title = await this.titles.get([...new Set(accountsOf(this.config).map((a) => effectiveClaudeDir(a, this.opts.deps.home)))], s.cwd, s.session_id);
             // Only a title the user set; a prompt-derived one would put prompt text on ntfy.
@@ -644,6 +679,7 @@ export class Collector {
       rollup(this.db, now);
       const r = this.config.collector?.retention;
       retain(this.db, now, { rawDays: r?.rawDays ?? 7, rollupDays: r?.rollupDays ?? 365 });
+      await pruneHandoffNotes(this.opts.deps.home, now, r?.rawDays ?? 7);
     });
     await this.safe('log rotation', async () => {
       const at = (name: string): number | null => {
@@ -743,7 +779,7 @@ export class Collector {
     every(60_000, () => this.tailscaleTick());
     every(60_000, () => this.sleepTick());
     every(60_000, () => this.handoffTick());
-    every(Math.max(1, this.config.collector?.authCheckMinutes ?? 60) * 60_000, () => this.authTick());
+    every(Math.min(1440, Math.max(1, this.config.collector?.authCheckMinutes ?? 60)) * 60_000, () => this.authTick());
     every(10 * 60_000, () => this.maintenanceTick());
     every(24 * 3_600_000, () => this.diskUsageTick());
     every(3_600_000, () => this.updateTick());

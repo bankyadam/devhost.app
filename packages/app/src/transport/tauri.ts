@@ -3,19 +3,19 @@ import { listen } from '@tauri-apps/api/event';
 import type { RunResult, StreamHandle, TerminalRequest, Transport, TrayStatus } from './types';
 
 interface LineEvent { id: string; line: string }
-interface ExitEvent { id: string; code: number }
+interface ExitEvent { id: string; code: number; stderr?: string }
 
 /** Talks to the Rust shell, which runs the system `ssh` (keys, agent and ~/.ssh/config as the user set them up). */
 export function createTauriTransport(host: string): Transport {
   const lineHandlers = new Map<string, (line: string) => void>();
-  const exitHandlers = new Map<string, (code: number) => void>();
+  const exitHandlers = new Map<string, (code: number, stderr?: string) => void>();
   let ready: Promise<void> | null = null;
 
   // One global listener per event, dispatching by stream id: no listen/unlisten races per call.
   const ensureListeners = (): Promise<void> => {
     ready ??= Promise.all([
       listen<LineEvent>('ssh-line', (e) => lineHandlers.get(e.payload.id)?.(e.payload.line)),
-      listen<ExitEvent>('ssh-exit', (e) => exitHandlers.get(e.payload.id)?.(e.payload.code)),
+      listen<ExitEvent>('ssh-exit', (e) => exitHandlers.get(e.payload.id)?.(e.payload.code, e.payload.stderr)),
     ]).then(() => undefined);
     return ready;
   };
@@ -30,9 +30,11 @@ export function createTauriTransport(host: string): Transport {
       let finished = false;
       let resolve!: (code: number) => void;
       const done = new Promise<number>((r) => (resolve = r));
-      const finish = (code: number): void => {
+      let tail = '';
+      const finish = (code: number, stderr?: string): void => {
         if (finished) return;
         finished = true;
+        tail = stderr ?? '';
         lineHandlers.delete(id);
         exitHandlers.delete(id);
         resolve(code);
@@ -46,6 +48,7 @@ export function createTauriTransport(host: string): Transport {
         write: (line) => void invoke('ssh_stream_write', { id, line }).catch(() => undefined),
         cancel: () => void invoke('ssh_stream_kill', { id }).catch(() => undefined),
         done,
+        stderrTail: () => tail,
       };
     },
 

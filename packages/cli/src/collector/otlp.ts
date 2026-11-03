@@ -80,9 +80,12 @@ const nanoToMs = (n: string | number | undefined, fallback: number): number => {
 /** Identity of a datapoint, used to turn cumulative counters into deltas. */
 export class CumulativeTracker {
   private readonly last = new Map<string, number>();
+  /** `store` keeps the last values across restarts: without it a restarted collector counts every running total again. */
+  constructor(private readonly store?: { get(key: string): number | undefined; set(key: string, value: number): void }) {}
   delta(key: string, value: number): number {
-    const prev = this.last.get(key);
+    const prev = this.last.get(key) ?? this.store?.get(key);
     this.last.set(key, value);
+    if (prev !== value) this.store?.set(key, value);
     if (prev === undefined) return value;
     return value >= prev ? value - prev : value; // a drop means the counter restarted
   }

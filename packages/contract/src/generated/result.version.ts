@@ -3,6 +3,10 @@
 export interface VersionData {
   cliVersion: string;
   contractVersion: number;
+  /**
+   * The git commit the CLI was built from, when the build knew it.
+   */
+  commit?: string;
   node?: string;
   platform?: string;
   arch?: string;

@@ -20,6 +20,16 @@ export interface DashOptions {
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
+
+/** Buckets of 6 h and a day start at local time, not at UTC (the UTC offset at `at`). */
+function bucketOffset(bucketMs: number, at: number): number {
+  return bucketMs >= 6 * HOUR && bucketMs <= DAY ? -new Date(at).getTimezoneOffset() * MIN : 0;
+}
+/** SQL for the start of the bucket a timestamp column falls in. */
+function bk(col: string, bucketMs: number, at: number): string {
+  const off = bucketOffset(bucketMs, at);
+  return off === 0 ? `(${col} / ${bucketMs}) * ${bucketMs}` : `((${col} + ${off}) / ${bucketMs}) * ${bucketMs} - ${off}`;
+}
 const RANGE_MS: Record<Range, number> = { '1h': HOUR, '24h': DAY, '7d': 7 * DAY, '30d': 30 * DAY };
 const BUCKET_MS: Record<Range, number> = { '1h': 5 * MIN, '24h': HOUR, '7d': 6 * HOUR, '30d': DAY };
 
@@ -75,7 +85,7 @@ function usage(db: Db, from: number, bucketMs: number, f: UsageFilter): UsageAgg
     }
   }
   return db.all<UsageAgg>(
-    `SELECT (t / ${bucketMs}) * ${bucketMs} AS t, account, session_id, kind, SUM(value) AS v FROM (
+    `SELECT ${bk('t', bucketMs, from)} AS t, account, session_id, kind, SUM(value) AS v FROM (
        SELECT ts AS t, account, env, session_id, model, kind, value FROM usage WHERE ts >= ? AND (ts >= ? OR ts < ?)
        UNION ALL
        SELECT hour AS t, account, env, session_id, model, kind, value FROM rollup_usage WHERE hour >= ? AND hour < ?
@@ -108,7 +118,8 @@ export type LiveParts = Omit<DashData, keyof RangeParts>;
  */
 export function buildRange(db: Db, opts: DashOptions, now: number): RangeParts {
   const bucketMs = BUCKET_MS[opts.range];
-  const from = Math.floor((now - RANGE_MS[opts.range]) / bucketMs) * bucketMs;
+  const off = bucketOffset(bucketMs, now);
+  const from = Math.floor((now - RANGE_MS[opts.range] + off) / bucketMs) * bucketMs - off;
   const rolled = Number(db.kvGet('rolled_through') ?? 0);
   const series = new Map<string, DashData['usage'][number]>();
   for (const r of usage(db, from, bucketMs, { account: opts.account, env: opts.env, model: opts.model })) {
@@ -148,7 +159,7 @@ const CACHE_TTL_MS = HOUR;
  */
 function contextOf(db: Db, from: number, f: { account?: string | undefined; env?: string | undefined; model?: string | undefined }): DashData['context'] {
   const where = ["source = 'main'", 'ts >= ?'];
-  const params: (string | number)[] = [from - CACHE_TTL_MS];
+  const params: (string | number)[] = [from];
   for (const [col, val] of [['account', f.account], ['env', f.env], ['model', f.model]] as const) {
     if (val !== undefined && val !== '') {
       where.push(`${col} = ?`);
@@ -156,7 +167,7 @@ function contextOf(db: Db, from: number, f: { account?: string | undefined; env?
     }
   }
   const rows = db.all<{ session_id: string; account: string; env: string; ts: number; prev: number | null; ctx: number; cc: number; cost: number }>(
-    `SELECT session_id, account, env, ts, LAG(ts) OVER (PARTITION BY session_id ORDER BY ts) AS prev,
+    `SELECT session_id, account, env, ts, (SELECT MAX(p.ts) FROM api_requests p WHERE p.session_id = api_requests.session_id AND p.source = 'main' AND p.ts < api_requests.ts) AS prev,
             COALESCE(input_tokens, 0) + COALESCE(cache_read_tokens, 0) + COALESCE(cache_creation_tokens, 0) AS ctx,
             COALESCE(cache_creation_tokens, 0) AS cc, COALESCE(cost_usd, 0) AS cost
        FROM api_requests WHERE ${where.join(' AND ')}`,
@@ -223,10 +234,10 @@ function tokensOf(db: Db, from: number, rolled: number, bucketMs: number, f: { a
   }
   const rows = db.all<{ t: number; model: string; requests: number; input: number; output: number; cache_read: number; cache_creation: number; cost: number }>(
     `SELECT t, model, SUM(requests) AS requests, SUM(input) AS input, SUM(output) AS output, SUM(cache_read) AS cache_read, SUM(cache_creation) AS cache_creation, SUM(cost) AS cost FROM (
-       SELECT (ts / ${bucketMs}) * ${bucketMs} AS t, account, env, model, 1 AS requests, COALESCE(input_tokens, 0) AS input, COALESCE(output_tokens, 0) AS output, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(cache_creation_tokens, 0) AS cache_creation, COALESCE(cost_usd, 0) AS cost
+       SELECT ${bk('ts', bucketMs, from)} AS t, account, env, model, 1 AS requests, COALESCE(input_tokens, 0) AS input, COALESCE(output_tokens, 0) AS output, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(cache_creation_tokens, 0) AS cache_creation, COALESCE(cost_usd, 0) AS cost
          FROM api_requests WHERE ts >= ? AND (ts >= ? OR ts < ?) AND source <> ''
        UNION ALL
-       SELECT (hour / ${bucketMs}) * ${bucketMs}, account, env, model, requests, input, output, cache_read, cache_creation, cost_usd FROM rollup_source WHERE hour >= ? AND hour < ?
+       SELECT ${bk('hour', bucketMs, from)}, account, env, model, requests, input, output, cache_read, cache_creation, cost_usd FROM rollup_source WHERE hour >= ? AND hour < ?
      ) ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''} GROUP BY t, model ORDER BY t, model`,
     ...params,
   );
@@ -457,7 +468,7 @@ function agentConcurrency(db: Db, account: string, from: number, bucketMs: numbe
   const rolled = Number(db.kvGet('rolled_through') ?? 0);
   const buckets = db
     .all<{ ts: number; sessions: number; subagents: number; total: number }>(
-      `SELECT (t / ${bucketMs}) * ${bucketMs} AS ts, MAX(s) AS sessions, MAX(a) AS subagents, MAX(n) AS total FROM (
+      `SELECT ${bk('t', bucketMs, from)} AS ts, MAX(s) AS sessions, MAX(a) AS subagents, MAX(n) AS total FROM (
          SELECT ts AS t, sessions AS s, subagents AS a, sessions + subagents AS n FROM samples_agents WHERE account = ? AND ts >= ? AND (ts >= ? OR ts < ?)
          UNION ALL
          SELECT hour AS t, sessions_max AS s, subagents_max AS a, total_max AS n FROM rollup_agents WHERE account = ? AND hour >= ?

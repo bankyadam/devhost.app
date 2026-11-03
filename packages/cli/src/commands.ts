@@ -1,4 +1,5 @@
 import { hostname } from 'node:os';
+import { makePrompter } from './prompter.js';
 import YAML, { stringify } from 'yaml';
 import { CONTRACT_VERSION, type ApplyData, type ConfigRawData } from '@devhost/contract';
 import { readFileSync } from 'node:fs';
@@ -15,12 +16,22 @@ import type { Deps } from './deps.js';
 import { ConfigError, DevhostError, UsageError } from './errors.js';
 import { backupFile, writeTextWithBackup } from './fsutil.js';
 import { runInit, type InitOptions } from './init/init.js';
-import { packageJsonPath } from './paths.js';
+import { buildInfoPath, packageJsonPath } from './paths.js';
 import { type Executor } from './runner/executor.js';
 import { buildSteps, selectSteps } from './steps/index.js';
 
 export function cliVersion(): string {
   return (JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version: string }).version;
+}
+
+/** The git commit the build recorded, or null (no git at build time, or a source run). */
+export function buildCommit(): string | null {
+  try {
+    const c = (JSON.parse(readFileSync(buildInfoPath, 'utf8')) as { commit?: unknown }).commit;
+    return typeof c === 'string' && c !== '' ? c : null;
+  } catch {
+    return null;
+  }
 }
 
 export function versionCommand(deps: Deps, g: GlobalOptions): Promise<number> {
@@ -35,11 +46,12 @@ export function versionCommand(deps: Deps, g: GlobalOptions): Promise<number> {
       cliVersion: cliVersion(),
       host: { name },
       contractVersion: CONTRACT_VERSION,
+      ...(buildCommit() ? { commit: buildCommit()! } : {}),
       node: process.version,
       platform: process.platform,
       arch: process.arch,
     };
-    return { data, human: `devhost ${data.cliVersion} (contract ${data.contractVersion})` };
+    return { data, human: `devhost ${data.cliVersion} (contract ${data.contractVersion}${data.commit ? `, commit ${data.commit}` : ''})` };
   });
 }
 
@@ -204,7 +216,8 @@ export async function applyCommand(deps: Deps, g: GlobalOptions, opts: ApplyOpti
     const exec = newExecutor(deps, g, reporter, opts.dryRun);
     const config = await withPortBases(loaded.config, g, deps, exec);
     const steps = selectSteps(buildSteps(config), opts.only);
-    const ctx = newStepContext(deps, g, config, exec);
+    const prompter = makePrompter(deps, g.json, g.yes);
+    const ctx = newStepContext(deps, g, config, exec, { confirm: (id, message) => prompter.confirm(id, message) });
     const outcome = await runSteps(steps, ctx, reporter, deps.cancel);
     return { ok: outcome.error === null, data: outcome.data, error: outcome.error, cancelled: outcome.cancelled, human: formatApplySummary(outcome.data) };
   });

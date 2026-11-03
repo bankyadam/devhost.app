@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "The windows may use core APIs (events) and the app's own commands, nothing else.",
   "windows": ["main", "monitor"],
-  "permissions": ["core:default"]
+  "permissions": ["core:event:default"]
 }

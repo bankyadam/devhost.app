@@ -158,6 +158,27 @@ describe('external work volume (spec A7.12)', () => {
     for (const text of [...files, env.stdout(), env.err.join(''), mac.runner.lines().join('\n')]) expect(text).not.toContain('battery-7319');
   });
 
+  it('storage.unlock compares the volume UUID in the installed plist, and removes the service when no encrypted volume is configured', async () => {
+    const { env, mac } = await setup({ encrypted: true });
+    await env.run('storage', 'adopt', 'disk5s1');
+    stdinOf(env, 'pw\n');
+    await env.run('storage', 'set-passphrase');
+    expect(await env.run('apply')).toBe(0);
+    const file = join(env.home, 'LaunchDaemons', 'com.devhost.storage.unlock.plist');
+    // Another volume's plist in place: apply must rewrite it.
+    await writeFile(file, (await readFile(file, 'utf8')).replaceAll(UUID, '11111111-2222-3333-4444-555555555555'));
+    env.out.length = 0;
+    expect(await env.run('apply', '--json')).toBe(0);
+    expect(ndjson(env.stdout()).some((e) => (e as { id?: string; status?: string }).id === 'storage.unlock' && (e as { status?: string }).status === 'changed')).toBe(true);
+    expect(await readFile(file, 'utf8')).toContain(UUID);
+
+    // The volume is no longer encrypted: the service goes.
+    await writeFile(join(env.home, '.config', 'devhost', 'config.yaml'), (await cfg(env)).replace('encrypted: true', 'encrypted: false'));
+    expect(await env.run('apply')).toBe(0);
+    expect(existsSync(file)).toBe(false);
+    expect(mac.state.loaded.has('com.devhost.storage.unlock')).toBe(false);
+  });
+
   it('migrate moves an account onto the volume, regenerates what names the path, keeps the old copy until --cleanup', async () => {
     const { env, mount } = await setup();
     await env.run('storage', 'adopt', 'disk5s1');

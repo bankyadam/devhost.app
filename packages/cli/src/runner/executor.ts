@@ -3,7 +3,7 @@ import { mkdir, readlink, rm, symlink } from 'node:fs/promises';
 import { CommandError, HumanActionRequired } from '../errors.js';
 import { backupFile, isCredentialPath, readTextIfExists, writeTextWithBackup } from '../fsutil.js';
 import type { Reporter } from '../reporter.js';
-import { helperArgs } from '../root-helper.js';
+import { PASSWORD_OPERATIONS, helperArgs } from '../root-helper.js';
 import { assertWritable } from '../storage/mount.js';
 import type { RunOptions, RunResult, Runner } from './types.js';
 
@@ -111,6 +111,21 @@ export class Executor {
     const h = this.opts.rootHelper;
     if (h) this.helperUsable ??= this.runner.run('sudo', ['-n', '-l', h.path]).then((r) => r.code === 0);
     const viaHelper = h && (await this.helperUsable) ? [h.path, ...o.helper] : null;
+    // Secrets and the unlock service: the sudoers rule asks for the password for these (never NOPASSWD).
+    if (viaHelper && (PASSWORD_OPERATIONS as readonly string[]).includes(o.helper[0] ?? '')) {
+      const line = `sudo ${viaHelper.join(' ')}`;
+      this.plan.push({ stepId: this.stepId, action: line, sudo: true, reason: o.reason });
+      if (this.opts.dryRun) return { code: 0, stdout: '', stderr: '' };
+      if (!this.opts.interactiveSudo) {
+        throw new HumanActionRequired(`sudo needs a password for: ${o.reason}`, 'Run this command in a Terminal window on this host (or over ssh -t) and enter the sudo password there.');
+      }
+      this.reporter.log('warn', `sudo required: ${o.reason}`);
+      await this.runner.run('sudo', ['-v'], { interactive: true });
+      this.trace('sudo', ['-n', '--', ...viaHelper]);
+      const r = await this.runner.run('sudo', ['-n', '--', ...viaHelper], o.input !== undefined ? { input: o.input } : {});
+      if (r.code !== 0 && !o.allowFailure) throw new CommandError(line, r.code, r.stderr);
+      return r;
+    }
     if (viaHelper) {
       const line = `sudo ${viaHelper.join(' ')}`;
       this.plan.push({ stepId: this.stepId, action: line, sudo: true, reason: o.reason });

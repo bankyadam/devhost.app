@@ -48,6 +48,6 @@ async function accountValid(exec: Executor, deps: Pick<Deps, 'home' | 'runner' |
   const status = st.code === 127 ? { loggedIn: null, raw: st.stderr } : { loggedIn: st.code === 0, raw: st.stdout };
   if (status.loggedIn === null || !status.loggedIn || !probe) return { valid: status.loggedIn, raw: status.raw };
   const claude = await claudeBinary({ exec, deps });
-  const r = await exec.query(claude, ['-p', 'ok', '--max-turns', '1'], { ...claudeRunOptions(a, deps.home), timeoutMs: 60_000 });
+  const r = await exec.query(claude, ['-p', 'ok', '--max-turns', '1', '--no-session-persistence', '--settings', '{"disableAllHooks":true}'], { ...claudeRunOptions(a, deps.home), timeoutMs: 60_000 });
   return { valid: r.code === 0, raw: status.raw };
 }

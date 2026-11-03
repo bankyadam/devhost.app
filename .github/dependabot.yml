@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # Majors are bumped by hand together with their config.
+      - dependency-name: vitest
+        update-types: ["version-update:semver-major"]
+      - dependency-name: vite
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: cargo
+    directory: /packages/app/core
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directory: /packages/app/src-tauri
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

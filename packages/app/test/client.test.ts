@@ -93,6 +93,16 @@ describe('long commands', () => {
     expect(written).toEqual([JSON.stringify({ id: 'q1', value: true })]);
   });
 
+  it('a prompt left unanswered when the command ends is abandoned (the signal aborts) and does not block the result', async () => {
+    const lines = [JSON.stringify({ type: 'prompt', id: 'q1', kind: 'confirm', message: 'ok?' })];
+    const { t, written } = scripted({ lines, exit: 255 });
+    let aborted = false;
+    const run = new DevhostClient(t).run(['env', 'create'], { onPrompt: (_p, signal) => new Promise(() => signal.addEventListener('abort', () => (aborted = true))) });
+    await expect(run.promise).rejects.toBeInstanceOf(UnreachableError);
+    expect(aborted).toBe(true);
+    expect(written).toEqual([]);
+  });
+
   it('report exit code 3 as a human-action result', async () => {
     const lines = [JSON.stringify({ type: 'result', ok: false, data: null, errors: [{ code: 'human-action-required', message: 'sudo needs a password' }] })];
     const { t } = scripted({ lines, exit: 3 });
@@ -121,7 +131,7 @@ describe('long commands', () => {
       ['account', 'add', '--name', 'biz', '--git-email', 'a@b.c', '--git-name', 'A', '--daily-cost-alert', '50', '--json'],
       ['env', 'create', '--account', 'biz', '--name', 'api', '--repo', 'git@x:y.git', '--no-rc', '--compose', 'off', '--json'],
       ['env', 'delete', 'api', '--delete-files', '--json'],
-      ['account', 'remove', 'biz', '--logout', '--json'],
+      ['account', 'remove', 'biz', '--yes', '--logout', '--json'],
       ['dash', '--follow', '--range', '7d', '--account', 'biz', '--json'],
     ]);
   });

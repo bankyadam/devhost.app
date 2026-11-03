@@ -5,12 +5,13 @@ import { devhostConfigDir } from '../config/paths.js';
 import { daemonInstalled, removeDaemon } from '../launchd.js';
 import { reattachLabels } from '../reattach.js';
 import { statePath } from '../state.js';
-import { passphraseStored, removePassphrase, removeUnlockDaemon, unlockPlistInstalled } from '../storage/root.js';
+import { UNLOCK_LABEL, passphraseStored, removePassphrase, removeUnlockDaemon, unlockPlistInstalled } from '../storage/root.js';
 import { dbPath } from '../collector/db.js';
 import { accountArtifactsPresent, removeAccountArtifacts } from './accounts-remove.js';
 import { COLLECTOR_LABEL } from './collector.js';
 import { COLIMA_LABEL } from './docker.js';
 import { gitDir } from './git.js';
+import { devhostLabelsOnDisk } from './orphans.js';
 import { brewfilePath, requiredPackages } from './packages.js';
 import { hashBlock } from './shellblock.js';
 import { installed, removeRootHelper } from './root-helper.js';
@@ -29,6 +30,12 @@ const labels = (config: DevhostConfig): string[] => [
   ...environmentsOf(config).map((e) => rcLabel(e.account, e.name)),
 ];
 
+/** The config's jobs, the reattach jobs and any other com.devhost.* job on disk (removed environments, Colima after a switch); the unlock service only with --purge-storage. */
+async function serviceLabels(config: DevhostConfig, opts: UninstallOptions): Promise<string[]> {
+  const all = [...labels(config), ...(await reattachLabels()), ...(await devhostLabelsOnDisk())];
+  return [...new Set(all)].filter((l) => l !== UNLOCK_LABEL || opts.purgeStorage === true);
+}
+
 /**
  * The reverse of `apply`, as steps so --dry-run, events and exit codes work the same way.
  * Never deletes projects, Claude config dirs, credentials, or (without --purge-data) the database.
@@ -40,11 +47,11 @@ export function uninstallSteps(config: DevhostConfig, opts: UninstallOptions): S
       description: 'Remove devhost\'s launchd jobs (collector, Colima, Remote Control services, session reattaches)',
       async check(ctx) {
         const present: string[] = [];
-        for (const l of [...labels(config), ...(await reattachLabels())]) if (await daemonInstalled(ctx.exec, l)) present.push(l);
+        for (const l of await serviceLabels(config, opts)) if (await daemonInstalled(ctx.exec, l)) present.push(l);
         return present.length === 0 ? ok() : todo(present.join(', '));
       },
       async apply(ctx) {
-        for (const l of [...labels(config), ...(await reattachLabels())]) if (await daemonInstalled(ctx.exec, l)) await removeDaemon(ctx, l);
+        for (const l of await serviceLabels(config, opts)) if (await daemonInstalled(ctx.exec, l)) await removeDaemon(ctx, l);
       },
     },
     {

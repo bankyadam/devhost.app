@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { AccountListData, StorageChangeData, StorageListData, StorageStatusData } from '@devhost/contract/lite';
+import { useCallback, useState } from 'react';
+import type { StorageChangeData, StorageStatusData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
-import { errorMessage } from '../client/errors';
 import { bytes } from '../lib/format';
 import { Badge, Empty } from '../ui/primitives';
+import { useHostQuery } from '../use-host-query';
 import { RunDialog } from '../ui/run-dialog';
 
 type Volume = NonNullable<StorageStatusData['volume']>;
@@ -14,28 +14,17 @@ const yes = (b: boolean | null | undefined, on: string, off: string) => (b == nu
  * account onto it, and removing the old copy afterwards. Erasing a disk is not here: it is CLI only.
  */
 export function StorageScreen() {
-  const { client, connection, hostName, reportUnreachable } = useApp();
-  const [status, setStatus] = useState<StorageStatusData | null>(null);
-  const [disks, setDisks] = useState<StorageListData['disks']>([]);
-  const [accounts, setAccounts] = useState<AccountListData['accounts']>([]);
-  const [error, setError] = useState<string | null>(null);
+  const { client, hostName } = useApp();
   const [dialog, setDialog] = useState<null | { kind: 'adopt'; volume: string; name: string } | { kind: 'migrate'; account: string; cleanup: boolean }>(null);
 
-  const refresh = useCallback(async () => {
-    try {
-      const [s, l, a] = await Promise.all([client.storageStatus(), client.storageList(), client.accounts()]);
-      setStatus(s);
-      setDisks(l.disks);
-      setAccounts(a.accounts);
-      setError(null);
-    } catch (e) {
-      reportUnreachable(e);
-      setError(errorMessage(e));
-    }
-  }, [client, reportUnreachable]);
-  useEffect(() => {
-    if (connection.kind === 'connected') void refresh();
-  }, [connection.kind, refresh]);
+  const fetchAll = useCallback(async () => {
+    const [status, l, a] = await Promise.all([client.storageStatus(), client.storageList(), client.accounts()]);
+    return { status, disks: l.disks, accounts: a.accounts };
+  }, [client]);
+  const { data: loaded, error, refresh } = useHostQuery(fetchAll);
+  const status = loaded?.status ?? null;
+  const disks = loaded?.disks ?? [];
+  const accounts = loaded?.accounts ?? [];
 
   const v = status?.volume;
   const offVolume = v ? accounts.filter((a) => !(a.root === v.mountPoint || a.root.startsWith(`${v.mountPoint}/`))) : [];

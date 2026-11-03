@@ -22,13 +22,19 @@ export const stagedSudoersPath = (home: string): string => join(devhostConfigDir
 const USER = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
 const LABEL = /^com\.devhost\.[A-Za-z0-9._-]+$/;
 
+/** Helper operations that always need the sudo password (templates/devhost-root.js): secrets and the unlock service. */
+export const PASSWORD_OPERATIONS = ['set-passphrase', 'remove-passphrase', 'unlock-daemon-remove'] as const;
+
 /** The sudoers rule: this one user may run the helper (with any arguments; it checks them) as root, without a password. */
 export function sudoersRule(user: string): string {
   if (!USER.test(user) || user === 'root') throw new Error(`"${user}" is not a user name for the sudoers rule`);
   return [
     '# Managed by devhost (machine.rootHelper). The helper checks every operation it is asked for;',
     '# see /Library/PrivilegedHelperTools/app.devhost.root. Remove with machine.rootHelper: false.',
+    `Defaults:${user} env_reset`,
     `${user} ALL=(root) NOPASSWD: ${HELPER_PATH}`,
+    '# The last matching line wins: these three handle secrets or the unlock service and keep asking for the password.',
+    `${user} ALL=(root) PASSWD: ${PASSWORD_OPERATIONS.map((o) => `${HELPER_PATH} ${o}`).join(', ')}`,
     '',
   ].join('\n');
 }

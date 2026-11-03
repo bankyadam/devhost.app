@@ -1,5 +1,5 @@
 import { lstat, readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { DevhostConfig, StorageChangeData, StorageListData, StorageStatusData } from '@devhost/contract';
 import { runSteps } from './apply.js';
 import { long, newExecutor, newReporter, newStepContext, short, type GlobalOptions } from './command-support.js';
@@ -8,7 +8,7 @@ import { editConfigFile } from './config/edit.js';
 import { loadConfig } from './config/load.js';
 import type { Deps } from './deps.js';
 import { DevhostError, HumanActionRequired, UsageError } from './errors.js';
-import { daemonState, stopDaemon } from './launchd.js';
+import { bootstrapDaemon, daemonState, stopDaemon } from './launchd.js';
 import { acceptWorkspace, authStatus, type LoginContext } from './login.js';
 import { makePrompter } from './prompter.js';
 import type { Executor } from './runner/executor.js';
@@ -115,7 +115,9 @@ export function storageAdoptCommand(deps: Deps, g: GlobalOptions, o: AdoptOption
     const current = workVolumeOf(config);
     if (current && current.uuid.toUpperCase() !== info.uuid) throw new UsageError(`another work volume is configured (${current.label}, ${current.uuid})`, 'devhost supports one work volume. Remove storage.workVolume from the config first.');
 
-    const root = o.root ?? current?.root ?? `${mountPoint}/work`;
+    // Resolved first: `/Volumes/x/../../etc` starts with the mount point and is not on it.
+    if (o.root !== undefined && !/^(\/|~\/)/.test(o.root)) throw new UsageError(`${o.root} is not an absolute path`, `Give a root under ${mountPoint}/.`);
+    const root = resolve(o.root ?? current?.root ?? `${mountPoint}/work`);
     if (!root.startsWith(`${mountPoint}/`)) throw new UsageError(`${root} is not on ${mountPoint}`, `Give a root under ${mountPoint}/.`);
     exec.beginStep('storage.adopt');
     reporter.step('storage.adopt', 'start', `${info.name} (${info.uuid})`);
@@ -233,6 +235,8 @@ export function storageMigrateCommand(deps: Deps, g: GlobalOptions, o: MigrateOp
     const account = findAccount(config, o.account);
     if (!account) throw new UsageError(`no account named "${o.account}"`);
     const exec = newExecutor(deps, g, reporter, o.dryRun);
+    let files = 0;
+    let bytes = 0;
     const prompter = makePrompter(deps, g.json, g.yes);
     const state = await readState(exec, deps.home);
     const migrated = state.migrated ?? {};
@@ -268,22 +272,38 @@ export function storageMigrateCommand(deps: Deps, g: GlobalOptions, o: MigrateOp
 
     exec.beginStep('storage.migrate.stop');
     reporter.step('storage.migrate.stop', 'start', `stop ${o.account}'s services`);
-    for (const e of envs) if ((await daemonState(exec, rcLabel(o.account, e.name))).loaded) await stopDaemon(exec, rcLabel(o.account, e.name), `stop ${e.name} while it moves`);
+    const stopped: string[] = [];
+    for (const e of envs) {
+      const label = rcLabel(o.account, e.name);
+      if (!(await daemonState(exec, label)).loaded) continue;
+      stopped.push(label);
+      await stopDaemon(exec, label, `stop ${e.name} while it moves`);
+    }
     reporter.step('storage.migrate.stop', 'ok');
 
-    exec.beginStep('storage.migrate.copy');
-    reporter.step('storage.migrate.copy', 'start', `rsync -aH ${from}/ ${to}/`);
-    await exec.mkdirp(to);
-    await exec.exec('rsync', ['-aH', `${from}/`, `${to}/`], { progress: true });
-    let files = 0;
-    let bytes = 0;
-    if (!o.dryRun) {
-      const a = await tally(from);
-      const b = await tally(to);
-      if (a.files !== b.files || a.bytes !== b.bytes) {
-        throw new DevhostError(`the copy differs: ${a.files} files / ${a.bytes} bytes at ${from}, ${b.files} / ${b.bytes} at ${to}`, 'migrate-verify-failed', 1, 'Nothing was switched; the old root is untouched. Fix the cause and run migrate again.');
+    try {
+      exec.beginStep('storage.migrate.copy');
+      reporter.step('storage.migrate.copy', 'start', `rsync -aH ${from}/ ${to}/`);
+      await exec.mkdirp(to);
+      await exec.exec('rsync', ['-aH', `${from}/`, `${to}/`], { progress: true });
+      if (!o.dryRun) {
+        const a = await tally(from);
+        const b = await tally(to);
+        if (a.files !== b.files || a.bytes !== b.bytes) {
+          throw new DevhostError(`the copy differs: ${a.files} files / ${a.bytes} bytes at ${from}, ${b.files} / ${b.bytes} at ${to}`, 'migrate-verify-failed', 1, 'Nothing was switched; the old root is untouched. Fix the cause and run migrate again.');
+        }
+        ({ files, bytes } = a);
       }
-      ({ files, bytes } = a);
+    } catch (err) {
+      // The config still points at the old root: what was stopped for the move runs again from it.
+      for (const label of stopped) {
+        try {
+          await bootstrapDaemon(exec, label, `start ${label} again (the move failed)`);
+        } catch (restartErr) {
+          reporter.log('warn', `could not start ${label} again: ${restartErr instanceof Error ? restartErr.message : String(restartErr)}`);
+        }
+      }
+      throw err;
     }
     reporter.step('storage.migrate.copy', 'changed', `${files} files, ${gb(bytes)}`);
 

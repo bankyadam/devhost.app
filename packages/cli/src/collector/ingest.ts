@@ -4,7 +4,14 @@ import { CumulativeTracker, parseLogs, parseMetrics, parseToolRuns, type Attribu
 
 /** Writes received telemetry to SQLite. Stateless apart from the cumulative-counter tracker. */
 export class Ingestor {
-  private readonly tracker = new CumulativeTracker();
+  /** Cumulative counters are remembered in kv (`cum:*`, pruned by retention), so a restart does not count them twice. */
+  private readonly tracker = new CumulativeTracker({
+    get: (key) => {
+      const v = this.db.kvGet(`cum:${key}`);
+      return v === null ? undefined : Number(v);
+    },
+    set: (key, value) => this.db.kvSet(`cum:${key}`, String(value), this.now()),
+  });
 
   constructor(
     private readonly db: Db,
@@ -125,6 +132,37 @@ export class Ingestor {
  */
 export function moveSessionHistory(db: Db, sessionId: string, account: string): void {
   db.transaction(() => {
+    // Rollups without a session column: take the session's rolled-up requests and tool runs out of
+    // the old account's hours and add them to the owner's (before the raw rows change account).
+    const rolled = Number(db.kvGet('rolled_through') ?? 0);
+    const reqs = db.all<{ h: number; account: string; env: string; source: string; model: string; n: number; i: number; o: number; cr: number; cc: number; cost: number }>(
+      `SELECT (ts / 3600000) * 3600000 AS h, account, env, source, model, COUNT(*) AS n, SUM(COALESCE(input_tokens, 0)) AS i, SUM(COALESCE(output_tokens, 0)) AS o,
+              SUM(COALESCE(cache_read_tokens, 0)) AS cr, SUM(COALESCE(cache_creation_tokens, 0)) AS cc, SUM(COALESCE(cost_usd, 0)) AS cost
+         FROM api_requests WHERE session_id = ? AND account <> ? AND ts < ? AND source <> '' GROUP BY 1, 2, 3, 4, 5`,
+      sessionId, account, rolled,
+    );
+    for (const r of reqs) {
+      db.run('UPDATE rollup_source SET requests = requests - ?, input = input - ?, output = output - ?, cache_read = cache_read - ?, cache_creation = cache_creation - ?, cost_usd = cost_usd - ? WHERE hour = ? AND account = ? AND env = ? AND source = ? AND model = ?', r.n, r.i, r.o, r.cr, r.cc, r.cost, r.h, r.account, r.env, r.source, r.model);
+      db.run(
+        `INSERT INTO rollup_source (hour, account, env, source, model, requests, input, output, cache_read, cache_creation, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (hour, account, env, source, model) DO UPDATE SET requests = requests + excluded.requests, input = input + excluded.input, output = output + excluded.output,
+           cache_read = cache_read + excluded.cache_read, cache_creation = cache_creation + excluded.cache_creation, cost_usd = cost_usd + excluded.cost_usd`,
+        r.h, account, r.env, r.source, r.model, r.n, r.i, r.o, r.cr, r.cc, r.cost,
+      );
+    }
+    db.run('DELETE FROM rollup_source WHERE requests <= 0');
+    const tools = db.all<{ h: number; account: string; env: string; tool: string; n: number; ms: number }>(
+      'SELECT (ts / 3600000) * 3600000 AS h, account, env, tool, COUNT(*) AS n, SUM(duration_ms) AS ms FROM tool_runs WHERE session_id = ? AND account <> ? AND ts < ? GROUP BY 1, 2, 3, 4',
+      sessionId, account, rolled,
+    );
+    for (const t of tools) {
+      db.run('UPDATE rollup_tools SET runs = runs - ?, ms = ms - ? WHERE hour = ? AND account = ? AND env = ? AND tool = ?', t.n, t.ms, t.h, t.account, t.env, t.tool);
+      db.run(
+        'INSERT INTO rollup_tools (hour, account, env, tool, runs, ms) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (hour, account, env, tool) DO UPDATE SET runs = runs + excluded.runs, ms = ms + excluded.ms',
+        t.h, account, t.env, t.tool, t.n, t.ms,
+      );
+    }
+    db.run('DELETE FROM rollup_tools WHERE runs <= 0');
     for (const table of ['sessions', 'usage', 'api_requests', 'tool_runs', 'hook_events']) {
       db.run(`UPDATE ${table} SET account = ? WHERE session_id = ?`, account, sessionId);
     }

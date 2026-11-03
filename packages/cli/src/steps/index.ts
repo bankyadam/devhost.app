@@ -12,6 +12,7 @@ import { runtimesStep } from './runtimes.js';
 import { shellStep } from './shell.js';
 import { storageSteps } from './storage.js';
 import { systemSteps } from './system.js';
+import { orphansStep } from './orphans.js';
 import { tailscaleStep } from './tailscale.js';
 import type { Step } from './types.js';
 
@@ -34,6 +35,7 @@ export function buildSteps(config: DevhostConfig, extra: (config: DevhostConfig)
     gitStep,
     collectorStep,
     ...envSteps(config),
+    orphansStep,
     // After the environments: an environment's agents go into its repository, which its step creates.
     agentsStep,
     ...extra(config),

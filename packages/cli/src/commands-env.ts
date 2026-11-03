@@ -303,6 +303,17 @@ export function envSleepCommand(deps: Deps, g: GlobalOptions, name: string, acti
   });
 }
 
+/**
+ * What was appended to a file after byte `offset`. Offsets are bytes: slicing the decoded text by a
+ * byte offset skips or repeats text once the log holds a multibyte character. A file that shrank
+ * (rotated) is read again from its start.
+ */
+export async function readAppended(path: string, offset: number): Promise<{ chunk: string; offset: number }> {
+  const buf = await readFile(path);
+  const from = buf.length < offset ? 0 : offset;
+  return { chunk: buf.subarray(from).toString('utf8'), offset: buf.length };
+}
+
 export interface EnvLogsOptions {
   lines: number;
   follow: boolean;
@@ -329,12 +340,9 @@ export async function envLogsCommand(deps: Deps, g: GlobalOptions, name: string,
   let offset = (await stat(path)).size;
   while (!deps.cancel.cancelled) {
     await new Promise((r) => setTimeout(r, 1000));
-    const size = (await stat(path)).size;
-    if (size > offset) {
-      const chunk = (await readFile(path, 'utf8')).slice(offset);
-      deps.stdout.write(chunk);
-    }
-    offset = size;
+    const next = await readAppended(path, offset);
+    if (next.chunk !== '') deps.stdout.write(next.chunk);
+    offset = next.offset;
   }
   return 0;
 }

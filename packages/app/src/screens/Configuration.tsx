@@ -17,13 +17,25 @@ export function Configuration() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [applyFlow, setApplyFlow] = useState(false);
+  const [hostChanged, setHostChanged] = useState<string | null>(null);
   const seq = useRef(0);
+  const savedRef = useRef<string | null>(null);
+  const textRef = useRef('');
+  savedRef.current = saved;
+  textRef.current = text;
 
+  /** Unsaved edits are never replaced silently: while dirty, a changed host file is only offered as a reload. */
   const load = useCallback(async () => {
     try {
       const raw = await client.configRaw();
+      const dirtyNow = savedRef.current !== null && textRef.current !== savedRef.current;
+      if (dirtyNow) {
+        setHostChanged(raw.text !== savedRef.current ? raw.text : null);
+        return;
+      }
       setSaved(raw.text);
       setText(raw.text);
+      setHostChanged(null);
       setError(null);
     } catch (e) {
       reportUnreachable(e);
@@ -87,11 +99,17 @@ export function Configuration() {
         {dirty && <Badge tone="warn">unsaved changes</Badge>}
         <span style={{ marginLeft: 'auto' }} className="row">
           <button className="btn" disabled={!dirty} onClick={() => setText(saved)}>Revert</button>
-          <button className="btn" onClick={() => setApplyFlow(true)}>Review and apply…</button>
+          <button className="btn" disabled={dirty} title={dirty ? 'Save or revert your changes first' : undefined} onClick={() => setApplyFlow(true)}>Review and apply…</button>
           <button className="btn primary" disabled={!canSave} onClick={() => void save()}>Save</button>
         </span>
       </div>
       {error && <div className="notice bad" role="alert">{error}</div>}
+      {hostChanged !== null && dirty && (
+        <div className="notice" role="status">
+          The config on {hostName} changed while you were editing.
+          <button className="btn" style={{ marginLeft: 8 }} onClick={() => { setSaved(hostChanged); setText(hostChanged); setHostChanged(null); }}>Reload (discard my edits)</button>
+        </div>
+      )}
       {!validity.valid && !validity.checking && (
         <div className="notice bad" role="alert" aria-label="Problems">
           {validity.issues.map((i, k) => <div key={k}>{i.message}</div>)}
