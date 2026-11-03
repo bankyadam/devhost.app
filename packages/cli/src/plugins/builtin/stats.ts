@@ -76,6 +76,67 @@ export function usageChart(d: DashData, metric: 'tokens' | 'cost', stack: 'accou
   };
 }
 
+type TokenRow = NonNullable<DashData['tokens']>[number];
+type Sums = { requests: number; input: number; output: number; cacheRead: number; cacheCreation: number; costUsd: number };
+const ZERO: Sums = { requests: 0, input: 0, output: 0, cacheRead: 0, cacheCreation: 0, costUsd: 0 };
+const add = (a: Sums, r: Sums): Sums => ({ requests: a.requests + r.requests, input: a.input + r.input, output: a.output + r.output, cacheRead: a.cacheRead + r.cacheRead, cacheCreation: a.cacheCreation + r.cacheCreation, costUsd: a.costUsd + r.costUsd });
+const sum = (rows: Sums[]): Sums => rows.reduce(add, ZERO);
+/**
+ * Anthropic's prices relative to input, the same for every current model (the cost of each token type
+ * is not reported apart). Claude Code writes the prompt cache for an hour, which costs 2× input.
+ */
+const PRICE_WEIGHT = { input: 1, output: 5, cacheRead: 0.1, cacheCreation: 2 } as const;
+const weighted = (s: Sums): Record<(typeof TOKEN_TYPES)[number]['key'], number> => ({ input: s.input * PRICE_WEIGHT.input, output: s.output * PRICE_WEIGHT.output, cacheRead: s.cacheRead * PRICE_WEIGHT.cacheRead, cacheCreation: s.cacheCreation * PRICE_WEIGHT.cacheCreation });
+const tokensIn = (s: Sums): number => s.input + s.output + s.cacheRead + s.cacheCreation;
+const share = (v: number, of: number): number => (of > 0 ? (v / of) * 100 : 0);
+/** A cost per request: a cheap model's is a fraction of a cent. */
+const usdEach = (v: number): string => (v < 0.1 ? `$${v.toFixed(v < 0.01 ? 4 : 3)}` : usd(v));
+const percent = (v: number): string => `${v >= 10 || v === 0 ? Math.round(v) : v.toFixed(1)}%`;
+/** Per request: the output (thinking included: it is billed as output), the context read, the cache hit rate, the cost. */
+export function perRequest(s: Sums): { output: number; context: number; cacheHit: number; costUsd: number } {
+  const n = Math.max(1, s.requests);
+  const context = s.input + s.cacheRead + s.cacheCreation;
+  return { output: s.output / n, context: context / n, cacheHit: share(s.cacheRead, context), costUsd: s.costUsd / n };
+}
+
+/** Each column's estimated cost split by token type, in percent: how the mix changes over time. */
+export function mixChart(d: DashData): WidgetChart {
+  const by = new Map<number, Sums>();
+  for (const r of d.tokens ?? []) by.set(r.ts, add(by.get(r.ts) ?? ZERO, r));
+  return {
+    title: `Estimated cost by token type per ${PER[d.range]}`,
+    series: TOKEN_TYPES.map((t) => ({ key: t.key, label: t.label })),
+    points: columns(d).map((ts) => {
+      const w = weighted(by.get(ts) ?? ZERO);
+      const all = w.input + w.output + w.cacheRead + w.cacheCreation;
+      return { ts, values: Object.fromEntries(TOKEN_TYPES.map((t) => [t.key, Math.round(share(w[t.key], all) * 10) / 10])) };
+    }),
+    axis: d.range === '1h' || d.range === '24h' ? 'time' : 'date',
+    format: 'percent',
+    height: 160,
+  };
+}
+
+/** Output tokens per request in each column: with the same kind of work, a step here is usually the model changing. */
+export function outputChart(d: DashData): WidgetChart {
+  const by = new Map<number, Sums>();
+  for (const r of d.tokens ?? []) by.set(r.ts, add(by.get(r.ts) ?? ZERO, r));
+  return {
+    title: `Output tokens per request per ${PER[d.range]}`,
+    series: [{ key: 'output', label: 'Output per request' }],
+    points: columns(d).map((ts) => ({ ts, values: { output: Math.round(perRequest(by.get(ts) ?? ZERO).output) } })),
+    axis: d.range === '1h' || d.range === '24h' ? 'time' : 'date',
+    format: 'compact',
+    height: 160,
+  };
+}
+
+/** The range's rows split at its middle: the earlier half and the later one. */
+function halves(d: DashData, rows: TokenRow[]): [Sums, Sums] {
+  const mid = d.generatedAt - RANGE_MS[d.range] / 2;
+  return [sum(rows.filter((r) => r.ts < mid)), sum(rows.filter((r) => r.ts >= mid))];
+}
+
 export function agentsChart(d: DashData): WidgetChart {
   const got = new Map((d.agents?.buckets ?? []).map((b) => [b.ts, b.total]));
   return {
@@ -93,7 +154,7 @@ const NO_DATA: WidgetContent = { summary: 'No data yet: the collector has not ru
 export const stats = definePlugin({
   name: 'stats',
   version: '1.0.0',
-  description: 'Usage statistics on the dashboard: per account, tokens or cost over time, agents at work, where tokens and cost go, context habits',
+  description: 'Usage statistics on the dashboard: per account, tokens or cost over time, agents at work, where tokens and cost go, the token mix and its trend, context habits',
   filters: [
     { id: 'range', label: 'Time range', kind: 'segmented', default: '24h', options: async () => RANGES },
     { id: 'account', label: 'Account', kind: 'select', allLabel: 'All accounts', options: async (ctx: PluginContext) => (ctx.config.accounts ?? []).map((a) => ({ value: a.name, label: a.name })) },
@@ -191,6 +252,60 @@ export const stats = definePlugin({
             note: `${pct(x.costUsd, cost)} of the cost · ${compact(tokens(x))} tokens (${compact(x.cacheRead)} cache read) · ${x.requests} request${x.requests === 1 ? '' : 's'} · ${per(x)}`,
           })),
           note: 'By where Claude Code made the request: the main thread, each built-in subagent type, custom agents (all together: their names are not reported), compaction. A subagent keeps long searches and test output out of the main context, which every later main-thread request would read again; compare the main thread\'s tokens per request before and after you start using agents. Requests from before this update are not in this list.',
+        };
+      },
+    },
+    {
+      id: 'tokens',
+      title: 'Token mix',
+      size: 'wide',
+      refreshSeconds: REFRESH,
+      async run(ctx, p) {
+        const d = await ctx.stats(query(p));
+        if (!d) return NO_DATA;
+        const rows = d.tokens;
+        if (!rows || rows.length === 0) return { summary: 'No requests in this range.' };
+        const all = sum(rows);
+        const w = weighted(all);
+        const wAll = w.input + w.output + w.cacheRead + w.cacheCreation;
+        const tokens = tokensIn(all);
+        const models = [...new Set(rows.map((r) => r.model))].map((m) => ({ model: m, s: sum(rows.filter((r) => r.model === m)) })).sort((a, b) => b.s.costUsd - a.s.costUsd);
+        return {
+          summary: `Cache reads: ${percent(share(all.cacheRead, tokens))} of the tokens, ~${percent(share(w.cacheRead, wAll))} of the cost · output: ${percent(share(all.output, tokens))} of the tokens, ~${percent(share(w.output, wAll))} of the cost`,
+          tiles: TOKEN_TYPES.map((t) => ({ label: t.label, value: percent(share(all[t.key], tokens)), sub: `of the tokens · ~${percent(share(w[t.key], wAll))} of the cost · ${compact(all[t.key])}` })),
+          chart: mixChart(d),
+          rows: models.map(({ model, s }) => {
+            const r = perRequest(s);
+            return { label: model || 'unknown model', value: `${compact(r.output)} output/request`, note: `${s.requests} request${s.requests === 1 ? '' : 's'} · ${compact(r.context)} context/request · ${percent(r.cacheHit)} cache hit · ${usdEach(r.costUsd)}/request · ${usd(s.costUsd)} in all` };
+          }),
+          note: 'Thinking (reasoning) is billed as output and not reported apart, so it is in the output tokens. The cost split is an estimate from Anthropic\'s price ratios (output 5×, an hour-long cache write 2×, cache read 0.1× the input price); the total is Claude Code\'s own estimate.',
+        };
+      },
+    },
+    {
+      id: 'trend',
+      title: 'Per request over time',
+      size: 'wide',
+      refreshSeconds: REFRESH,
+      async run(ctx, p) {
+        const d = await ctx.stats(query(p));
+        if (!d) return NO_DATA;
+        const rows = d.tokens;
+        if (!rows || rows.length === 0) return { summary: 'No requests in this range.' };
+        const [a, b] = halves(d, rows).map(perRequest) as [ReturnType<typeof perRequest>, ReturnType<typeof perRequest>];
+        const [na, nb] = halves(d, rows).map((s) => s.requests) as [number, number];
+        const change = (x: number, y: number): string => (x > 0 ? ` (${y >= x ? '+' : '−'}${Math.round(Math.abs(y / x - 1) * 100)}%)` : '');
+        const was = (s: string): string => (na > 0 ? `earlier half: ${s}` : 'no requests in the earlier half');
+        return {
+          summary: na > 0 && nb > 0 ? `Output per request ${compact(a.output)} → ${compact(b.output)}${change(a.output, b.output)} · cache hit ${percent(a.cacheHit)} → ${percent(b.cacheHit)}, from the earlier half of the range to the later` : 'Not enough requests in both halves of the range to compare them.',
+          tiles: [
+            { label: 'Output', value: compact(b.output), sub: was(compact(a.output)) },
+            { label: 'Context read', value: compact(b.context), sub: was(compact(a.context)) },
+            { label: 'Cache hit', value: percent(b.cacheHit), sub: was(percent(a.cacheHit)) },
+            { label: 'Cost', value: usdEach(b.costUsd), sub: was(usdEach(a.costUsd)) },
+          ],
+          chart: outputChart(d),
+          note: 'Per request, in the later half of the range. With the same kind of work, a step in the output per request usually means the model changed: a new version, a different default effort, or more thinking; pick a model in the filter to tell the models apart. Context read grows with long sessions; a falling cache hit rate means more cache writes (cold resumes, edited CLAUDE.md, new sessions).',
         };
       },
     },

@@ -138,7 +138,7 @@ export interface WidgetChart {
   points: { ts: number; values: Record<string, number> }[];
   /** Column labels: clock times or dates. */
   axis: 'time' | 'date';
-  format: 'compact' | 'usd' | 'integer';
+  format: 'compact' | 'usd' | 'integer' | 'percent';
   height?: number;
 }
 

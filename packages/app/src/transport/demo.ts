@@ -292,6 +292,33 @@ function demoStats(d: DashData, metric: Metric, stack: Stack, others: unknown[])
         note: 'By where Claude Code made the request: the main thread, each built-in subagent type, custom agents, compaction.',
       },
       {
+        plugin: 'stats', id: 'tokens', title: 'Token mix', size: 'wide', refreshSeconds: 15,
+        summary: 'Cache reads: 97% of the tokens, ~56% of the cost · output: 0.4% of the tokens, ~13% of the cost',
+        tiles: [
+          { label: 'Input', value: '0.1%', sub: 'of the tokens · ~0.6% of the cost · 6K' },
+          { label: 'Output', value: '0.4%', sub: 'of the tokens · ~13% of the cost · 24K' },
+          { label: 'Cache read', value: '97%', sub: 'of the tokens · ~56% of the cost · 5.9M' },
+          { label: 'Cache write', value: '2.7%', sub: 'of the tokens · ~31% of the cost · 165K' },
+        ],
+        chart: { title: 'Estimated cost by token type', series: TOKEN_TYPES.map((t) => ({ key: t.key, label: t.label })), points: agentBuckets(d).map((b, i) => { const out = 10 + ((i * 7) % 9); const cw = 20 + ((i * 11) % 15); return { ts: b.ts, values: { input: 1, output: out, cacheRead: 99 - out - cw, cacheCreation: cw } }; }), axis: 'time', format: 'percent', height: 160 },
+        rows: [
+          { label: 'claude-opus-5-5', value: '850 output/request', note: '150 requests · 218K context/request · 97% cache hit · $0.100/request · $15.00 in all' },
+          { label: 'claude-haiku-5-5', value: '875 output/request', note: '34 requests · 43K context/request · 92% cache hit · $0.0027/request · $0.09 in all' },
+        ],
+        note: 'Thinking (reasoning) is billed as output and not reported apart, so it is in the output tokens.',
+      },
+      {
+        plugin: 'stats', id: 'trend', title: 'Per request over time', size: 'wide', refreshSeconds: 15,
+        summary: 'Output per request 913 → 858 (−6%) · cache hit 97% → 96%, from the earlier half of the range to the later',
+        tiles: [
+          { label: 'Output', value: '858', sub: 'earlier half: 913' },
+          { label: 'Context read', value: '111K', sub: 'earlier half: 238K' },
+          { label: 'Cache hit', value: '96%', sub: 'earlier half: 97%' },
+          { label: 'Cost', value: '$0.060', sub: 'earlier half: $0.090' },
+        ],
+        chart: { title: 'Output tokens per request', series: [{ key: 'output', label: 'Output per request' }], points: agentBuckets(d).map((b, i) => ({ ts: b.ts, values: { output: 700 + ((i * 137) % 400) } })), axis: 'time', format: 'compact', height: 160 },
+      },
+      {
         plugin: 'stats', id: 'time', title: 'Where the time goes', size: 'wide', refreshSeconds: 15,
         summary: '21% of agent time was spent waiting on this host, 6% of it CPU-bound',
         tiles: [
