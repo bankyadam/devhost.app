@@ -1,3 +1,4 @@
+import { readdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DevhostConfig } from '@devhost/contract';
 import {
@@ -129,8 +130,23 @@ export function composeError(a: Account, e: Environment, code: number, stderr: s
     : new DevhostError(`docker compose up failed for ${e.name}: ${detail}`, 'compose-failed', 1, `Fix the compose project in ${e.name}, ${again}.`);
 }
 
-async function isGitRepo(ctx: StepContext, dir: string): Promise<boolean> {
-  return (await ctx.exec.query('git', ['-C', dir, 'rev-parse', '--git-dir'])).code === 0;
+/** Is `dir` itself a repository's top level (not just somewhere inside another one, say a repository in the home directory)? */
+export async function isGitRepo(ctx: StepContext, dir: string): Promise<boolean> {
+  const r = await ctx.exec.query('git', ['-C', dir, 'rev-parse', '--show-toplevel']);
+  if (r.code !== 0) return false;
+  const top = r.stdout.trim();
+  if (top === '') return true;
+  const real = await realpath(dir).catch(() => dir);
+  return top === dir || top === real || (await realpath(top).catch(() => top)) === real;
+}
+
+/** A directory devhost made before the repository was there: only `.envrc` and `.claude/agents`. */
+async function holdsOnlyDevhostFiles(dir: string): Promise<boolean> {
+  const entries = await readdir(dir).catch(() => null);
+  if (entries === null || entries.length === 0) return false;
+  if (!entries.every((n) => n === '.envrc' || n === '.claude')) return false;
+  if (!entries.includes('.claude')) return true;
+  return (await readdir(join(dir, '.claude')).catch(() => ['?'])).every((n) => n === 'agents');
 }
 
 /**
@@ -188,6 +204,15 @@ export function envStep(a: Account, e: Environment): Step {
           await exec.mkdirp(join(dir, '..'));
           // `--` so a repo value starting with '-' can never be read as a git option.
           await exec.exec('git', ['clone', '--', e.repo, dir], { reason: `clone ${e.repo}` });
+        } else if (e.repo && (await holdsOnlyDevhostFiles(dir))) {
+          // `git clone` refuses a directory that is not empty: clone beside it and move the repository in.
+          const tmp = `${dir}.devhost-clone`;
+          await exec.remove(tmp, { recursive: true });
+          await exec.exec('git', ['clone', '--no-checkout', '--', e.repo, tmp], { reason: `clone ${e.repo}` });
+          await exec.exec('mv', [join(tmp, '.git'), join(dir, '.git')]);
+          await exec.remove(tmp, { recursive: true });
+          // An empty remote has nothing to check out.
+          await exec.exec('git', ['-C', dir, 'checkout', '--force', '--quiet', 'HEAD'], { allowFailure: true });
         } else {
           await exec.mkdirp(dir);
           await exec.exec('git', ['init', dir]);

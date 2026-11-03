@@ -202,6 +202,7 @@ export function loginCommand(deps: Deps, g: GlobalOptions, name: string, switchL
     const account = findAccount(config, name);
     if (!account) throw new UsageError(`no account named "${name}"`, 'See `devhost account list`.');
     const data = await runLogin(deps, g, config, account, reporter, switchLogin);
+    if (deps.cancel.cancelled) return { ok: false, data, cancelled: true };
     return { ok: true, data, human: ['', `✅ ${name} is logged in${(data.restarted?.length ?? 0) > 0 ? `; restarted: ${(data.restarted ?? []).join(', ')}` : ''}.`] };
   });
 }

@@ -24,6 +24,9 @@ const KEYCHAIN = '/Library/Keychains/System.keychain';
 const PASSPHRASE_SERVICE = 'devhost.workvolume';
 const AUTODISKMOUNT = '/Library/Preferences/SystemConfiguration/autodiskmount';
 
+const SHARED_ROOT = '/Users/Shared';
+const MARKER = '.devhost-volume';
+
 function fail(message) {
   throw new Error(message);
 }
@@ -103,8 +106,53 @@ function label(value) {
 
 const plistPath = (l) => `${LAUNCH_DAEMONS}/${label(l)}.plist`;
 
+const inside = (w, root) => w === root || w.startsWith(`${root}/`);
+
+/** `diskutil info -plist <mount>` as an object (tests give a directory with a stand-in file instead). */
+function volumeInfo(mount, volumes) {
+  let data;
+  if (volumes) {
+    data = $.NSData.dataWithContentsOfFile(`${volumes}/${mount.slice('/Volumes/'.length)}/.diskutil-info.plist`);
+  } else {
+    const pipe = $.NSPipe.pipe;
+    const task = $.NSTask.alloc.init;
+    task.launchPath = '/usr/sbin/diskutil';
+    task.arguments = ['info', '-plist', mount];
+    task.standardOutput = pipe;
+    task.standardError = $.NSFileHandle.fileHandleWithNullDevice;
+    task.launch;
+    data = pipe.fileHandleForReading.readDataToEndOfFile;
+    task.waitUntilExit;
+  }
+  if (data.isNil()) return null;
+  const plist = $.NSPropertyListSerialization.propertyListWithDataOptionsFormatError(data, 0, null, null);
+  return plist.isNil() ? null : ObjC.deepUnwrap(plist);
+}
+
+/**
+ * The configured work volume (spec A7.12): the directory is on a volume mounted at /Volumes/<name>
+ * whose ${MARKER} names the very UUID diskutil reports for that mount. A folder somebody made under
+ * /Volumes, or another volume, has no such marker.
+ */
+function onWorkVolume(w, volumes) {
+  const m = /^(\/Volumes\/[A-Za-z0-9][A-Za-z0-9 ._-]{0,62})(\/|$)/.exec(w);
+  if (!m) return false;
+  const mount = m[1];
+  const markerPath = `${volumes ? `${volumes}/${mount.slice('/Volumes/'.length)}` : mount}/${MARKER}`;
+  const text = $.NSString.stringWithContentsOfFileEncodingError(markerPath, $.NSUTF8StringEncoding, null);
+  if (text.isNil()) return false;
+  const marked = ObjC.unwrap(text).trim().toUpperCase();
+  if (!UUID.test(marked)) return false;
+  const info = volumeInfo(mount, volumes);
+  return info !== null && typeof info.VolumeUUID === 'string' && info.VolumeUUID.toUpperCase() === marked && info.MountPoint === mount;
+}
+
+function workingDirectoryAllowed(w, home, volumes) {
+  return inside(w, home) || inside(w, SHARED_ROOT) || onWorkVolume(w, volumes);
+}
+
 /** A plist devhost may install: the service runs as `user`, with nothing launchd would do as root on its behalf. */
-function checkPlist(p, expectedLabel, user, home) {
+function checkPlist(p, expectedLabel, user, home, volumes) {
   if (p === null || typeof p !== 'object' || Array.isArray(p)) fail('the plist is not a dictionary');
   for (const k of Object.keys(p)) {
     // StandardOutPath and the like are opened by launchd as root: a symlink in a user-writable
@@ -122,7 +170,7 @@ function checkPlist(p, expectedLabel, user, home) {
   if (p.ThrottleInterval !== undefined && !Number.isInteger(p.ThrottleInterval)) fail('ThrottleInterval must be an integer');
   if (p.WorkingDirectory !== undefined) {
     const w = p.WorkingDirectory;
-    if (typeof w !== 'string' || !(w === home || w.startsWith(`${home}/`)) || w.split('/').includes('..')) fail(`WorkingDirectory must be inside ${home}`);
+    if (typeof w !== 'string' || w.split('/').includes('..') || !workingDirectoryAllowed(w, home, volumes)) fail(`WorkingDirectory must be inside ${home}, ${SHARED_ROOT} or the work volume`);
   }
 }
 
@@ -147,7 +195,7 @@ function install(l, staged) {
   // Read once, check what was read, install exactly those bytes: the staged file can change
   // under us, the copy cannot.
   const { data, value } = readPlist(staged);
-  checkPlist(value, label(l), user, home);
+  checkPlist(value, label(l), user, home, undefined);
   const tmp = `${ObjC.unwrap($.NSTemporaryDirectory())}devhost-${l}-${Date.now()}.plist`;
   if (!data.writeToFileAtomically(tmp, true)) fail('cannot write a temporary copy');
   const code = exec('/usr/bin/install', ['-m', '644', '-o', 'root', '-g', 'wheel', tmp, plistPath(l)]);
@@ -158,7 +206,7 @@ function install(l, staged) {
 /** Only an installed devhost plist that still passes the checks is ever loaded. */
 function bootstrap(l) {
   const { user, home } = caller();
-  checkPlist(readPlist(plistPath(l)).value, l, user, home);
+  checkPlist(readPlist(plistPath(l)).value, l, user, home, undefined);
   return exec('/bin/launchctl', ['bootstrap', 'system', plistPath(l)]);
 }
 
@@ -166,8 +214,9 @@ function main(argv) {
   const [op, ...a] = argv;
   switch (op) {
     case 'check': {
-      // check <plist> <label> <user> <home>: the plist rules alone, no side effects (tests, `devhost doctor`).
-      checkPlist(readPlist(a[0]).value, label(a[1]), a[2], a[3]);
+      // check <plist> <label> <user> <home> [volumes-dir]: the plist rules alone, no side effects (tests,
+      // `devhost doctor`). volumes-dir stands in for /Volumes and diskutil in tests; install never takes it.
+      checkPlist(readPlist(a[0]).value, label(a[1]), a[2], a[3], a[4]);
       return 0;
     }
     case 'install':

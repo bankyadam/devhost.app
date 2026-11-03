@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { appendFile, mkdir, readFile, readdir, readlink, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -187,6 +188,23 @@ describe('environments', () => {
     expect(env.stdout()).toMatch(/✅ trust\.other/);
   });
 
+  it('Ctrl+C in the interactive trust step ends Claude Code, not the run', async () => {
+    const mac = fakeMac();
+    const env = await makeEnv(mac.runner, true);
+    await env.run('init', '--yes', '--docker', 'none', '--no-tailscale');
+    await env.run('account', 'add', '--name', 'business', '--git-email', 'a@work.example', '--no-login');
+    mac.state.loggedIn.add(join(env.home, '.claude-business'));
+    const run = mac.runner.run.bind(mac.runner);
+    mac.runner.run = (command, args, opts) => {
+      if (opts?.interactive && args[0] === 'remote-control') env.deps.cancel.cancelled = true; // the SIGINT handler's doing
+      return run(command, args, opts);
+    };
+    env.out.length = 0;
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api')).toBe(0);
+    expect(env.deps.cancel.cancelled).toBe(false);
+    expect(mac.state.loaded.has('com.devhost.rc.business.acme-api')).toBe(true); // the service step still ran
+  });
+
   it('skips Claude Code when the workspace is already trusted (the running service would refuse it)', async () => {
     const { env, mac } = await withAccount();
     const dir = join(env.home, 'work', 'business', 'acme-api');
@@ -331,7 +349,7 @@ describe('environments', () => {
     const now = env.deps.now().getTime();
     const db = new Db(dbPath(env.home));
     db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at) VALUES ('5e000000-1111', 'business', 'acme-api', ?, 'idle', ?, ?)", dir, now - 3_600_000, now - 600_000);
-    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at) VALUES ('5f000000-2222', 'business', 'acme-api', ?, 'running', ?, ?)", dir, now - 3_600_000, now - 1000);
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, turn_open, started_at, last_activity_at) VALUES ('5f000000-2222', 'business', 'acme-api', ?, 'running', 1, ?, ?)", dir, now - 3_600_000, now - 1000);
     db.run("INSERT INTO api_requests (ts, account, env, session_id, model, input_tokens, cache_read_tokens, cache_creation_tokens, source) VALUES (?, 'business', 'acme-api', '5e000000-1111', 'claude-opus-5-5', 1, 80000, 100, 'main')", now - 600_000);
     db.close();
     mac.state.forks = { '5e000000-1111': '## Goal\nShip it.\n' };
@@ -427,7 +445,7 @@ describe('environments', () => {
     mac.state.claudeLatest = '2.1.310';
     const now = env.deps.now().getTime();
     const db = new Db(dbPath(env.home));
-    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at) VALUES ('5e000000-1111', 'business', 'acme-api', ?, 'running', ?, ?, NULL)", dir, now - 60_000, now - 30_000);
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at, turn_open) VALUES ('5e000000-1111', 'business', 'acme-api', ?, 'running', ?, ?, NULL, 1)", dir, now - 60_000, now - 30_000);
     db.close();
     expect(await env.run('update', '--json')).toBe(0);
     const data = lastResult(env).data as unknown as UpdateData;
@@ -474,6 +492,27 @@ describe('environments', () => {
     mac.runner.calls.length = 0;
     expect(await env.run('update', '--json')).toBe(0);
     expect(mac.runner.lines().filter((l) => /brew upgrade|kickstart/.test(l))).toEqual([]);
+  });
+
+  it('update retries a restart that failed (marker in state.json), and restarts when the version afterwards is unknown', async () => {
+    const { env, mac } = await created();
+    mac.state.binaries.add('claude');
+    mac.state.claudeLatest = '2.1.310';
+    mac.state.procs = [' 4242 1 1.0 1000 /opt/homebrew/bin/claude remote-control --name business-acme-api'];
+    let failing = true;
+    const run = mac.runner.run.bind(mac.runner);
+    mac.runner.run = (command, args, opts) =>
+      failing && args.includes('kickstart') ? Promise.resolve({ code: 1, stdout: '', stderr: 'Could not find service' }) : run(command, args, opts);
+    expect(await env.run('update', '--json')).toBe(0);
+    const state = () => JSON.parse(readFileSync(join(env.home, '.config', 'devhost', 'state.json'), 'utf8')) as { restartPending?: string[] };
+    expect(state().restartPending).toEqual(['com.devhost.rc.business.acme-api']);
+
+    // The version is current now, yet the pending restart is retried (and every label is tried, errors collected).
+    failing = false;
+    mac.runner.calls.length = 0;
+    expect(await env.run('update', '--json')).toBe(0);
+    expect(mac.runner.lines()).toContain('sudo -n -- launchctl kickstart -k system/com.devhost.rc.business.acme-api');
+    expect(state().restartPending).toBeUndefined();
   });
 
   it('update --all also upgrades the outdated Brewfile packages', async () => {
@@ -596,6 +635,31 @@ describe('environments', () => {
     expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api')).toBe(0);
     expect(mac.state.composeUp.has('devhost-acme-api')).toBe(true);
     expect((await cfg(env)).match(/^\s+- name: acme-api$/gm)).toHaveLength(1);
+  });
+
+  it('agents: an environment that is not a repository yet gets no .claude/agents, so its env step clones; a dir with only devhost files is cloned into', async () => {
+    const { env, mac } = await withAccount();
+    const dir = join(env.home, 'work', 'business', 'acme-api');
+    const path = join(env.home, '.config', 'devhost', 'config.yaml');
+    feed(env, { id: 'trust-workspace', value: true }, { id: 'enable-remote-control', value: true });
+    expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--no-rc')).toBe(0);
+    await rm(dir, { recursive: true });
+    let text = await readFile(path, 'utf8');
+    text = text.replace(/(- name: acme-api\n)/, '$1    repo: git@github.com:acme/api.git\n    agents: [explorer]\n');
+    await writeFile(path, text);
+    expect(await env.run('apply', '--only', 'agents')).toBe(0);
+    await expect(stat(join(dir, '.claude'))).rejects.toThrow(); // not a repository: left to the env step
+
+    // Only devhost's own files are there (an earlier run wrote them): the env step still clones.
+    await mkdir(join(dir, '.claude', 'agents'), { recursive: true });
+    await writeFile(join(dir, '.claude', 'agents', 'explorer.md'), 'x');
+    mac.runner.calls.length = 0;
+    expect(await env.run('apply', '--only', 'env.acme-api')).toBe(0);
+    const lines = mac.runner.lines();
+    expect(lines.some((l) => l.startsWith('git clone --no-checkout -- git@github.com:acme/api.git'))).toBe(true);
+    expect(lines.some((l) => l.startsWith('git init'))).toBe(false);
+    await stat(join(dir, '.git'));
+    expect(await readFile(join(dir, '.claude', 'agents', 'explorer.md'), 'utf8')).toBe('x');
   });
 
   it('agents: apply writes the configured agent files per account and environment, leaves the user\'s own, removes dropped ones', async () => {

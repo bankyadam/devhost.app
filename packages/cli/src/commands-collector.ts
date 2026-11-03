@@ -7,6 +7,7 @@ import { accountsOf, effectiveClaudeDir, logsDir } from './config/accounts.js';
 import { readTextIfExists } from './fsutil.js';
 import { Collector } from './collector/run.js';
 import { Db, dbPath } from './collector/db.js';
+import { collectorToken } from './collector/token.js';
 import { createNotifier, maskTopic } from './collector/notify.js';
 import { buildDash, buildRange, RANGES, readSnapshot, type Range, type RangeParts } from './collector/query.js';
 import { sessionTitle } from './collector/titles.js';
@@ -43,7 +44,7 @@ export async function collectorRunCommand(deps: Deps, g: GlobalOptions): Promise
   try {
     const { config } = await loadConfig(g.configPath);
     db = new Db(dbPath(deps.home));
-    collector = new Collector({ db, config: watchConfig(g.configPath, config, log), deps, notifier: createNotifier(config), now: () => deps.now().getTime(), log, selfCommand: [process.execPath, '--disable-warning=ExperimentalWarning', process.argv[1]!, '--config', g.configPath] });
+    collector = new Collector({ db, config: watchConfig(g.configPath, config, log), deps, notifier: createNotifier(config), token: collectorToken(deps.home), now: () => deps.now().getTime(), log, selfCommand: [process.execPath, '--disable-warning=ExperimentalWarning', process.argv[1]!, '--config', g.configPath] });
     await collector.start();
     while (!deps.cancel.cancelled) await new Promise((r) => setTimeout(r, 200));
     log('stopping');
@@ -92,7 +93,19 @@ async function snapshot(deps: Deps, config: DevhostConfig, o: DashOptions, cache
   const now = deps.now().getTime();
   const db = new Db(path, { readonly: true });
   try {
-    const snap = opts.account || opts.env || opts.model ? null : readSnapshot(db, config, now);
+    const dirs = [...new Set(accountsOf(config).map((a) => effectiveClaudeDir(a, deps.home)))];
+    const cwd = (id: string): string => db.get<{ cwd: string }>('SELECT cwd FROM sessions WHERE session_id = ?', id)?.cwd ?? '';
+    // Prompt-derived titles are never stored (spec A10.9): fill them in from the transcripts, in memory.
+    const titled = async (sessions: DashData['sessions']): Promise<DashData['sessions']> =>
+      Promise.all(
+        sessions.map(async (s) => {
+          if (s.title) return s;
+          const t = await sessionTitle(dirs, cwd(s.id), s.id);
+          return t ? { ...s, title: t.title, ...(t.fromPrompt ? { titleFromPrompt: true } : {}) } : s;
+        }),
+      );
+    const stored = opts.account || opts.env || opts.model ? null : readSnapshot(db, config, now);
+    const snap = stored ? { ...stored, sessions: await titled(stored.sessions) } : null;
     if (snap) {
       if (snap.range === opts.range) return snap;
       // --follow: the range parts change slowly; once a minute is enough.
@@ -106,15 +119,7 @@ async function snapshot(deps: Deps, config: DevhostConfig, o: DashOptions, cache
     }
     const size = (await stat(path)).size + (await stat(`${path}-wal`).then((s) => s.size, () => 0));
     const dash = buildDash(db, config, opts, now, hostname(), size);
-    const dirs = [...new Set(accountsOf(config).map((a) => effectiveClaudeDir(a, deps.home)))];
-    const cwd = (id: string): string => db.get<{ cwd: string }>('SELECT cwd FROM sessions WHERE session_id = ?', id)?.cwd ?? '';
-    const sessions = await Promise.all(
-      dash.sessions.map(async (s) => {
-        const t = await sessionTitle(dirs, cwd(s.id), s.id);
-        return t ? { ...s, title: t.title, ...(t.fromPrompt ? { titleFromPrompt: true } : {}) } : s;
-      }),
-    );
-    return { ...dash, sessions };
+    return { ...dash, sessions: await titled(dash.sessions) };
   } finally {
     db.close();
   }
@@ -137,7 +142,7 @@ export async function dashCommand(deps: Deps, g: GlobalOptions, o: DashOptions):
     let last: string | null = null;
     while (!deps.cancel.cancelled) {
       const data = await snapshot(deps, config, o, cache);
-      const stamp = `${data.generatedAt}|${cache.range?.at ?? ''}`;
+      const stamp = `${data.generatedAt}|${cache.range?.at ?? ''}|${data.host.online}`;
       if (stamp !== last) {
         last = stamp;
         if (g.json) deps.stdout.write(`${JSON.stringify({ type: 'snapshot', data })}\n`);

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { VersionData } from '@devhost/contract/lite';
 import { DevhostClient } from './client/client';
 import { IncompatibleError, UnreachableError, errorMessage } from './client/errors';
@@ -50,10 +50,11 @@ export function AppProvider({ transport, navigate, retryMs = 4000, heartbeatMs =
   const [connection, setConnection] = useState<Connection>(transport ? { kind: 'connecting' } : { kind: 'no-host' });
   const [tools, setTools] = useState({ code: false, iterm: false });
   const [reported, setReported] = useState<string | null>(null);
-  const alive = useRef(true);
 
   useEffect(() => {
-    alive.current = true;
+    // Local to this run: a slow answer from the previous host must not touch the new host's state.
+    let cancelled = false;
+    setReported(null);
     if (!client || !transport) {
       setConnection({ kind: 'no-host' });
       return;
@@ -65,16 +66,16 @@ export function AppProvider({ transport, navigate, retryMs = 4000, heartbeatMs =
     const check = async (): Promise<void> => {
       try {
         const version = await client.version();
-        if (!alive.current) return;
+        if (cancelled) return;
         if (version.host?.name) setReported(version.host.name);
         setConnection((c) => (c.kind === 'connected' && c.version.cliVersion === version.cliVersion ? c : { kind: 'connected', version }));
         timer = setTimeout(() => void check(), heartbeatMs);
         if (first) {
           first = false;
-          void transport.detectTools().then((t) => alive.current && setTools(t)).catch(() => undefined);
+          void transport.detectTools().then((t) => !cancelled && setTools(t)).catch(() => undefined);
         }
       } catch (e) {
-        if (!alive.current) return;
+        if (cancelled) return;
         if (e instanceof IncompatibleError) {
           setConnection({ kind: 'incompatible', message: e.message });
           return; // retrying cannot fix a version mismatch
@@ -85,7 +86,7 @@ export function AppProvider({ transport, navigate, retryMs = 4000, heartbeatMs =
     };
     void check();
     return () => {
-      alive.current = false;
+      cancelled = true;
       clearTimeout(timer);
     };
   }, [client, transport, retryMs, heartbeatMs]);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { EnvListData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
+import { errorMessage } from '../client/errors';
 import { ago, bytes, compact, pct, usd } from '../lib/format';
 import { LARGE_CONTEXT_TOKENS, sortSessions, STATE_LABEL, type Session, type SortDir, type SortKey } from '../lib/sessions';
 import { Badge, CopyButton, Empty, Menu } from '../ui/primitives';
@@ -23,6 +24,11 @@ export function Sessions({ qr, onQr }: { qr: boolean; onQr: (on: boolean) => voi
   const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; session: string } | null>(null);
   const [handoff, setHandoff] = useState<{ session: Session; fresh: boolean } | null>(null);
   const [qrOf, setQrOf] = useState<Session | null>(null);
+  const [termError, setTermError] = useState<string | null>(null);
+  const openTerminal = (r: Parameters<typeof transport.openTerminal>[0]) => {
+    setTermError(null);
+    transport.openTerminal(r).catch((e: unknown) => setTermError(`Could not open Terminal: ${errorMessage(e)}`));
+  };
 
   useEffect(() => {
     if (connection.kind === 'connected') void client.envs().then((e) => setEnvs(e.environments)).catch(() => undefined);
@@ -44,6 +50,7 @@ export function Sessions({ qr, onQr }: { qr: boolean; onQr: (on: boolean) => voi
         {waiting > 0 && <Badge tone="warn">{waiting} waiting for input</Badge>}
         {stale && <Badge tone="warn">showing the last data</Badge>}
         {error && <span className="note" role="alert">{error}</span>}
+        {termError && <span className="note" role="alert">{termError}</span>}
         <label className="check" style={{ marginLeft: 'auto' }}><input type="checkbox" checked={qr} onChange={(e) => onQr(e.target.checked)} /> QR codes</label>
       </div>
       <section className="card" aria-label="Sessions">
@@ -63,7 +70,7 @@ export function Sessions({ qr, onQr }: { qr: boolean; onQr: (on: boolean) => voi
                 </tr>
               </thead>
               <tbody>
-                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envs.find((e) => e.name === s.env)?.dir} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} onHandoff={(fresh) => setHandoff({ session: s, fresh })} qr={qr} onQr={() => setQrOf(s)} />)}
+                {sessions.map((s) => <SessionRow key={s.id} s={s} now={now} dir={envs.find((e) => e.name === s.env)?.dir} portBase={dash.environments.find((e) => e.name === s.env)?.portBase ?? null} hostName={hostName} app={s.account ? webApps.appFor(s.account) : null} envUrl={envs.find((e) => e.name === s.env)?.remoteControl.url} actions={plugins.actions('session')} onAction={(action) => setPluginRun({ action, session: s.id })} onHandoff={(fresh) => setHandoff({ session: s, fresh })} qr={qr} onQr={() => setQrOf(s)} onTerminal={openTerminal} />)}
               </tbody>
             </table>
           </div>
@@ -82,7 +89,7 @@ export function Sessions({ qr, onQr }: { qr: boolean; onQr: (on: boolean) => voi
 
 const sessionUrl = (remoteSession: string): string => `https://claude.ai/code/${remoteSession}`;
 
-function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onAction, onHandoff, qr, onQr }: { s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void; onHandoff: (fresh: boolean) => void; qr: boolean; onQr: () => void }) {
+function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onAction, onHandoff, qr, onQr, onTerminal }: { onTerminal: (r: { kind: 'resume'; dir: string; sessionId: string } | { kind: 'shell'; dir: string }) => void; s: Session; now: number; dir?: string; portBase: number | null; hostName: string; app: string | null; envUrl?: string; actions: PluginActionInfo[]; onAction: (a: PluginActionInfo) => void; onHandoff: (fresh: boolean) => void; qr: boolean; onQr: () => void }) {
   const { transport, tools } = useApp();
   return (
     <tr className={s.state === 'waiting' ? 'waiting' : ''}>
@@ -117,8 +124,8 @@ function SessionRow({ s, now, dir, portBase, hostName, app, envUrl, actions, onA
             { label: 'QR code for the phone', hidden: !s.remoteSession, onSelect: onQr },
             { label: s.handoffAt != null && s.handoffAt >= s.lastActivityAt ? 'Handoff note' : 'Write a handoff note', hidden: s.state === 'running', onSelect: () => onHandoff(false) },
             { label: 'Write the handoff note again', hidden: s.state === 'running' || s.handoffAt == null || s.handoffAt < s.lastActivityAt, onSelect: () => onHandoff(true) },
-            { label: 'Terminal: resume this session', hidden: !dir, onSelect: () => void transport.openTerminal({ kind: 'resume', dir: dir!, sessionId: s.id }) },
-            { label: 'Terminal: shell in the environment', hidden: !dir, onSelect: () => void transport.openTerminal({ kind: 'shell', dir: dir! }) },
+            { label: 'Terminal: resume this session', hidden: !dir, onSelect: () => onTerminal({ kind: 'resume', dir: dir!, sessionId: s.id }) },
+            { label: 'Terminal: shell in the environment', hidden: !dir, onSelect: () => onTerminal({ kind: 'shell', dir: dir! }) },
             { label: 'VS Code (Remote SSH)', hidden: !dir || !tools.code, onSelect: () => void transport.openVscode(dir!) },
             { label: portBase ? `Dev server (port ${portBase})` : 'Dev server', hidden: portBase == null, onSelect: () => void transport.openUrl(`http://${hostName}:${portBase}`) },
             ...actions.map((a) => ({ label: `${a.title}${a.destructive ? '…' : ''}`, danger: a.destructive, onSelect: () => onAction(a) })),

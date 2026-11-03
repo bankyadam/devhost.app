@@ -11,7 +11,14 @@ export interface HookEvent {
   /** SubagentStart/SubagentStop: the subagent's id and type (e.g. "Explore"), never its prompt or answer. */
   agentId?: string;
   agentType?: string;
+  /** Notification: its type (permission_prompt, idle_prompt, ...), never its message. */
+  notificationType?: string;
 }
+
+/** Session ids are UUIDs; anything else is refused at ingest (they end up in file names and argv). */
+export const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+const MAX_CWD = 1024;
+const MAX_AGENT_ID = 128;
 
 /** Hook events about subagents; they do not change the session's own state. */
 export const AGENT_EVENTS = ['SubagentStart', 'SubagentStop'] as const;
@@ -35,19 +42,36 @@ export function parseHook(body: unknown): HookEvent | null {
   const b = body as Record<string, unknown>;
   const event = typeof b['hook_event_name'] === 'string' ? b['hook_event_name'] : '';
   const sessionId = typeof b['session_id'] === 'string' ? b['session_id'] : '';
-  if (sessionId === '') return null;
-  const cwd = typeof b['cwd'] === 'string' ? b['cwd'] : '';
+  if (!SESSION_ID_RE.test(sessionId)) return null;
+  const cwd = typeof b['cwd'] === 'string' ? b['cwd'].slice(0, MAX_CWD) : '';
   if (isAgentEvent(event)) {
     const agentId = typeof b['agent_id'] === 'string' ? b['agent_id'] : '';
-    if (agentId === '') return null;
+    if (agentId === '' || agentId.length > MAX_AGENT_ID) return null;
     const agentType = typeof b['agent_type'] === 'string' ? b['agent_type'].slice(0, 80) : '';
     return { event, sessionId, cwd, agentId, agentType };
   }
   if (!(event in STATE_FOR)) return null;
+  if (event === 'Notification') {
+    const t = typeof b['notification_type'] === 'string' ? b['notification_type'].slice(0, 40) : '';
+    return { event, sessionId, cwd, notificationType: t };
+  }
   return { event, sessionId, cwd };
 }
 
-export const stateForEvent = (event: string): SessionState | undefined => STATE_FOR[event];
+/** Notification types that mean the session waits for the user (a permission or a question). */
+const WAITING_NOTIFICATIONS = ['permission_prompt', 'elicitation_dialog'];
+
+/**
+ * The state an event sets, or undefined when it leaves it alone: other notifications (an idle
+ * reminder, a finished login) say nothing about what the session is doing.
+ */
+export function stateForEvent(event: string, notificationType?: string): SessionState | undefined {
+  if (event === 'Notification') return notificationType !== undefined && WAITING_NOTIFICATIONS.includes(notificationType) ? 'waiting' : undefined;
+  return STATE_FOR[event];
+}
+
+/** Whether the event opens (true) or closes (false) the session's turn; undefined: no change. */
+export const turnOpenFor = (event: string): boolean | undefined => (event === 'UserPromptSubmit' ? true : event === 'Stop' || event === 'SessionEnd' ? false : undefined);
 
 export interface EnvLocation {
   account: string;

@@ -48,12 +48,12 @@ export async function reattachLabels(): Promise<string[]> {
   }
 }
 
-export function sessionRow(home: string, id: string): { session_id: string; account: string; env: string; cwd: string; state: string } {
+export function sessionRow(home: string, id: string): { session_id: string; account: string; env: string; cwd: string; state: string; turn_open: number } {
   if (!/^[A-Za-z0-9-]{8,}$/.test(id)) throw new UsageError('give a session id (at least its first 8 characters)');
   if (!existsSync(dbPath(home))) throw new UsageError('the collector has no sessions yet');
   const db = new Db(dbPath(home), { readonly: true });
   try {
-    const rows = db.all<{ session_id: string; account: string; env: string; cwd: string; state: string }>('SELECT session_id, account, env, cwd, state FROM sessions WHERE session_id LIKE ? LIMIT 2', `${id}%`);
+    const rows = db.all<{ session_id: string; account: string; env: string; cwd: string; state: string; turn_open: number }>('SELECT session_id, account, env, cwd, state, turn_open FROM sessions WHERE session_id LIKE ? LIMIT 2', `${id}%`);
     if (rows.length === 0) throw new UsageError(`no session ${id}`);
     if (rows.length > 1) throw new UsageError(`${id} matches more than one session; give more of the id`);
     return rows[0]!;

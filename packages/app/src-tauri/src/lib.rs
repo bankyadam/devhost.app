@@ -12,10 +12,10 @@ use devhost_core::{
     control_path, remote_command, ssh_args, terminal_command, terminal_script, tray_icon, tray_title, validate_devhost_args,
     TRAY_ICON_PX,
     is_safari_web_app, valid_icon_png, validate_claude_url, validate_url, vscode_args, web_app_icon_path,
-    web_app_path_named, LineBuffer, TerminalAction,
+    web_app_path_named, LineBuffer, TerminalAction, TerminalRequest,
     TrayStatus,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::image::Image;
@@ -184,22 +184,10 @@ fn open_url(url: String) -> Result<(), String> {
     Command::new("/usr/bin/open").arg(&url).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
-#[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-enum TerminalRequest {
-    Devhost { args: Vec<String> },
-    Shell { dir: String },
-    Resume { dir: String, session_id: String },
-}
-
 /// Open Terminal.app on `ssh -t host ...`; used where a human must type (sudo password) or attach.
 #[tauri::command]
 fn open_terminal(host: String, action: TerminalRequest) -> Result<(), String> {
-    let action = match action {
-        TerminalRequest::Devhost { args } => TerminalAction::Devhost(args),
-        TerminalRequest::Shell { dir } => TerminalAction::Shell { dir },
-        TerminalRequest::Resume { dir, session_id } => TerminalAction::Resume { dir, session_id },
-    };
+    let action = TerminalAction::from(action);
     let script = terminal_script(&terminal_command(&host, &action)?);
     Command::new("/usr/bin/osascript").arg("-e").arg(script).spawn().map(|_| ()).map_err(|e| e.to_string())
 }

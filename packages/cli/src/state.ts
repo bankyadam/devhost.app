@@ -8,6 +8,8 @@ export interface DevhostState {
   colimaPath?: string;
   /** Account roots `storage migrate` moved, by account: the old copy, kept until `--cleanup`. */
   migrated?: Record<string, string>;
+  /** Remote Control service labels a Claude Code update could not restart yet: the next `devhost update` retries them. */
+  restartPending?: string[];
 }
 
 export const statePath = (home: string): string => join(devhostConfigDir(home), 'state.json');

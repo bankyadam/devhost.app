@@ -107,6 +107,12 @@ const MIGRATIONS: string[] = [
   `
   CREATE INDEX api_requests_session ON api_requests (session_id, ts);
   `,
+  // A turn is open from UserPromptSubmit to Stop/SessionEnd, whatever else the session's state says
+  // meanwhile (a Notification mid-turn must not make it look idle): every busy check reads this.
+  `
+  ALTER TABLE sessions ADD COLUMN turn_open INTEGER NOT NULL DEFAULT 0;
+  UPDATE sessions SET turn_open = 1 WHERE state = 'running';
+  `,
 ];
 
 export class Db {

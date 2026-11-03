@@ -6,8 +6,8 @@ type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => v !== null && typeof v === 'object' && !Array.isArray(v);
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-export function hookUrl(config: DevhostConfig, account: string): string {
-  return `http://127.0.0.1:${config.collector?.port ?? 4318}/hooks?account=${account}`;
+export function hookUrl(config: DevhostConfig, account: string, token?: string): string {
+  return `http://127.0.0.1:${config.collector?.port ?? 4318}/hooks?account=${account}${token ? `&token=${token}` : ''}`;
 }
 
 /** True for hook groups devhost wrote: they all point at the local collector. */
@@ -22,9 +22,9 @@ function isDevhostGroup(group: unknown, port: number): boolean {
  * SessionStart only supports command hooks (verified against the hooks docs), so
  * it posts the hook payload with curl; the other events use HTTP hooks.
  */
-export function managedSettings(config: DevhostConfig, account: Pick<Account, 'name'>): Json {
+export function managedSettings(config: DevhostConfig, account: Pick<Account, 'name'>, token?: string): Json {
   const port = config.collector?.port ?? 4318;
-  const url = hookUrl(config, account.name);
+  const url = hookUrl(config, account.name, token);
   const http = { type: 'http', url, timeout: 5 };
   const command = {
     type: 'command',
@@ -39,6 +39,7 @@ export function managedSettings(config: DevhostConfig, account: Pick<Account, 'n
       OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
       OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${port}`,
       OTEL_METRIC_EXPORT_INTERVAL: '15000',
+      ...(token ? { OTEL_EXPORTER_OTLP_HEADERS: `Authorization=Bearer ${token}` } : {}),
     },
     allowedHttpHookUrls: [`http://127.0.0.1:${port}/hooks*`],
     hooks: {

@@ -40,11 +40,12 @@ pub fn validate_devhost_args(args: &[String]) -> Result<(), String> {
     if !ALLOWED_SUBCOMMANDS.contains(&first.as_str()) {
         return Err(format!("`{first}` is not a devhost command the app may run"));
     }
-    if args.iter().any(|a| a.contains('\0')) {
-        return Err("arguments must not contain NUL".into());
+    if args.iter().any(|a| a.chars().any(|c| c.is_control())) {
+        return Err("arguments must not contain control characters".into());
     }
     // Erasing a disk is CLI only (spec B3.8): the app may never start it, whatever its UI does.
-    if first == "storage" && args.get(1).map(String::as_str) == Some("prepare") {
+    // Options may precede the verb (`storage --json prepare`), so `prepare` anywhere is refused.
+    if first == "storage" && args[1..].iter().any(|a| a == "prepare") {
         return Err("`storage prepare` erases a disk: run it in a terminal on the host".into());
     }
     Ok(())
@@ -87,6 +88,26 @@ pub fn ssh_args(host: &str, control_path: &str, remote: &str, tty: bool) -> Resu
 /// keeps the path short enough for a unix socket.
 pub fn control_path(home: &str) -> String {
     format!("{home}/.ssh/devhost-%C")
+}
+
+/// What the webview sends for `open_terminal`. The enum attribute only renames variants; fields
+/// need `rename_all_fields`, or `sessionId` fails with "missing field `session_id`".
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum TerminalRequest {
+    Devhost { args: Vec<String> },
+    Shell { dir: String },
+    Resume { dir: String, session_id: String },
+}
+
+impl From<TerminalRequest> for TerminalAction {
+    fn from(r: TerminalRequest) -> Self {
+        match r {
+            TerminalRequest::Devhost { args } => TerminalAction::Devhost(args),
+            TerminalRequest::Shell { dir } => TerminalAction::Shell { dir },
+            TerminalRequest::Resume { dir, session_id } => TerminalAction::Resume { dir, session_id },
+        }
+    }
 }
 
 /// Fixed things the app may open in Terminal.app.
@@ -385,6 +406,17 @@ mod tests {
     }
 
     #[test]
+    fn terminal_requests_deserialize_from_the_webview_json() {
+        let r: TerminalRequest = serde_json::from_str(r#"{"kind":"resume","dir":"/x","sessionId":"abc"}"#).unwrap();
+        assert_eq!(r, TerminalRequest::Resume { dir: "/x".into(), session_id: "abc".into() });
+        let r: TerminalRequest = serde_json::from_str(r#"{"kind":"shell","dir":"/x"}"#).unwrap();
+        assert_eq!(r, TerminalRequest::Shell { dir: "/x".into() });
+        let r: TerminalRequest = serde_json::from_str(r#"{"kind":"devhost","args":["apply"]}"#).unwrap();
+        assert_eq!(r, TerminalRequest::Devhost { args: vec!["apply".into()] });
+        assert!(serde_json::from_str::<TerminalRequest>(r#"{"kind":"resume","dir":"/x","session_id":"abc"}"#).is_err());
+    }
+
+    #[test]
     fn only_known_devhost_subcommands_are_allowed() {
         assert!(validate_devhost_args(&v(&["env", "list", "--json"])).is_ok());
         assert!(validate_devhost_args(&v(&["config", "put"])).is_ok());
@@ -393,6 +425,13 @@ mod tests {
         assert!(validate_devhost_args(&v(&["storage", "status", "--json"])).is_ok());
         assert!(validate_devhost_args(&v(&["storage", "migrate", "--account", "a", "--json"])).is_ok());
         assert!(validate_devhost_args(&v(&["storage", "prepare", "disk4", "--label", "x", "--yes-erase"])).is_err());
+        assert!(validate_devhost_args(&v(&["storage", "--json", "prepare", "disk4"])).is_err());
+        assert!(validate_devhost_args(&v(&["storage", "--label", "x", "prepare"])).is_err());
+        assert!(validate_devhost_args(&v(&["env", "a\nb"])).is_err());
+        assert!(validate_devhost_args(&v(&["env", "a\rb"])).is_err());
+        assert!(validate_devhost_args(&v(&["env", "a\u{1b}b"])).is_err());
+        assert!(validate_devhost_args(&v(&["env", "a\u{85}b"])).is_err());
+        assert!(validate_devhost_args(&v(&["env", "a b", "ünï"])).is_ok());
         assert!(validate_devhost_args(&[]).is_err());
         assert!(validate_devhost_args(&v(&["rm", "-rf", "/"])).is_err());
         assert!(validate_devhost_args(&v(&["--json", "version"])).is_err());

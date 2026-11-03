@@ -30,11 +30,12 @@ export function buildSteps(config: DevhostConfig, extra: (config: DevhostConfig)
     tailscaleStep,
     claudeBinaryStep,
     accountsClaudeStep,
-    agentsStep,
     routingStep,
     gitStep,
     collectorStep,
     ...envSteps(config),
+    // After the environments: an environment's agents go into its repository, which its step creates.
+    agentsStep,
     ...extra(config),
   ];
 }

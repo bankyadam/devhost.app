@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import type { DevhostConfig } from '@devhost/contract';
+import { collectorToken } from '../collector/token.js';
 import { managedSettings, parseSettings, removeManaged, stringifySettings } from '../claude-settings.js';
 import { accountRoot, claudeConfigDir, type Account } from '../config/accounts.js';
 import { ENVRC_HEADER } from './routing.js';
@@ -22,7 +23,7 @@ export async function removeAccountArtifacts(ctx: StepContext, a: Account, confi
   const settingsFile = settingsPathOf(a, home);
   const settingsText = await exec.readText(settingsFile);
   if (settingsText !== null) {
-    const next = removeManaged(parseSettings(settingsText, settingsFile), managedSettings(config, a), config.collector?.port ?? 4318);
+    const next = removeManaged(parseSettings(settingsText, settingsFile), managedSettings(config, a, collectorToken(home)), config.collector?.port ?? 4318);
     if (stringifySettings(next) !== settingsText) {
       await exec.writeText(settingsFile, stringifySettings(next), { description: `remove devhost-managed keys from ${settingsFile}` });
     }
@@ -49,7 +50,7 @@ export async function accountArtifactsPresent(ctx: StepContext, a: Account, conf
   const settings = await exec.readText(settingsFile);
   if (settings !== null) {
     try {
-      const next = removeManaged(parseSettings(settings, settingsFile), managedSettings(config, a), config.collector?.port ?? 4318);
+      const next = removeManaged(parseSettings(settings, settingsFile), managedSettings(config, a, collectorToken(home)), config.collector?.port ?? 4318);
       if (stringifySettings(next) !== settings) return true;
     } catch {
       /* an unreadable settings.json is left alone */

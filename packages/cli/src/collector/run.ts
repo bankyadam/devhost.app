@@ -19,7 +19,7 @@ import { Sources, TIMEOUT } from './sources.js';
 import { TitleCache } from './titles.js';
 import { envLocations, type EnvLocation } from './hooks.js';
 import { Ingestor } from './ingest.js';
-import type { Notifier } from './notify.js';
+import { createNotifier, type FetchLike, type Notification, type Notifier } from './notify.js';
 import { retain, rollup } from './rollup.js';
 import { volumeStatus, workVolumeOf } from '../storage/volume.js';
 import { rotateLogs } from './logs.js';
@@ -67,7 +67,12 @@ export interface CollectorOptions {
   /** Latest config; re-read by the caller when the file changes. */
   config: () => DevhostConfig;
   deps: Pick<Deps, 'home' | 'runner' | 'user' | 'brewPrefix'>;
+  /** The notifier for the config at start; a changed `notify` section builds a new one (see currentNotifier). */
   notifier: Notifier;
+  /** fetch for notifiers built after a config reload (tests). */
+  fetchImpl?: FetchLike;
+  /** Per-install bearer token the receiver requires on /v1/* and /hooks (off when unset). */
+  token?: string;
   now?: () => number;
   os?: OsProbe;
   log?: (msg: string) => void;
@@ -107,6 +112,15 @@ export class Collector {
   readonly sources: Sources;
   private timers: NodeJS.Timeout[] = [];
   private server: Server | null = null;
+  /** What the timers and the listener were started with; a config reload that changes it re-arms them. */
+  private armed = '';
+  private armedPort = 0;
+  private initialTimers: NodeJS.Timeout[] = [];
+  private notifyKey: string;
+  private notifierNow: Notifier;
+  private sending: Promise<void> = Promise.resolve();
+  /** Notifications leave through here: queued and sent after the tick, never inside a source's run. */
+  private readonly outbox: Notifier = { provider: 'outbox', send: (n) => (this.enqueue(n), Promise.resolve()) };
 
   constructor(opts: CollectorOptions) {
     this.opts = opts;
@@ -120,7 +134,9 @@ export class Collector {
       { dryRun: false, verbose: false, interactiveSudo: false, now: () => new Date(this.now()) },
     );
     this.ingest = new Ingestor(opts.db, this.now, () => this.locations(), (where) => void this.wake(where));
-    this.alerts = new AlertEngine(opts.db, opts.notifier, this.now, opts.log);
+    this.notifyKey = JSON.stringify(this.config.notify);
+    this.notifierNow = opts.notifier;
+    this.alerts = new AlertEngine(opts.db, this.outbox, this.now, opts.log);
     this.sources = new Sources((m) => this.log(m));
   }
 
@@ -133,6 +149,30 @@ export class Collector {
   private locations(): EnvLocation[] {
     return envLocations(this.config, this.opts.deps.home);
   }
+  /** The notifier for the current config: rebuilt when `notify` (server, topic) changed since the last one. */
+  private currentNotifier(): Notifier {
+    const key = JSON.stringify(this.config.notify);
+    if (key !== this.notifyKey) {
+      this.notifyKey = key;
+      this.notifierNow = createNotifier(this.config, this.opts.fetchImpl);
+      this.log('notification settings changed: using the new ones');
+    }
+    return this.notifierNow;
+  }
+
+  private pendingSends = 0;
+  private enqueue(n: Notification): void {
+    const go = (): Promise<void> =>
+      this.currentNotifier().send(n).catch((err: Error) => this.log(`notification failed: ${err.message}`)).finally(() => void this.pendingSends--);
+    // One at a time, in order; the first goes out at once, and none is awaited by the tick that queued it.
+    this.sending = this.pendingSends++ === 0 ? go() : this.sending.then(go);
+  }
+
+  /** Waits for the notifications queued so far (tests, shutdown). */
+  flushNotifications(): Promise<void> {
+    return this.sending;
+  }
+
   private async safe(name: string, fn: () => Promise<void>): Promise<void> {
     try {
       await fn();
@@ -185,7 +225,8 @@ export class Collector {
     const sessions = [];
     for (const s of live.sessions) {
       const t = await this.titles.get(dirs, cwds.get(s.id) ?? '', s.id);
-      sessions.push(t ? { ...s, title: t.title, ...(t.fromPrompt ? { titleFromPrompt: true } : {}) } : s);
+      // A title taken from the user's prompt is never stored (A10.1, A13): only a real title goes into the snapshot.
+      sessions.push(t && !t.fromPrompt ? { ...s, title: t.title } : s);
     }
     this.titles.retain(new Set(live.sessions.map((s) => s.id)));
     this.db.kvSet('snapshot', JSON.stringify({ ...live, sessions, ...this.range.parts }), now);
@@ -438,7 +479,7 @@ export class Collector {
       for (const l of this.locations()) {
         if (envs.get(l.env)?.compose === 'off' || !this.docker.has(composeProject(l.env))) continue;
         if (await sleepState(this.opts.deps.home, l.env)) continue;
-        const busy = this.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM sessions WHERE env = ? AND state = 'running'", l.env)?.n ?? 0;
+        const busy = this.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM sessions WHERE env = ? AND turn_open = 1 AND state <> 'ended'", l.env)?.n ?? 0;
         if (busy > 0) continue;
         const last = Math.max(
           this.db.get<{ t: number | null }>('SELECT MAX(last_activity_at) AS t FROM sessions WHERE env = ?', l.env)?.t ?? 0,
@@ -471,7 +512,7 @@ export class Collector {
       const now = this.now();
       const due = this.db.all<HandoffSession & { last_activity_at: number }>(
         `SELECT session_id, account, env, cwd, last_activity_at FROM sessions
-          WHERE state IN ('idle', 'waiting') AND last_activity_at <= ? AND last_activity_at > ? ORDER BY last_activity_at`,
+          WHERE state IN ('idle', 'waiting') AND turn_open = 0 AND last_activity_at <= ? AND last_activity_at > ? ORDER BY last_activity_at`,
         now - minutes * 60_000, now - (minutes + 15) * 60_000,
       );
       for (const s of due) {
@@ -484,9 +525,10 @@ export class Collector {
             const note = await writeHandoff(this.exec, this.opts.deps.home, this.config, s, last.model);
             this.log(`handoff note for ${s.session_id.slice(0, 8)} (${s.env}) written: ${note.path}`);
             const title = await this.titles.get([...new Set(accountsOf(this.config).map((a) => effectiveClaudeDir(a, this.opts.deps.home)))], s.cwd, s.session_id);
-            await this.opts.notifier.send({
+            // Only a title the user set; a prompt-derived one would put prompt text on ntfy.
+            await this.outbox.send({
               title: `devhost: handoff note for ${s.env}`,
-              message: `${title ? `"${title.title}" ` : ''}(${s.session_id.slice(0, 8)}) has been idle ${minutes} min. Its handoff note is ready to continue in a new session: Sessions in the app, or \`devhost session handoff ${s.session_id.slice(0, 8)}\`.`,
+              message: `${title && !title.fromPrompt ? `"${title.title}" ` : `${s.env} `}(${s.session_id.slice(0, 8)}) has been idle ${minutes} min. Its handoff note is ready to continue in a new session: Sessions in the app, or \`devhost session handoff ${s.session_id.slice(0, 8)}\`.`,
               tags: ['memo'],
             });
           } catch (err) {
@@ -566,7 +608,7 @@ export class Collector {
         if (mode === 'notify') {
           if (this.db.kvGet('update_notified') !== latest) {
             this.db.kvSet('update_notified', latest, now);
-            await this.opts.notifier.send({ title: 'devhost: Claude Code update', message: `Claude Code ${latest} is available (${state.claude.installed} installed). Update from the app or with \`devhost update\`.`, tags: ['arrow_up'] });
+            await this.outbox.send({ title: 'devhost: Claude Code update', message: `Claude Code ${latest} is available (${state.claude.installed} installed). Update from the app or with \`devhost update\`.`, tags: ['arrow_up'] });
           }
         } else if (failedToday) {
           state.waiting = 'the last attempt failed; trying again after the next daily check';
@@ -581,10 +623,10 @@ export class Collector {
             const message = `Claude Code ${state.claude.installed} → ${r.data.claude.installed}; ${r.data.restarted?.length ?? 0} service(s) restarted${detached ? `; ${detached} open session(s) continue on claude.ai when you write in them` : ''}.`;
             state.claude = { ...state.claude, installed: r.data.claude.installed, outdated: false };
             state.lastUpdate = { at: now, ok: r.ok, message: r.ok ? message : `${message} ${r.message}` };
-            await this.opts.notifier.send({ title: 'devhost: Claude Code updated', message: state.lastUpdate.message, tags: [r.ok ? 'white_check_mark' : 'warning'] });
+            await this.outbox.send({ title: 'devhost: Claude Code updated', message: state.lastUpdate.message, tags: [r.ok ? 'white_check_mark' : 'warning'] });
           } else {
             state.lastUpdate = { at: now, ok: false, message: r.message || 'Claude Code did not change' };
-            await this.opts.notifier.send({ title: 'devhost: Claude Code update failed', message: state.lastUpdate.message, priority: 'high', tags: ['warning'] });
+            await this.outbox.send({ title: 'devhost: Claude Code update failed', message: state.lastUpdate.message, priority: 'high', tags: ['warning'] });
           }
         }
       }
@@ -646,15 +688,56 @@ export class Collector {
 
   /** Listen on 127.0.0.1 and start all timers. */
   async start(): Promise<void> {
-    const port = this.config.collector?.port ?? 4318;
-    this.server = createCollectorServer(this.ingest, (m) => this.log(m));
-    await listen(this.server, port);
-    this.log(`collector listening on 127.0.0.1:${port}`);
+    await this.listenOnConfigPort();
+    this.armTimers();
+    // First readings shortly after start so the dashboard is not empty.
+    for (const [delay, fn] of [[500, () => this.sampleTick()], [1500, () => this.dockerTick()], [2000, () => this.tailscaleTick()], [10_000, () => this.authTick()], [30_000, () => this.diskUsageTick()], [60_000, () => this.maintenanceTick()], [120_000, () => this.updateTick()]] as const) {
+      this.initialTimers.push(setTimeout(() => void fn(), delay));
+    }
+  }
 
+  private async listenOnConfigPort(): Promise<void> {
+    const port = this.config.collector?.port ?? 4318;
+    this.server = createCollectorServer(this.ingest, (m) => this.log(m), this.opts.token !== undefined ? { token: this.opts.token } : {});
+    await listen(this.server, port);
+    this.armedPort = port;
+    this.log(`collector listening on 127.0.0.1:${port}`);
+  }
+
+  private settingsKey(): string {
+    const c = this.config.collector;
+    return JSON.stringify([c?.port ?? 4318, c?.sampleIntervalSeconds ?? 5, c?.authCheckMinutes ?? 60]);
+  }
+
+  /**
+   * A reloaded config that changes the port or an interval re-arms the listener and the timers
+   * (called every few seconds by the reload timer); other settings are read on use.
+   */
+  async reloadIfChanged(): Promise<void> {
+    if (this.settingsKey() === this.armed) return;
+    this.log('collector settings changed: re-arming the listener and timers');
+    this.timers.forEach((t) => clearInterval(t));
+    this.timers = [];
+    if ((this.config.collector?.port ?? 4318) !== this.armedPort) {
+      const old = this.server;
+      await new Promise<void>((resolve) => (old ? old.close(() => resolve()) : resolve()));
+      try {
+        await this.listenOnConfigPort();
+      } catch (err) {
+        this.log(`listening on the new port failed: ${(err as Error).message}`);
+        this.server = null;
+      }
+    }
+    this.armTimers();
+  }
+
+  private armTimers(): void {
+    this.armed = this.settingsKey();
     const every = (ms: number, fn: () => Promise<void>): void => {
       this.timers.push(setInterval(() => void fn(), ms));
     };
     const interval = (this.config.collector?.sampleIntervalSeconds ?? 5) * 1000;
+    every(10_000, () => this.reloadIfChanged());
     every(interval, () => this.sampleTick());
     every(15_000, () => this.dockerTick());
     every(60_000, () => this.tailscaleTick());
@@ -664,20 +747,17 @@ export class Collector {
     every(10 * 60_000, () => this.maintenanceTick());
     every(24 * 3_600_000, () => this.diskUsageTick());
     every(3_600_000, () => this.updateTick());
-    // First readings shortly after start so the dashboard is not empty.
-    for (const [delay, fn] of [[500, () => this.sampleTick()], [1500, () => this.dockerTick()], [2000, () => this.tailscaleTick()], [10_000, () => this.authTick()], [30_000, () => this.diskUsageTick()], [60_000, () => this.maintenanceTick()], [120_000, () => this.updateTick()]] as const) {
-      const t = setTimeout(() => void fn(), delay);
-      this.timers.push(t);
-    }
   }
 
   async stop(): Promise<void> {
     this.timers.forEach((t) => clearInterval(t));
-    this.timers.forEach((t) => clearTimeout(t));
+    this.initialTimers.forEach((t) => clearTimeout(t));
+    this.initialTimers = [];
     this.timers = [];
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
     this.server = null;
     // A run still going would write into a closed database.
     await this.sources.drain(5000);
+    await this.sending;
   }
 }

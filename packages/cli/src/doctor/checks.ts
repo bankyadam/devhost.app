@@ -5,6 +5,7 @@ import type { DashData, DevhostConfig } from '@devhost/contract';
 import { shadowedClaudes } from '../update.js';
 import { MIN_REMOTE_CONTROL_VERSION, parseVersion, versionAtLeast } from '../claude-version.js';
 import { Db, dbPath } from '../collector/db.js';
+import { collectorToken } from '../collector/token.js';
 import { managedSettings, parseSettings } from '../claude-settings.js';
 import { accountEnv, accountRoot, accountsOf, effectiveClaudeDir, envDir, environmentsOf, rcLabel, rcLogPath, type Account, type Environment } from '../config/accounts.js';
 import type { Deps } from '../deps.js';
@@ -288,7 +289,7 @@ async function oneAccount(c: DoctorContext, a: Account): Promise<Check[]> {
   const settingsFile = join(dir, 'settings.json');
   try {
     const have = parseSettings(await exec.readText(settingsFile), settingsFile);
-    const managed = managedSettings(config, a) as { env: Record<string, string>; hooks: Record<string, unknown> };
+    const managed = managedSettings(config, a, collectorToken(deps.home)) as { env: Record<string, string>; hooks: Record<string, unknown> };
     const env = (have['env'] ?? {}) as Record<string, string>;
     const missing = [
       ...Object.keys(managed.env).filter((k) => env[k] !== managed.env[k]),

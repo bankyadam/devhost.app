@@ -1,5 +1,5 @@
 import type { Db } from './db.js';
-import { locate, parseHook, stateForEvent, type EnvLocation } from './hooks.js';
+import { locate, parseHook, stateForEvent, turnOpenFor, type EnvLocation } from './hooks.js';
 import { CumulativeTracker, parseLogs, parseMetrics, parseToolRuns, type Attribution } from './otlp.js';
 
 /** Writes received telemetry to SQLite. Stateless apart from the cumulative-counter tracker. */
@@ -36,6 +36,7 @@ export class Ingestor {
       }
     });
     this.db.kvSet('last_otel_at', String(now), now);
+    this.touch(rows.map((r) => r.sessionId), now);
     return rows.length;
   }
 
@@ -57,7 +58,13 @@ export class Ingestor {
       }
     });
     this.db.kvSet('last_otel_at', String(now), now);
+    this.touch([...rows.map((r) => r.sessionId), ...tools.map((t) => t.sessionId)], now);
     return rows.length + tools.length;
+  }
+
+  /** Telemetry from a session is activity: a long turn with no hook must not look quiet. */
+  private touch(ids: (string | null | undefined)[], now: number): void {
+    for (const id of new Set(ids)) if (id) this.db.run("UPDATE sessions SET last_activity_at = ? WHERE session_id = ? AND state <> 'ended' AND last_activity_at < ?", now, id, now);
   }
 
   /** Session lifecycle and live state; stores event type, session id, cwd and timestamps only. */
@@ -84,20 +91,25 @@ export class Ingestor {
     // A login seen in the session's telemetry beats the directory and the hook URL (see ownerOf).
     const account = this.db.kvGet(`session_owner:${evt.sessionId}`) ?? where?.account ?? accountFromUrl;
     const env = where?.env ?? '';
-    const state = stateForEvent(evt.event)!;
+    const set = stateForEvent(evt.event, evt.notificationType);
+    // A notification that is no question (idle reminder, ...) changes nothing about the session.
+    const state = set ?? 'idle';
+    const turn = turnOpenFor(evt.event);
     this.db.transaction(() => {
       this.db.run('INSERT INTO hook_events (ts, session_id, account, event, cwd) VALUES (?, ?, ?, ?, ?)', now, evt.sessionId, account, evt.event, evt.cwd);
+      if (set === undefined) return;
       this.db.run(
-        `INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at, turn_open)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(session_id) DO UPDATE SET
            state = excluded.state,
+           turn_open = CASE WHEN ? IS NULL THEN sessions.turn_open ELSE excluded.turn_open END,
            last_activity_at = excluded.last_activity_at,
            cwd = CASE WHEN excluded.cwd <> '' THEN excluded.cwd ELSE sessions.cwd END,
            account = CASE WHEN excluded.account <> '' THEN excluded.account ELSE sessions.account END,
            env = CASE WHEN excluded.env <> '' THEN excluded.env ELSE sessions.env END,
            ended_at = excluded.ended_at`,
-        evt.sessionId, account, env, evt.cwd, state, now, now, state === 'ended' ? now : null,
+        evt.sessionId, account, env, evt.cwd, state, now, now, state === 'ended' ? now : null, turn ? 1 : 0, turn === undefined ? null : 1,
       );
       if (state === 'ended') this.db.run('UPDATE agents SET ended_at = ? WHERE session_id = ? AND ended_at IS NULL', now, evt.sessionId);
     });

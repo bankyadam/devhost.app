@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { logsDir } from '../config/accounts.js';
@@ -13,7 +14,9 @@ export async function collectorSpec(ctx: StepContext): Promise<DaemonSpec> {
     label: COLLECTOR_LABEL,
     // node:sqlite prints an ExperimentalWarning on every start; keep the log readable.
     args: [ctx.nodePath, '--disable-warning=ExperimentalWarning', cli, 'collector', 'run', '--config', ctx.configPath],
-    env: serviceEnv(ctx.home),
+    // The settings only the collector process reads (port, intervals, thresholds, notifications) go in
+    // the plist as a hash, so a change makes `apply` rewrite it and restart the collector.
+    env: serviceEnv(ctx.home, { DEVHOST_COLLECTOR_SETTINGS: createHash('sha256').update(JSON.stringify(ctx.config.collector ?? {})).digest('hex').slice(0, 16) }),
     logPath: join(logsDir(ctx.home), 'collector.log'),
   };
 }
