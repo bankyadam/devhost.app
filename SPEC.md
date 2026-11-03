@@ -130,7 +130,7 @@ claude:
 
 collector:
   port: 4318                         # OTLP/HTTP + hook receiver, bound to 127.0.0.1 only
-  sampleIntervalSeconds: 5
+  sampleIntervalSeconds: 5           # process sampler; Docker, Tailscale and the work volume have their own intervals (A10.9)
   retention: { rawDays: 7, rollupDays: 365, logDays: 7 }
   alerts:
     memoryPercent: 90
@@ -148,6 +148,8 @@ plugins:                             # A18; built-in ones are on unless enabled:
 ## A7. What `apply` sets up
 
 Each item is a **step** with `check()`, `apply()`, and a description. Steps run in order; a failure stops with a clear message and fix hint. Environment steps (`env.<name>`) are independent of each other: a failed one is reported and the run goes on with the next, so one broken environment does not keep the others on an old plist; the command still exits with the first failure.
+
+Step ids include `system.*`, `packages`, `runtimes`, `shell`, `docker.*`, `tailscale`, `claude.binary`, `agents`, `accounts.*`, `collector`, `storage.volume|ownership|spotlight|automount|unlock` (with a work volume, A7.12), `env.<name>` and `services.orphans`; `--only` takes an id or a prefix (`--only storage`). **`services.orphans`** finds `com.devhost.*` LaunchDaemons that nothing in the config asks for any more (a removed environment, Colima after a runtime switch), lists them and removes them only after confirmation; `uninstall` removes them without asking separately. `storage.unlock` compares the unlock service's volume UUID with the configured one and removes the service when no encrypted volume is configured.
 
 **Running sessions are not disturbed.** A Remote Control service is restarted only when what it runs changes (its plist bytes, its login, its working directory). A change elsewhere in the config, a storage step, or a re-run of `apply` leaves a running service and its sessions alone. In particular:
 - Without a work volume, every generated plist stays byte-identical to what it was before the storage feature.
@@ -348,6 +350,8 @@ Commands (`devhost storage …`, A11):
   Report the URL as http://<hostname>:<port>.
 ```
 
+Binding to `0.0.0.0` is what makes a dev server reachable over Tailscale, and it also exposes it on every other network the host is on (the LAN), with only the project's own authentication. The block is the single place to narrow that (for example to the Tailscale address); with `agents.delegation: true` a `## Subagents` section follows it.
+
 ## A9. Machine-readable contract (`--json`)
 
 Every command accepts `--json`. The contract is versioned and lives in the shared `contract` package as JSON Schemas with generated TypeScript types.
@@ -360,7 +364,7 @@ Every command accepts `--json`. The contract is versioned and lives in the share
   - `{"type":"result","ok":true,"data":{...}}` as the last line
 - **Exit codes:** 0 ok · 1 checks failed · 2 usage/config error · 3 human action required · 130 cancelled (SIGINT).
 - **Cancellation:** SIGINT stops after the current step, leaving a consistent state.
-- `devhost version --json` returns CLI version, `contractVersion`, and `host.name` (the configured `machine.hostname`, else the system host name); the app refuses to run against an incompatible major and names the host by `host.name`.
+- The envelope schema also allows `contractMinor` (additive revision within a major, never removals) and `capabilities` (optional features such as `snapshot-event`); both are constants of the contract package, bumped by the versioning test in `packages/contract/test`, and not yet printed by the CLI. `devhost version --json` returns CLI version, `contractVersion`, and `host.name` (the configured `machine.hostname`, else the system host name); the app refuses to run against an incompatible major and names the host by `host.name`.
 - Human output and JSON output are produced from the same data; JSON never contains ANSI codes.
 - Secrets (the storage passphrase) are never part of any event, result, or error.
 
@@ -378,13 +382,15 @@ A single long-running process, `devhost collector`, run by launchd (LaunchDaemon
 | Agents | Sessions running a turn plus the subagents they started, sampled; most at once per bucket | From hook state every sample |
 | Docker | CPU / memory per container, mapped to environments via compose project `devhost-<name>` | `docker stats --no-stream --format json` every 15 s |
 | Disk | Free space of the internal disk and, when configured, of the work volume; size per environment (worktrees, `node_modules`), wherever it lives | Free space every sample; per-env `du` daily |
-| Work volume | Mounted, uuid match, marker, double mount, free space | Every `sampleIntervalSeconds` (A7.12) |
+| Work volume | Mounted, uuid match, marker, double mount, free space | Every 60 s (A7.12, A10.9) |
 | Auth | Login valid per account and which login it is (email, organization) | `claude auth status` every `authCheckMinutes` (see A10.4) |
 | Session titles | The session's custom title, else its last prompt, for the dashboard only | Read from the transcript on request; never stored |
 
 **Attribution:** every OTel datapoint carries `devhost.account` and `devhost.env` from `OTEL_RESOURCE_ATTRIBUTES` (set by the launchd job or `.envrc`), plus Claude Code's own `session.id` and `user.email`/`organization.id`. A login seen in a session's telemetry that belongs to exactly one account decides that session's account (a login two accounts share decides nothing). Sessions started outside any environment fall back to `user.email` → account mapping and `env = null`.
 
 ### A10.2 Settings written per account (user-level `settings.json`)
+
+**Receiver checks.** The collector listens on `127.0.0.1` only and, before reading a body, refuses (403) any request that has an `Origin` header (no browser page, against CSRF) or a `Host` other than `127.0.0.1:<port>` (DNS rebinding), and, on `/v1/metrics`, `/v1/logs` and `/hooks`, (401) a request without the per-install bearer token, sent as `Authorization: Bearer <token>` (OTLP headers) or `?token=` (hook URL) and compared in constant time. The token is random, created on first use at `~/.local/share/devhost/collector-token` (mode 600) and written by `apply` into each account's settings. Only `application/json` is accepted. `/health` needs no token.
 
 ```json
 {
@@ -419,7 +425,7 @@ A single long-running process, `devhost collector`, run by launchd (LaunchDaemon
 
 ### A10.5 Alerts
 
-Notify (ntfy in v1, provider behind a small interface) when: memory above `alerts.memoryPercent` for 5 min; free internal disk below `alerts.diskFreePercent`; an account's estimated daily cost crosses that account's `alerts.dailyCostUsd`; an environment's estimated cost since midnight crosses its `alerts.dailyCostUsd`, or its cost over the last 60 minutes crosses its `alerts.hourlyCostUsd` (rolling window, high priority; the message names the session that spent most, to catch one stuck in a loop; it clears below 80% of the limit so it does not flap); cost alerts only notify, they never stop a session; a Remote Control service restarts more than 3 times in 10 min; auth invalid (A10.4). With a work volume: volume missing or unmounted (including hot-unplug), uuid or marker mismatch, **double mount** (`/Volumes/<label> 1` exists), free space below `storage.workVolume.alerts.freePercent`. One notification per condition per state change.
+Notify (ntfy in v1, provider behind a small interface) when: memory above `alerts.memoryPercent` for 5 min; free internal disk below `alerts.diskFreePercent`; an account's estimated daily cost crosses that account's `alerts.dailyCostUsd`; an environment's estimated cost since midnight crosses its `alerts.dailyCostUsd`, or its cost over the last 60 minutes crosses its `alerts.hourlyCostUsd` (rolling window, high priority; the message names the session that spent most, to catch one stuck in a loop; it clears below 80% of the limit so it does not flap); cost alerts only notify, they never stop a session; a Remote Control service restarts more than 3 times in 10 min; auth invalid (A10.4). With a work volume: volume missing or unmounted (including hot-unplug), uuid or marker mismatch, **double mount** (`/Volumes/<label> 1` exists), free space below `storage.workVolume.alerts.freePercent`. One notification per condition per state change. **Privacy of the channel:** the default server is the public relay `https://ntfy.sh` (`notify.server` can point to one's own), each message is a plain POST to `<server>/<topic>` (title, priority, tags, short text), the relay and anyone who knows the topic can read it, and no message contains prompt text (a title derived from the user's last prompt is never used).
 
 ### A10.6 Query interface
 
@@ -479,7 +485,7 @@ A session left alone for an hour loses its prompt cache, and a Remote Control se
 | `devhost status` | One-screen summary. |
 | `devhost account list \| add \| remove` | A7.11. |
 | `devhost login <account> [--switch-login]` | A7.10. |
-| `devhost env list \| create \| delete \| start \| stop \| restart \| sleep \| wake \| logs` | A7.9. `create` flags: `--account`, `--name`, `--repo`, `--no-rc`, `--permission-mode`, `--compose auto\|off`. |
+| `devhost env list \| create \| delete \| start \| stop \| restart \| sleep \| wake \| logs` | A7.9. `create` flags: `--account`, `--name`, `--repo`, `--no-rc`, `--compose auto\|off`, `--spawn worktree\|same-dir`, `--permission-mode`, `--daily-cost-alert`, `--hourly-cost-alert`. |
 | `devhost session reattach <id> [--dry-run]` | A7.9. |
 | `devhost session handoff <id> [--new]` | A10.10. |
 | `devhost update [--check] [--all] [--force] [--dry-run]` | A7.5: update Claude Code, restart the Remote Control services onto it, list their detached sessions (they continue from claude.ai); `--all` also upgrades the Brewfile packages. |
@@ -490,7 +496,7 @@ A session left alone for an hour loses its prompt cache, and a Remote Control se
 | `devhost collector run \| logs` | Foreground run (launchd, debugging); its log. |
 | `devhost notify --test` | Test notification. |
 | `devhost version` | A9. |
-| `devhost uninstall [--keep-packages] [--purge-data] [--purge-storage]` | Removes launchd jobs (session reattaches included), the managed shell block, generated files (with backups). Never deletes projects, Claude config dirs, credentials, or the database unless `--purge-data`. Never touches the work volume, its data, the keychain item, or the unlock daemon unless `--purge-storage`, and even then never erases the volume. |
+| `devhost uninstall [--keep-packages] [--purge-data] [--purge-storage] [--dry-run]` | Removes launchd jobs (session reattaches and orphaned `com.devhost.*` services included), the managed shell block, generated files (with backups). Never deletes projects, Claude config dirs, credentials, or the database unless `--purge-data`. Never touches the work volume, its data, the keychain item, or the unlock daemon unless `--purge-storage`, and even then never erases the volume. |
 
 Global flags: `--json`, `--verbose`, `--yes`, `--config <path>`.
 
@@ -590,7 +596,7 @@ Stop after each phase for review.
 
 ## A18. Plugins
 
-A plugin is an ES module whose default export lists what it adds (`packages/cli/src/plugins/api.ts`; `definePlugin` gives the types). It runs in the CLI on the Mac mini, as the operator, uses only the plugin API (`ctx.exec`, `ctx.sessions()`, `ctx.services()`, `ctx.stats()`, …) and Node's own modules, never devhost's other modules, so it can live in its own repository. It changes things only through `ctx.exec`, so `--dry-run`, the plan and the root helper work as for `apply`.
+A plugin is an ES module whose default export lists what it adds (`packages/cli/src/plugins/api.ts`; `definePlugin` gives the types). It runs in the CLI on the Mac mini, as the operator, uses only the plugin API (`ctx.exec`, `ctx.sessions()`, `ctx.services()`, `ctx.stats()`, …) and Node's own modules, never devhost's other modules, so it can live in its own repository. It changes things only through `ctx.exec`, so `--dry-run`, the plan and the root helper work as for `apply`. **Trust:** a plugin is full-trust code, not a sandbox. It is plain Node.js running as the operator and can read files, use the network and spawn processes without `ctx.exec`; `ctx.exec` only makes its changes visible in the plan. Installing one (from GitHub, pinned to the cloned commit, npm dependencies with `--ignore-scripts`, off until enabled) is a decision to run that code.
 
 - **Actions** (`host`, `environment` or `session` scope; `destructive` ones ask first): `devhost plugin run <plugin> <action> [--env|--session] [--dry-run] [--yes]`. The app shows them on the Plugins screen, in an environment's menu, and in a session's Open menu.
 - **Checks:** shown by `doctor` as `plugin.<name>.<check>`.

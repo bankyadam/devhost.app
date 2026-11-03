@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AccountListData, DashData, EnvListData, StorageStatusData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import { envCreateArgs, type EnvCreateInput } from '../client/client';
+import { useHostQuery } from '../use-host-query';
 import { errorMessage } from '../client/errors';
 import { seriesSlot, seriesVar } from '../lib/colors';
 import { bytes, pct, usd } from '../lib/format';
@@ -33,14 +34,15 @@ export function byAccount(envs: Env[], order: readonly string[] = []): [string, 
 }
 
 export function Environments({ qr, onQr }: { qr: boolean; onQr: (on: boolean) => void }) {
-  const { client, transport, connection, reportUnreachable, hostName } = useApp();
-  const [envs, setEnvs] = useState<Env[] | null>(null);
+  const { client, transport, connection, hostName } = useApp();
+  const fetchEnvs = useCallback(async () => (await client.envs()).environments as Env[], [client]);
+  const { data: envs, error, refresh } = useHostQuery(fetchEnvs);
+
   // CPU, memory, disk and sessions per environment come from the collector.
   const { dash } = useDash('24h', {});
   const webApps = useWebApps();
   const plugins = usePlugins();
   const [pluginRun, setPluginRun] = useState<{ action: PluginActionInfo; env: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [volume, setVolume] = useState<StorageStatusData['volume'] | null>(null);
   const [accountOrder, setAccountOrder] = useState<string[]>([]);
   // The dashboard colors accounts by their place in the config: the same here.
@@ -50,19 +52,8 @@ export function Environments({ qr, onQr }: { qr: boolean; onQr: (on: boolean) =>
   const logsEnv = dialog?.kind === 'logs' ? dialog.env.name : null;
   const loadRcLog = useCallback(() => client.envLogs(logsEnv ?? '', 300).then((l) => l.lines), [client, logsEnv]);
 
-  const refresh = useCallback(async () => {
-    try {
-      setEnvs((await client.envs()).environments);
-      setError(null);
-    } catch (e) {
-      reportUnreachable(e);
-      setError(errorMessage(e));
-    }
-  }, [client, reportUnreachable]);
-
   useEffect(() => {
     if (connection.kind !== 'connected') return;
-    void refresh();
     void client.accounts().then((a) => setAccountOrder(a.accounts.map((x) => x.name))).catch(() => undefined);
     void client.storageStatus().then((st) => setVolume(st.volume ?? null)).catch(() => undefined);
     // Single-flight: the next poll is scheduled when the previous one finished.

@@ -12,5 +12,7 @@
 - A command interrupted by SIGINT is reported as cancelled (exit 130).
 
 ### Added
+- MIT license.
+- README: a verification matrix (what CI and the fake Mac cover, what is still unverified on real hardware), notes on plugin trust, the public ntfy relay, the collector's checks, the `0.0.0.0` dev-server rule and contract versioning; missing `env create` / `uninstall` flags and the `agents`, `storage.*`, `services.orphans` step ids.
 - `devhost version` reports the git commit when the build knows it.
 - Dependabot for npm, cargo and GitHub Actions.
