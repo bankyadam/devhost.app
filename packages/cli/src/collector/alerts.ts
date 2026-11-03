@@ -39,6 +39,8 @@ export const RESTART_LIMIT = 3;
 export const RESTART_WINDOW_MS = 10 * 60_000;
 /** A rolling hour moves both ways: the hourly cost alert clears only below this share of its limit. */
 export const HOURLY_COST_CLEAR = 0.8;
+/** Free disk space must rise this many points above the limit before the alert clears (no flapping at the edge). */
+export const DISK_CLEAR_MARGIN = 2;
 
 interface StoredAlert {
   active: number;
@@ -60,8 +62,32 @@ export class AlertEngine {
     private readonly log: (msg: string) => void = () => undefined,
   ) {}
 
+  /** Alert ids evaluated in the current pass. */
+  private seen = new Set<string>();
+
   async evaluate(thresholds: AlertThresholds, input: AlertInputs): Promise<void> {
     const now = this.now();
+    this.seen = new Set();
+    try {
+      await this.evaluateAll(thresholds, input, now);
+    } finally {
+      this.clearUnevaluated();
+    }
+  }
+
+  /**
+   * An active alert whose condition was not evaluated this time (limit removed, account, environment
+   * or volume gone from the config) would stay active for good: it is cleared without a message.
+   * Memory and disk are skipped: no sample is a missing reading, not a recovery.
+   */
+  private clearUnevaluated(): void {
+    for (const a of this.db.all<{ id: string }>('SELECT id FROM alert_state WHERE active = 1')) {
+      if (this.seen.has(a.id) || a.id === 'memory' || a.id === 'disk') continue;
+      this.db.run("UPDATE alert_state SET active = 0, message = 'No longer monitored' WHERE id = ?", a.id);
+    }
+  }
+
+  private async evaluateAll(thresholds: AlertThresholds, input: AlertInputs, now: number): Promise<void> {
 
     // Memory: above the limit for 5 minutes in a row.
     if (input.memPct !== null) {
@@ -77,7 +103,8 @@ export class AlertEngine {
     }
 
     if (input.diskFreePct !== null) {
-      await this.set('disk', input.diskFreePct < thresholds.diskFreePercent, `Free disk space is ${input.diskFreePct.toFixed(1)}% (limit ${thresholds.diskFreePercent}%)`, 'Free disk space is back above the limit', 'high');
+      const limit = thresholds.diskFreePercent + (this.isActive('disk') ? DISK_CLEAR_MARGIN : 0);
+      await this.set('disk', input.diskFreePct < limit, `Free disk space is ${input.diskFreePct.toFixed(1)}% (limit ${thresholds.diskFreePercent}%)`, 'Free disk space is back above the limit', 'high');
     }
 
     // The work volume: each condition once per state change, however often services retry meanwhile.
@@ -129,6 +156,7 @@ export class AlertEngine {
 
   private async set(id: string, active: boolean, onMessage: string, offMessage: string, priority: Priority, reminderMs?: number): Promise<void> {
     const now = this.now();
+    this.seen.add(id);
     const prev = this.db.get<StoredAlert>('SELECT active, since, last_notified, message FROM alert_state WHERE id = ?', id);
     const was = prev?.active === 1;
     if (active === was) {

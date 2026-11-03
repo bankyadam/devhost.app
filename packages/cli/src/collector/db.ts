@@ -141,10 +141,16 @@ export class Db {
 
   /** Migrates on start (spec A10.3). */
   private migrate(): void {
-    const current = Number((this.raw.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
-    for (let v = current; v < MIGRATIONS.length; v++) {
-      this.raw.exec('BEGIN');
+    const read = (): number => Number((this.raw.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
+    for (let v = read(); v < MIGRATIONS.length; v++) {
+      // IMMEDIATE takes the write lock first; the version is read again under it, so a second
+      // process that migrated the file in the meantime is not migrated over.
+      this.raw.exec('BEGIN IMMEDIATE');
       try {
+        if (read() > v) {
+          this.raw.exec('COMMIT');
+          continue;
+        }
         this.raw.exec(MIGRATIONS[v]!);
         this.raw.exec(`PRAGMA user_version = ${v + 1}`);
         this.raw.exec('COMMIT');

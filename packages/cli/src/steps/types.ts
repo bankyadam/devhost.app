@@ -20,6 +20,8 @@ export interface StepContext {
    * `env create` and `login` use it to accept workspace trust interactively.
    */
   beforeService?: (info: EnvInfo) => Promise<void>;
+  /** Asks a yes/no question (a prompt, or --yes); absent where nobody can be asked. */
+  confirm?: (id: string, message: string) => Promise<boolean>;
 }
 
 export interface EnvInfo {

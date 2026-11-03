@@ -12,7 +12,7 @@ pub const DEVHOST_PATH_ENV: &str = "PATH=/opt/homebrew/bin:/usr/local/bin:/usr/b
 /// `devhost` subcommands the app may run (everything else is refused).
 pub const ALLOWED_SUBCOMMANDS: &[&str] = &[
     "version", "status", "doctor", "apply", "account", "env", "login", "config", "dash", "collector",
-    "notify", "uninstall", "plugin", "session", "storage", "update", "agents",
+    "plugin", "session", "storage", "update", "agents",
 ];
 
 /// POSIX single-quote a string so a remote shell sees it as one literal word.

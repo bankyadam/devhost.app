@@ -1,7 +1,21 @@
 import { spawn } from 'node:child_process';
+import { constants } from 'node:os';
 import type { RunOptions, RunResult, Runner, SpawnedProcess } from './types.js';
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+
+/**
+ * Commands that stream their output (progress: brew upgrade, rsync of a whole account, a clone) or
+ * own the terminal (a login, an editor) take as long as they take; only a plain command that nobody
+ * watches gets a default limit.
+ */
+export function defaultTimeoutMs(opts: RunOptions): number | undefined {
+  if (opts.timeoutMs !== undefined) return opts.timeoutMs;
+  return opts.interactive || opts.onLine ? undefined : DEFAULT_TIMEOUT_MS;
+}
+
+/** Exit code of a process the way a shell reports it: 128 + the signal number (SIGINT is 130). */
+const signalExit = (signal: NodeJS.Signals | null): number => (signal ? 128 + (constants.signals[signal] ?? 0) : 1);
 
 /** Calls `onLine` per complete line; `flush` hands over a last line without a newline. */
 function lines(onLine: ((line: string) => void) | undefined) {
@@ -36,11 +50,24 @@ export class RealRunner implements Runner {
     if (pauseStdin) this.stdin.pause();
     return new Promise<RunResult>((resolve) => {
       const env = this.childEnv(opts);
+      const limit = defaultTimeoutMs(opts);
+      // With a limit the child leads its own process group, so the timeout can end what it started too.
+      // Without one it stays in ours: a Ctrl-C reaches it as before.
+      const grouped = limit !== undefined && !opts.interactive;
       const child = spawn(command, args, {
         env,
         cwd: opts.cwd,
         stdio: opts.interactive ? 'inherit' : ['pipe', 'pipe', 'pipe'],
+        detached: grouped,
       });
+      const killTree = (signal: NodeJS.Signals): void => {
+        try {
+          if (grouped && child.pid) process.kill(-child.pid, signal);
+          else child.kill(signal);
+        } catch {
+          /* already gone */
+        }
+      };
 
       let stdout = '';
       let stderr = '';
@@ -48,14 +75,15 @@ export class RealRunner implements Runner {
       const finish = (result: RunResult): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         resolve(result);
       };
 
-      const timer = setTimeout(() => {
-        child.kill('SIGTERM');
-        finish({ code: 124, stdout, stderr: `${stderr}timed out after ${opts.timeoutMs ?? DEFAULT_TIMEOUT_MS} ms\n` });
-      }, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+      const timer = limit === undefined ? undefined : setTimeout(() => {
+        killTree('SIGTERM');
+        setTimeout(() => killTree('SIGKILL'), 2000).unref();
+        finish({ code: 124, stdout, stderr: `${stderr}timed out after ${limit} ms\n` });
+      }, limit);
 
       const out = lines(opts.onLine);
       const err = lines(opts.onLine);
@@ -79,7 +107,7 @@ export class RealRunner implements Runner {
       child.on('close', (code, signal) => {
         out.flush();
         err.flush();
-        finish({ code: code ?? (signal ? 128 : 1), stdout, stderr });
+        finish({ code: code ?? signalExit(signal), stdout, stderr });
       });
 
       if (!opts.interactive && child.stdin) {
@@ -109,7 +137,7 @@ export class RealRunner implements Runner {
     child.stdin.on('error', () => undefined);
     const done = new Promise<number>((resolve) => {
       child.on('error', (err: NodeJS.ErrnoException) => resolve(err.code === 'ENOENT' ? 127 : 126));
-      child.on('close', (code, signal) => resolve(code ?? (signal ? 128 : 1)));
+      child.on('close', (code, signal) => resolve(code ?? signalExit(signal)));
     });
     return {
       onData: (cb) => void listeners.push(cb),

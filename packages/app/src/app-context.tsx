@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { VersionData } from '@devhost/contract/lite';
 import { DevhostClient } from './client/client';
 import { IncompatibleError, UnreachableError, errorMessage } from './client/errors';
+import { sshHostName } from './lib/host';
 import type { Transport } from './transport/types';
 
 export type Connection =
@@ -18,6 +19,8 @@ export interface AppCtx {
   /** Screens call this when a command failed because the host could not be reached. */
   reportUnreachable: (e: unknown) => void;
   navigate: (screen: Screen) => void;
+  /** Check the host again now (after updating devhost there); an incompatible version is not retried by itself. */
+  recheck: () => void;
   tools: { code: boolean; iterm: boolean };
   /** The host's name as devhost reports it (`version` → host.name); the ssh host until it has answered. */
   hostName: string;
@@ -50,6 +53,8 @@ export function AppProvider({ transport, navigate, retryMs = 4000, heartbeatMs =
   const [connection, setConnection] = useState<Connection>(transport ? { kind: 'connecting' } : { kind: 'no-host' });
   const [tools, setTools] = useState({ code: false, iterm: false });
   const [reported, setReported] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
+  const recheck = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
     // Local to this run: a slow answer from the previous host must not touch the new host's state.
@@ -89,16 +94,16 @@ export function AppProvider({ transport, navigate, retryMs = 4000, heartbeatMs =
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [client, transport, retryMs, heartbeatMs]);
+  }, [client, transport, retryMs, heartbeatMs, nonce]);
 
   const reportUnreachable = useCallback((e: unknown) => {
     if (e instanceof UnreachableError) setConnection((c) => (c.kind === 'unreachable' ? c : { kind: 'unreachable', since: Date.now(), message: e.message }));
   }, []);
 
-  const hostName = reported ?? transport?.host.replace(/^.*@/, '') ?? 'the host';
+  const hostName = reported ?? (transport ? sshHostName(transport.host) : undefined) ?? 'the host';
   const value = useMemo<AppCtx | null>(
-    () => (client && transport ? { client, transport, connection, reportUnreachable, navigate, tools, hostName } : null),
-    [client, transport, connection, reportUnreachable, navigate, tools, hostName],
+    () => (client && transport ? { client, transport, connection, reportUnreachable, navigate, recheck, tools, hostName } : null),
+    [client, transport, connection, reportUnreachable, navigate, recheck, tools, hostName],
   );
   if (!value) return <>{children}</>;
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

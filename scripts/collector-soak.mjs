@@ -23,6 +23,12 @@ mkdirSync(shim, { recursive: true });
 writeFileSync(join(shim, 'lsof'), `#!/bin/sh\necho "$PPID $*" >> "${lsofLog}"\nexec /usr/sbin/lsof "$@"\n`);
 chmodSync(join(shim, 'lsof'), 0o755);
 writeFileSync(lsofLog, '');
+// The soak must never reach the outside: `claude` (auth checks, handoff forks) is a stub that fails,
+// `docker` answers as if the daemon were down, so no compose sleep/wake can touch real environments.
+writeFileSync(join(shim, 'claude'), '#!/bin/sh\nexit 127\n');
+chmodSync(join(shim, 'claude'), 0o755);
+writeFileSync(join(shim, 'docker'), '#!/bin/sh\nexit 1\n');
+chmodSync(join(shim, 'docker'), 0o755);
 
 // This host's config and data, in the temporary home.
 const cfgDir = join(home, '.config', 'devhost');
@@ -38,6 +44,11 @@ const env = { ...process.env, HOME: home, PATH: `${shim}:${process.env.PATH}` };
 const devhost = (args) => execFileSync(process.execPath, [cli, ...args, '--config', cfg], { env, stdio: 'pipe' });
 devhost(['config', 'set', '/collector/port', String(port)]);
 devhost(['config', 'set', '/claude/update', '"off"']);
+// No real notification, auth probe, handoff or sleep: notify goes to a closed local port.
+devhost(['config', 'set', '/notify/server', '"http://127.0.0.1:9"']);
+devhost(['config', 'set', '/collector/authProbe', 'false']);
+devhost(['config', 'set', '/claude/handoff/idleMinutes', '0']);
+devhost(['config', 'set', '/docker/idleSleepMinutes', '0']);
 
 const collector = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', cli, 'collector', 'run', '--config', cfg], { env, stdio: ['ignore', 'ignore', 'pipe'] });
 let collectorErr = '';
@@ -59,7 +70,7 @@ const start = { at: Date.now(), cpu: cpuSeconds(collector.pid) };
 const end = start.at + minutes * 60_000;
 while (Date.now() < end) {
   const procs = execFileSync('ps', ['-axo', 'pid=,ppid=,command=']).toString().split('\n').map((l) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l)).filter(Boolean);
-  const children = procs.filter((m) => Number(m[2]) === collector.pid).map((m) => m[3].split(' ')[0].split('/').pop());
+  const children = procs.filter((m) => Number(m[2]) === collector.pid).map((m) => m[3]);
   maxChildren = Math.max(maxChildren, children.length);
   const dup = children.filter((c, i) => children.indexOf(c) !== i);
   if (dup.length) overlaps.push({ at: new Date().toISOString(), commands: dup });

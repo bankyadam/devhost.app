@@ -1,15 +1,19 @@
 {
   "name": "@devhost/cli",
   "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
   "description": "devhost CLI and collector: turns a Mac mini (Apple Silicon or Intel) into a headless Claude Code dev server",
   "type": "module",
   "bin": {
     "devhost": "dist/cli.js"
   },
   "main": "dist/main.js",
-  "files": ["dist", "templates"],
+  "files": ["dist", "templates", "build-info.json"],
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b && node scripts/build-info.mjs"
   },
   "dependencies": {
     "@devhost/contract": "0.1.0",

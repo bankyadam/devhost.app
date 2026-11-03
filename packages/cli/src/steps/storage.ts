@@ -1,6 +1,6 @@
 import { HumanActionRequired } from '../errors.js';
 import { daemonState } from '../launchd.js';
-import { AUTODISKMOUNT, automountWithoutLogin, enableOwnership, installUnlockDaemon, passphraseStored, spotlightOff, UNLOCK_LABEL, unlockPlistInstalled } from '../storage/root.js';
+import { AUTODISKMOUNT, automountWithoutLogin, enableOwnership, installUnlockDaemon, passphraseStored, spotlightOff, UNLOCK_LABEL, unlockPlistInstalled, unlockPlistUuid, removeUnlockDaemon } from '../storage/root.js';
 import { volumeStatus, workVolumeOf, type VolumeStatus } from '../storage/volume.js';
 import { ok, skip, todo, type Step, type StepContext } from './types.js';
 
@@ -81,17 +81,26 @@ export const storageUnlockStep: Step = {
   description: 'Unlock the encrypted work volume at boot, without a login (root service, passphrase in the System keychain)',
   async check(ctx) {
     const v = workVolumeOf(ctx.config);
-    if (!v) return skip('no storage.workVolume');
-    if (!v.encrypted) return skip('encrypted: false');
+    if (!v?.encrypted) {
+      // A service left from an earlier volume or from encrypted: true would keep unlocking it.
+      if (await unlockPlistInstalled(ctx.exec)) return todo(`${UNLOCK_LABEL} is installed but no encrypted work volume is configured`);
+      return skip(v ? 'encrypted: false' : 'no storage.workVolume');
+    }
     if (!(await passphraseStored(ctx.exec))) return todo('no passphrase in the System keychain');
     if (!(await unlockPlistInstalled(ctx.exec))) return todo(`${UNLOCK_LABEL} is not installed`);
+    if ((await unlockPlistUuid(ctx.exec)) !== v.uuid.toUpperCase()) return todo(`${UNLOCK_LABEL} unlocks another volume than ${v.uuid}`);
     return (await daemonState(ctx.exec, UNLOCK_LABEL)).loaded ? ok() : todo(`${UNLOCK_LABEL} is not loaded`);
   },
   async apply(ctx) {
+    const v = workVolumeOf(ctx.config);
+    if (!v?.encrypted) {
+      await removeUnlockDaemon(ctx.exec);
+      return;
+    }
     if (!(await passphraseStored(ctx.exec))) {
       throw new HumanActionRequired('the work volume passphrase is not in the System keychain', 'Store it once (it is read from stdin, never from the command line): devhost storage set-passphrase');
     }
-    await installUnlockDaemon(ctx.exec, ctx.home, workVolumeOf(ctx.config)!.uuid.toUpperCase());
+    await installUnlockDaemon(ctx.exec, ctx.home, v.uuid.toUpperCase());
   },
 };
 

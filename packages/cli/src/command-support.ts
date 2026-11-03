@@ -1,6 +1,6 @@
 import { ExitCode, type DevhostConfig } from '@devhost/contract';
 import type { Deps } from './deps.js';
-import { type DevhostError } from './errors.js';
+import { CommandError, type DevhostError } from './errors.js';
 import { errorEntries, exitCodeFor, writeEnvelope, writeHumanError, writeResultEvent } from './output.js';
 import { HumanReporter, NdjsonReporter, type Reporter } from './reporter.js';
 import { Executor } from './runner/executor.js';
@@ -69,12 +69,8 @@ export async function long(deps: Deps, g: GlobalOptions, work: (reporter: Report
   const reporter = newReporter(deps, g);
   try {
     const o = await work(reporter);
-    if (o.cancelled) {
-      const errors = [{ code: 'cancelled', message: 'cancelled after the current step' }];
-      if (g.json) writeResultEvent(deps, false, o.data, errors);
-      else deps.stdout.write('Cancelled after the current step; state is consistent. Re-run the command to continue.\n');
-      return ExitCode.Cancelled;
-    }
+    // A child that died of SIGINT (Ctrl-C reached it first) is the same as the flag: cancelled, not failed.
+    if (o.cancelled || interrupted(o.error)) return cancelled(deps, g, o.data);
     if (o.error) {
       if (g.json) writeResultEvent(deps, false, o.data, errorEntries(o.error));
       else {
@@ -87,8 +83,18 @@ export async function long(deps: Deps, g: GlobalOptions, work: (reporter: Report
     else for (const line of o.human ?? []) deps.stdout.write(`${line}\n`);
     return o.ok ? ExitCode.Ok : ExitCode.ChecksFailed;
   } catch (err) {
+    if (interrupted(err)) return cancelled(deps, g, null);
     if (g.json) writeResultEvent(deps, false, null, errorEntries(err));
     else writeHumanError(deps, err);
     return exitCodeFor(err);
   }
+}
+
+const interrupted = (err: unknown): boolean => err instanceof CommandError && err.exit === ExitCode.Cancelled;
+
+function cancelled(deps: Deps, g: GlobalOptions, data: unknown): number {
+  const errors = [{ code: 'cancelled', message: 'cancelled after the current step' }];
+  if (g.json) writeResultEvent(deps, false, data, errors);
+  else deps.stdout.write('Cancelled after the current step; state is consistent. Re-run the command to continue.\n');
+  return ExitCode.Cancelled;
 }

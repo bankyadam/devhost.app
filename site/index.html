@@ -154,10 +154,13 @@ footer{padding:50px 0;border-top:1px solid var(--line);color:var(--ink3);font-si
 footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
 
 /* reveal */
-.rv{opacity:0;transform:translateY(26px);transition:opacity .7s,transform .7s}
-.rv.in{opacity:1;transform:none}
-@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.rv{opacity:1;transform:none}}
+.js .rv{opacity:0;transform:translateY(26px);transition:opacity .7s,transform .7s}
+.js .rv.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.js .rv{opacity:1;transform:none}.pause{display:none}}
+.paused *{animation-play-state:paused!important}
+.pause{font:600 14px var(--font);padding:6px 14px;border-radius:99px;border:1px solid var(--line);background:var(--surface);color:var(--ink2);cursor:pointer;margin:-10px 0 14px}
 </style>
+<script>document.documentElement.classList.add('js')</script>
 </head>
 <body>
 
@@ -175,7 +178,14 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
   <div class="stage">
     <div class="term" aria-label="Animated terminal showing devhost setup">
       <div class="bar"><i></i><i></i><i></i></div>
-      <pre id="term"></pre>
+      <pre id="term">$ ./bootstrap.sh
+  ✔ machine ready
+$ devhost account add --name business
+  ✔ business logged in
+$ devhost env create --account business --name acme-api
+  ✔ Remote Control service running on :4100
+$ devhost doctor
+  ✅ 24 checks passed</pre>
     </div>
     <div class="shotwrap">
       <img class="shot tilt" data-shot="dashboard" alt="devhost Desktop dashboard with sample data" width="1440" height="900">
@@ -232,8 +242,9 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
 </div>
   <p class="lead rv">A native Mac app for your MacBook. Every screenshot here is the built-in demo host — invented projects, invented numbers.</p>
   <div class="tabs" role="tablist" id="tabs"></div>
+  <button class="pause" id="pause" type="button" aria-pressed="false">Pause</button>
   <div class="timer" id="timer" aria-hidden="true"><i></i></div>
-  <div class="tour"><div id="copy"></div><div class="shotwrap"><img class="shot" id="big" alt="" width="1440" height="900"></div></div>
+  <div class="tour"><div id="copy"><h3>One view of every account</h3><p>Health of the server, usage and cost per account, sessions waiting for input, environments and a doctor that says what to fix.</p></div><div class="shotwrap"><img class="shot" id="big" alt="devhost Desktop dashboard (demo data)" src="shots/dashboard-light.png?v=4" width="1440" height="900"></div></div>
   <p class="phone-note">Tip: put the <b>Monitor</b> on a second display and keep every session in sight.</p>
 </div></section>
 
@@ -273,6 +284,7 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
   const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
   const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
   async function play(){
+    if(window.__paused)await new Promise(r=>{window.__resume=r});
     let html='';
     for(const [k,t] of script){
       if(k==='p'&&!reduce){for(let i=1;i<=t.length;i++){el.innerHTML=html+`<span class="p">${esc(t.slice(0,i))}</span><span class="caret"></span>`;await new Promise(r=>setTimeout(r,22));}}
@@ -312,9 +324,19 @@ mq.addEventListener('change',()=>{show(cur);document.querySelectorAll('[data-sho
 document.querySelectorAll('[data-shot]').forEach(i=>setShot(i,i.dataset.shot));
 show(0);
 // auto-advance until the visitor interacts
-auto=setInterval(()=>show((cur+1)%tour.length),6000);show(cur);
+if(!matchMedia('(prefers-reduced-motion: reduce)').matches)auto=setInterval(()=>show((cur+1)%tour.length),6000);show(cur);
 tabs.addEventListener('click',()=>{clearInterval(auto);auto=null;document.getElementById('timer').classList.remove('run')});
 
+// Pause: stops the tour's auto-advance and the terminal loop (WCAG 2.2.2)
+const pauseBtn=document.getElementById('pause');
+pauseBtn.onclick=()=>{
+  const p=pauseBtn.getAttribute('aria-pressed')!=='true';
+  pauseBtn.setAttribute('aria-pressed',p);pauseBtn.textContent=p?'Play':'Pause';
+  window.__paused=p;
+  document.documentElement.classList.toggle('paused',p);
+  if(p){clearInterval(auto);auto=null;document.getElementById('timer').classList.remove('run')}
+  else{auto=setInterval(()=>show((cur+1)%tour.length),6000);show(cur);window.__resume&&window.__resume()}
+};
 // Copy buttons
 document.querySelectorAll('.copy').forEach(b=>b.onclick=()=>{navigator.clipboard?.writeText(b.dataset.c.replace(/&amp;/g,'&'));b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1400)});
 // Reveal on scroll

@@ -7,3 +7,4 @@ coverage/
 target/
 packages/app/src-tauri/gen/
 .claude/worktrees/
+packages/cli/build-info.json

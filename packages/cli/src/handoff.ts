@@ -73,12 +73,12 @@ export interface HandoffSession {
  * account and its last model, hooks off (no SessionStart: the fork is not a session to track or a
  * reason to wake the environment). Throws when Claude Code fails or answers nothing.
  */
-export async function writeHandoff(exec: Executor, home: string, config: DevhostConfig, s: HandoffSession, model: string | null): Promise<{ at: number; text: string; path: string }> {
+export async function writeHandoff(exec: Executor, home: string, config: DevhostConfig, s: HandoffSession, model: string | null, brewPrefix = '/opt/homebrew'): Promise<{ at: number; text: string; path: string }> {
   if (!SESSION_ID_RE.test(s.session_id)) throw new Error('not a session id');
   const account = findAccount(config, s.account);
   if (!account) throw new Error(`account ${s.account} is not in the config any more`);
   if (!s.cwd || !existsSync(s.cwd)) throw new Error(`the session's directory is gone: ${s.cwd || 'none recorded'}`);
-  const claude = await toolPath(exec, home, 'claudePath', 'claude', '/opt/homebrew/bin/claude');
+  const claude = await toolPath(exec, home, 'claudePath', 'claude', `${brewPrefix}/bin/claude`);
   const r = await exec.query(
     claude,
     ['-p', `--resume=${s.session_id}`, '--fork-session', '--no-session-persistence', '--settings', '{"disableAllHooks":true}', ...(model && MODEL_RE.test(model) ? [`--model=${model}`] : []), HANDOFF_PROMPT],

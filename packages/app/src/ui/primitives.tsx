@@ -68,12 +68,28 @@ export function Dialog({ title, onClose, children, footer, wide }: { title: stri
   });
   useEffect(() => {
     // Unless a field inside already took focus (a wizard's first field), focus the dialog itself.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (!ref.current?.contains(document.activeElement)) ref.current?.focus();
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close.current?.();
+      if (e.key === 'Escape') {
+        close.current?.();
+      } else if (e.key === 'Tab' && ref.current) {
+        // Focus trap: Tab and Shift+Tab cycle inside the dialog.
+        const items = [...ref.current.querySelectorAll<HTMLElement>(TABBABLE)].filter((el) => el.getClientRects().length > 0);
+        if (items.length === 0) { e.preventDefault(); ref.current.focus(); return; }
+        const first = items[0]!;
+        const last = items[items.length - 1]!;
+        const active = document.activeElement;
+        if (e.shiftKey && (active === first || active === ref.current || !ref.current.contains(active))) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && (active === last || !ref.current.contains(active))) { e.preventDefault(); first.focus(); }
+      }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      // Give focus back to what opened the dialog (if it is still on the page).
+      if (opener?.isConnected) opener.focus();
+    };
   }, []);
   return (
     <div className="overlay">
@@ -86,6 +102,7 @@ export function Dialog({ title, onClose, children, footer, wide }: { title: stri
   );
 }
 
+const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const FIELDS = 'input:not([disabled]), select:not([disabled]), textarea:not([disabled])';
 
 /**
@@ -171,7 +188,21 @@ export function Menu({ label, items, ariaLabel, caret = true }: { label: string;
       window.removeEventListener('scroll', close, true);
     };
   }, [open]);
+  useEffect(() => {
+    if (open && pos) list.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
+  }, [open, pos !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const items = [...(list.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])];
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); items[0]?.focus(); }
+    else if (e.key === 'End') { e.preventDefault(); items[items.length - 1]?.focus(); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); button.current?.focus(); }
+    else if (e.key === 'Tab') setOpen(false);
+  };
   useLayoutEffect(() => {
+    if (!open) setPos(null);
     if (!open || !button.current) return;
     const r = button.current.getBoundingClientRect();
     const height = list.current?.offsetHeight ?? 0;
@@ -180,9 +211,9 @@ export function Menu({ label, items, ariaLabel, caret = true }: { label: string;
   }, [open]);
   return (
     <div className="menu">
-      <button ref={button} className="btn sm" aria-haspopup="menu" aria-expanded={open} aria-label={ariaLabel} title={ariaLabel} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>{caret ? `${label} ▾` : label}</button>
+      <button ref={button} className="btn sm" aria-haspopup="menu" aria-expanded={open} aria-label={ariaLabel} title={ariaLabel} onKeyDown={(e) => { if (e.key === 'ArrowDown' && !open) { e.preventDefault(); setOpen(true); } }} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>{caret ? `${label} ▾` : label}</button>
       {open && (
-        <div ref={list} className="items" role="menu" style={pos ? { top: pos.top, right: pos.right } : { visibility: 'hidden' }}>
+        <div ref={list} className="items" role="menu" onKeyDown={onMenuKey} style={pos ? { top: pos.top, right: pos.right } : { visibility: 'hidden' }}>
           {visible.map((i) => (
             <button key={i.label} role="menuitem" className={i.danger ? 'danger' : undefined} disabled={i.disabled} onClick={() => { setOpen(false); i.onSelect(); }}>{i.label}</button>
           ))}

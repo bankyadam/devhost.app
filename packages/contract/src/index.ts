@@ -6,17 +6,10 @@ export * from './generated/types.js';
 export { schemas, type SchemaName };
 
 /** Version of the --json contract (spec A9). Bump the major on breaking changes. */
-import { CONTRACT_VERSION as VERSION } from './lite.js';
-export const CONTRACT_VERSION = VERSION;
+import type { ExitCode } from './lite.js';
+export { CONTRACT_VERSION, CONTRACT_MINOR, CAPABILITIES, ExitCode } from './lite.js';
 
-/** Process exit codes (spec A9). */
-export const ExitCode = {
-  Ok: 0,
-  ChecksFailed: 1,
-  Usage: 2,
-  HumanActionRequired: 3,
-  Cancelled: 130,
-} as const;
+/** Process exit codes (spec A9): one definition, in lite.ts. */
 export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode];
 
 export interface ValidationIssue {

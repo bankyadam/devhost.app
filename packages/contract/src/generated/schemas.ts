@@ -137,7 +137,9 @@ export const schemas = {
             },
             "root": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^(/|~/)",
+              "description": "Absolute path, or starting with ~/."
             },
             "portRange": {
               "type": "array",
@@ -552,6 +554,7 @@ export const schemas = {
           "authCheckMinutes": {
             "type": "integer",
             "minimum": 1,
+            "maximum": 1440,
             "default": 60
           },
           "authProbe": {
@@ -673,6 +676,18 @@ export const schemas = {
       "contractVersion": {
         "type": "integer",
         "const": 1
+      },
+      "contractMinor": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Additive revision within contractVersion: new fields and events, never removals."
+      },
+      "capabilities": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional features this CLI supports, e.g. snapshot-event."
       },
       "ok": {
         "type": "boolean"
@@ -4054,6 +4069,10 @@ export const schemas = {
       },
       "contractVersion": {
         "type": "integer"
+      },
+      "commit": {
+        "type": "string",
+        "description": "The git commit the CLI was built from, when the build knew it."
       },
       "node": {
         "type": "string"

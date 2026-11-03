@@ -8,6 +8,8 @@
   "required": ["contractVersion", "ok", "data", "errors"],
   "properties": {
     "contractVersion": { "type": "integer", "const": 1 },
+    "contractMinor": { "type": "integer", "minimum": 0, "description": "Additive revision within contractVersion: new fields and events, never removals." },
+    "capabilities": { "type": "array", "items": { "type": "string" }, "description": "Optional features this CLI supports, e.g. snapshot-event." },
     "ok": { "type": "boolean" },
     "data": {},
     "errors": {

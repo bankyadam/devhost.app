@@ -84,7 +84,7 @@ export function SchemaForm({ root, text, onText, issues, skip, summaries = {} }:
       if (items && !Array.isArray(items) && typeOf(items) !== 'string') return null; // lists of objects are managed elsewhere
       return (
         <Field key={ptr} label={label} hint={schema.description ?? 'One entry per line.'} error={err}>
-          {(id) => <textarea id={id} className="textarea" rows={Math.min(8, Math.max(2, lines.length + 1))} value={lines.join('\n')} onChange={(e) => set(tokens, e.target.value.split('\n').map((l) => l.trim()).filter(Boolean))} aria-invalid={!!err} spellCheck={false} />}
+          {(id) => <ListArea id={id} lines={lines} invalid={!!err} onChange={(l) => set(tokens, l)} />}
         </Field>
       );
     }
@@ -106,7 +106,7 @@ export function SchemaForm({ root, text, onText, issues, skip, summaries = {} }:
     if (t === 'integer' || t === 'number') {
       return (
         <Field key={ptr} label={label} hint={schema.description} error={err}>
-          {(id) => <input id={id} className="input" type="number" min={schema.minimum} max={schema.maximum} value={value(tokens) === undefined ? '' : String(value(tokens))} onChange={(e) => (e.target.value === '' ? onText(deleteAt(text, tokens)) : set(tokens, Number(e.target.value)))} aria-invalid={!!err} />}
+          {(id) => <NumberInput id={id} min={schema.minimum} max={schema.maximum} value={value(tokens) as number | undefined} invalid={!!err} onCommit={(n) => (n === undefined ? onText(deleteAt(text, tokens)) : set(tokens, n))} />}
         </Field>
       );
     }
@@ -182,5 +182,51 @@ function JsonField({ label, value, onChange, error, hint }: { label: string; val
         />
       )}
     </Field>
+  );
+}
+
+/** A string list, one entry per line. The text is kept as typed while focused, so a new empty line can be started. */
+function ListArea({ id, lines, invalid, onChange }: { id: string; lines: string[]; invalid: boolean; onChange: (l: string[]) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? lines.join('\n');
+  return (
+    <textarea
+      id={id}
+      className="textarea"
+      rows={Math.min(8, Math.max(2, shown.split('\n').length + 1))}
+      value={shown}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        onChange(e.target.value.split('\n').map((l) => l.trim()).filter(Boolean));
+      }}
+      onBlur={() => setDraft(null)}
+      aria-invalid={invalid}
+      spellCheck={false}
+    />
+  );
+}
+
+/** A number kept as a string while typing ("-", "1." and "" are legal intermediate states); the value is written on blur. */
+function NumberInput({ id, value, min, max, invalid, onCommit }: { id: string; value: number | undefined; min?: number; max?: number; invalid: boolean; onCommit: (n: number | undefined) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input
+      id={id}
+      className="input"
+      type="number"
+      min={min}
+      max={max}
+      value={draft ?? (value === undefined ? '' : String(value))}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft !== null) {
+          const n = Number(draft);
+          if (draft.trim() === '') onCommit(undefined);
+          else if (Number.isFinite(n)) onCommit(n);
+        }
+        setDraft(null);
+      }}
+      aria-invalid={invalid}
+    />
   );
 }

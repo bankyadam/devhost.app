@@ -53,6 +53,8 @@ struct LineEvent {
 struct ExitEvent {
     id: String,
     code: i32,
+    /// The last lines ssh/devhost printed on stderr (why a connection or command ended without a result).
+    stderr: String,
 }
 
 fn home() -> Result<String, String> {
@@ -120,10 +122,28 @@ async fn ssh_run(host: String, args: Vec<String>, stdin: Option<String>, timeout
 #[tauri::command]
 fn ssh_stream_start(app: AppHandle, streams: State<Streams>, id: String, host: String, args: Vec<String>) -> Result<(), String> {
     let mut cmd = ssh_command(&host, &args, false)?;
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("could not start ssh: {e}"))?;
     let stdin = child.stdin.take();
     let mut stdout = child.stdout.take().ok_or("no stdout")?;
+    let mut stderr = child.stderr.take().ok_or("no stderr")?;
+    // Keep only the last few KB of stderr; it is reported in the exit event.
+    let err_thread = std::thread::spawn(move || {
+        let mut all = Vec::new();
+        let mut chunk = [0u8; 4096];
+        while let Ok(n) = stderr.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            all.extend_from_slice(&chunk[..n]);
+            if all.len() > 8192 {
+                all.drain(..all.len() - 4096);
+            }
+        }
+        let text = String::from_utf8_lossy(&all).into_owned();
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        lines[lines.len().saturating_sub(5)..].join("\n")
+    });
     streams.0.lock().map_err(|e| e.to_string())?.insert(id.clone(), StreamHandle { child, stdin, cancelled: false });
 
     std::thread::spawn(move || {
@@ -153,7 +173,8 @@ fn ssh_stream_start(app: AppHandle, streams: State<Streams>, id: String, host: S
                 if h.cancelled { 130 } else { status.unwrap_or(255) }
             })
             .unwrap_or(255);
-        let _ = app.emit("ssh-exit", ExitEvent { id, code });
+        let stderr = err_thread.join().unwrap_or_default();
+        let _ = app.emit("ssh-exit", ExitEvent { id, code, stderr });
     });
     Ok(())
 }

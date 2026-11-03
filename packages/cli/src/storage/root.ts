@@ -116,3 +116,13 @@ export async function passphraseStored(exec: Executor): Promise<boolean> {
 }
 
 export const unlockPlistInstalled = async (exec: Executor): Promise<boolean> => (await exec.readText(join(launchDaemonsDir(), `${UNLOCK_LABEL}.plist`))) !== null;
+
+const unxml = (s: string): string => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+
+/** The volume UUID the installed unlock service unlocks (its last ProgramArguments entry), or null. */
+export async function unlockPlistUuid(exec: Executor): Promise<string | null> {
+  const text = await exec.readText(join(launchDaemonsDir(), `${UNLOCK_LABEL}.plist`));
+  const args = text === null ? null : /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text)?.[1];
+  const strings = args ? [...args.matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => unxml(m[1]!)) : [];
+  return strings.at(-1)?.toUpperCase() ?? null;
+}

@@ -6,7 +6,7 @@ import { accountsOf, environmentsOf, findAccount, type Account } from './config/
 import { appendTo, editConfigFile, removeFrom } from './config/edit.js';
 import { loadConfig } from './config/load.js';
 import type { Deps } from './deps.js';
-import { UsageError } from './errors.js';
+import { DevhostError, UsageError } from './errors.js';
 import { authStatus, claudeBinary, claudeRunOptions, loginAccount, type LoginContext } from './login.js';
 import { allocateAccountRange } from './ports.js';
 import { makePrompter } from './prompter.js';
@@ -64,6 +64,7 @@ export function accountAddCommand(deps: Deps, g: GlobalOptions, opts: AccountAdd
     // Re-running add for an account that is already in the config continues its setup (e.g. after a
     // step stopped it), as long as the git email and the default flag match; the config's settings win.
     const existing = findAccount(loaded.config, opts.name);
+    if (opts.root !== undefined && !/^(\/|~\/)/.test(opts.root)) throw new UsageError(`the account root "${opts.root}" is not an absolute path`, 'Start it with / or ~/.');
     if (existing) {
       const differs = [
         ...(existing.git.email !== opts.gitEmail ? [`with git email ${existing.git.email}`] : []),
@@ -142,6 +143,10 @@ export function accountRemoveCommand(deps: Deps, g: GlobalOptions, name: string,
     const envs = environmentsOf(loaded.config).filter((e) => e.account === name);
     if (envs.length > 0) {
       throw new UsageError(`account "${name}" still has environments: ${envs.map((e) => e.name).join(', ')}`, `Remove them first: ${envs.map((e) => `devhost env delete ${e.name}`).join(' && ')}`);
+    }
+
+    if (!(await makePrompter(deps, g.json, g.yes).confirm('remove-account', `Remove account "${name}" from devhost (its root, Claude config dir and credentials stay)?`))) {
+      return { ok: false, data: null, error: new DevhostError('not confirmed; nothing was changed', 'not-confirmed') };
     }
 
     const exec = newExecutor(deps, g, reporter, false);

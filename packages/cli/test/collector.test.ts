@@ -385,7 +385,7 @@ describe('Collector sampling', () => {
     for (const [ts, s, a] of [[hour + 1000, 1, 3], [hour + 2000, 2, 0], [hour + 3000, 0, 0]] as const) {
       db.run("INSERT INTO samples_agents VALUES (?, '', ?, ?)", ts, s, a);
     }
-    rollup(db, hour + H + 1);
+    rollup(db, hour + H + 10 * 60_000);
     expect(db.get("SELECT sessions_max, subagents_max, total_max, total_avg, samples FROM rollup_agents WHERE account = ''")).toEqual({ sessions_max: 2, subagents_max: 3, total_max: 4, total_avg: 2, samples: 3 });
   });
 
@@ -736,7 +736,7 @@ describe('rollup and retention', () => {
     expect(sum(before)).toBe(7);
 
     rollup(db, now);
-    expect(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM rollup_usage')?.n).toBe(6); // 3 hours × (output, cost)
+    expect(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM rollup_usage')?.n).toBe(4); // 2 completed hours before the 5 min grace × (output, cost)
     retain(db, now, { rawDays: 7, rollupDays: 365 });
     expect(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM usage')?.n).toBe(4); // the 9-day-old rows are gone
     // The dashboard reads old hours from rollups and newer data from raw rows: totals are unchanged.

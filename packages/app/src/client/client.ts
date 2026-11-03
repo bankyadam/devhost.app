@@ -1,3 +1,4 @@
+import { sshHostName } from '../lib/host';
 import {
   CONTRACT_VERSION,
   type AccountChangeData,
@@ -44,7 +45,8 @@ export interface Answered {
 export interface LongHandlers {
   onEvent?: (e: Event) => void;
   /** Answer a prompt event; the value is written to the command's stdin as `{"id","value"}`. */
-  onPrompt?: (p: PromptEvent) => Promise<string | boolean>;
+  /** `signal` aborts when the command is over (cancelled, dropped or finished): stop waiting for the answer. */
+  onPrompt?: (p: PromptEvent, signal: AbortSignal) => Promise<string | boolean>;
 }
 
 export interface LongRun<T> {
@@ -87,7 +89,7 @@ export class DevhostClient {
   async call<T>(args: string[], opts: { stdin?: string; timeoutMs?: number } = {}): Promise<Answered & { data: T }> {
     const r = await this.transport.run([...args, '--json'], opts);
     if (isTransportFailure(r)) {
-      throw new UnreachableError(r.code === 124 ? `${this.transport.host.replace(/^.*@/, '')} did not answer in time.` : `Could not reach ${this.transport.host}${firstLine(r.stderr) ? `: ${firstLine(r.stderr)}` : '.'}`, r.stderr);
+      throw new UnreachableError(r.code === 124 ? `${sshHostName(this.transport.host)} did not answer in time.` : `Could not reach ${this.transport.host}${firstLine(r.stderr) ? `: ${firstLine(r.stderr)}` : '.'}`, r.stderr);
     }
     const env = lastJsonLine(r.stdout) as Envelope | null;
     if (!env || typeof env !== 'object' || !('contractVersion' in env)) {
@@ -148,6 +150,7 @@ export class DevhostClient {
     const ref: { handle?: StreamHandle } = {};
     let result: { ok: boolean; data: T | null; errors: ErrorEntry[] } | null = null;
     const pendingPrompts: Promise<void>[] = [];
+    const over = new AbortController();
 
     const handle = (ref.handle = this.transport.stream([...args, '--json'], (line) => {
       let ev: Event;
@@ -162,18 +165,23 @@ export class DevhostClient {
       }
       handlers.onEvent?.(ev);
       if (ev.type === 'prompt') {
-        const p = (handlers.onPrompt?.(ev) ?? Promise.resolve(false)).then((value) => ref.handle?.write(JSON.stringify({ id: ev.id, value })));
+        const p = (handlers.onPrompt?.(ev, over.signal) ?? Promise.resolve(false)).then((value) => {
+          if (!over.signal.aborted) ref.handle?.write(JSON.stringify({ id: ev.id, value }));
+        });
         pendingPrompts.push(p.catch(() => ref.handle?.cancel()));
       }
     }));
 
     let cancelled = false;
     const promise = handle.done.then(async (code): Promise<LongResult<T>> => {
-      await Promise.allSettled(pendingPrompts);
+      over.abort(); // a prompt nobody can answer any more must not keep the dialog running
+      // Not awaited: aborted prompts are abandoned, and their answers are dropped.
+      void Promise.allSettled(pendingPrompts);
       if (!result && cancelled) return { ok: false, exit: 130, data: null, errors: [{ code: 'cancelled', message: 'cancelled' }] };
       if (!result) {
-        if (code === 255 || code === 127) throw new UnreachableError(`The connection to ${this.transport.host} was lost.`);
-        return { ok: false, exit: code, data: null, errors: [{ code: code === 130 ? 'cancelled' : 'no-result', message: code === 130 ? 'cancelled' : 'the command ended without a result' }] };
+        const why = handle.stderrTail?.().trim();
+        if (code === 255 || code === 127) throw new UnreachableError(`The connection to ${this.transport.host} was lost.${why ? ` ${why}` : ''}`);
+        return { ok: false, exit: code, data: null, errors: [{ code: code === 130 ? 'cancelled' : 'no-result', message: code === 130 ? 'cancelled' : `the command ended without a result${why ? `: ${why}` : ''}` }] };
       }
       return { ok: result.ok, exit: code, data: result.data, errors: result.errors };
     });
@@ -195,7 +203,7 @@ export class DevhostClient {
   accountAdd(o: AccountAddInput, h?: LongHandlers): LongRun<AccountChangeData> {
     return this.run(accountAddArgs(o), h);
   }
-  accountRemove = (name: string, logout: boolean, h?: LongHandlers): LongRun<AccountChangeData> => this.run(['account', 'remove', name, ...(logout ? ['--logout'] : [])], h);
+  accountRemove = (name: string, logout: boolean, h?: LongHandlers): LongRun<AccountChangeData> => this.run(['account', 'remove', name, '--yes', ...(logout ? ['--logout'] : [])], h);
 
   envCreate(o: EnvCreateInput, h?: LongHandlers): LongRun<EnvChangeData> {
     return this.run(envCreateArgs(o), h);

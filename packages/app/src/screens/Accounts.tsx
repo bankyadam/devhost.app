@@ -17,7 +17,6 @@ export function Accounts() {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [envs, setEnvs] = useState<EnvListData['environments']>([]);
   const [dash, setDash] = useState<DashData | null>(null);
-  const [stores, setStores] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<null | { kind: 'add' } | { kind: 'login'; account: Account } | { kind: 'remove'; account: Account } | { kind: 'web-app'; account: Account }>(null);
   const names = (accounts ?? []).map((a) => a.name);
@@ -39,15 +38,6 @@ export function Accounts() {
   useEffect(() => {
     if (connection.kind !== 'connected') return;
     void refresh();
-    // The credential store (Keychain or file) is part of the doctor checks.
-    void client.doctor().then((d) => {
-      const m: Record<string, string> = {};
-      for (const c of d.checks) {
-        const hit = /^account\.(.+)\.credentials$/.exec(c.id);
-        if (hit) m[hit[1]!] = c.status === 'ok' ? 'Keychain' : 'file';
-      }
-      setStores(m);
-    }).catch(() => undefined);
   }, [client, connection.kind, refresh]);
 
   return (
@@ -71,7 +61,7 @@ export function Accounts() {
                       <td><b>{a.name}</b><div className="note mono">{a.configDir ?? '~/.claude (default)'}</div></td>
                       <td>{a.default ? 'yes' : '–'}</td>
                       <td>{a.loggedIn === true ? <Badge tone="good">logged in</Badge> : a.loggedIn === false ? <Badge tone="bad">not logged in</Badge> : <Badge>unknown</Badge>}</td>
-                      <td>{stores[a.name] ?? '–'}</td>
+                      <td>{a.credentialStore === 'keychain' ? 'Keychain' : a.credentialStore === 'file' ? 'file' : '–'}</td>
                       <td>{checked ? ago(checked, Date.now()) : '–'}</td>
                       <td className="mono">{a.portRange[0]}–{a.portRange[1]}</td>
                       <td className="num">{a.environments}</td>

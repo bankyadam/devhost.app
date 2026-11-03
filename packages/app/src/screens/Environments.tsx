@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AccountListData, DashData, EnvListData, StorageStatusData } from '@devhost/contract/lite';
 import { useApp } from '../app-context';
 import { envCreateArgs, type EnvCreateInput } from '../client/client';
@@ -47,6 +47,9 @@ export function Environments({ qr, onQr }: { qr: boolean; onQr: (on: boolean) =>
   const accountNames = accountOrder.length > 0 ? accountOrder : envs ? byAccount(envs).map(([a]) => a) : [];
   const [dialog, setDialog] = useState<null | { kind: 'create' } | { kind: 'service'; env: Env; action: 'start' | 'stop' | 'restart' } | { kind: 'sleep'; env: Env; action: 'sleep' | 'wake' } | { kind: 'delete'; env: Env } | { kind: 'logs'; env: Env } | { kind: 'setup'; env: Env } | { kind: 'cost'; env: Env; live: EnvLive | undefined } | { kind: 'qr'; env: Env; url: string }>(null);
 
+  const logsEnv = dialog?.kind === 'logs' ? dialog.env.name : null;
+  const loadRcLog = useCallback(() => client.envLogs(logsEnv ?? '', 300).then((l) => l.lines), [client, logsEnv]);
+
   const refresh = useCallback(async () => {
     try {
       setEnvs((await client.envs()).environments);
@@ -62,8 +65,14 @@ export function Environments({ qr, onQr }: { qr: boolean; onQr: (on: boolean) =>
     void refresh();
     void client.accounts().then((a) => setAccountOrder(a.accounts.map((x) => x.name))).catch(() => undefined);
     void client.storageStatus().then((st) => setVolume(st.volume ?? null)).catch(() => undefined);
-    const t = setInterval(() => void refresh(), 10_000);
-    return () => clearInterval(t);
+    // Single-flight: the next poll is scheduled when the previous one finished.
+    let stop = false;
+    let t: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      t = setTimeout(() => void refresh().finally(() => !stop && tick()), 10_000);
+    };
+    tick();
+    return () => { stop = true; clearTimeout(t); };
   }, [client, connection.kind, refresh]);
 
   return (
@@ -200,7 +209,7 @@ export function Environments({ qr, onQr }: { qr: boolean; onQr: (on: boolean) =>
       {dialog?.kind === 'qr' && <QrDialog title={`Open on the phone · ${dialog.env.name}`} url={dialog.url} note={`Scan with the phone's camera: ${dialog.env.name}'s Remote Control environment opens on claude.ai/code (or in the Claude app), where a new session starts in this environment. You need to be signed in to ${dialog.env.account} there.`} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'cost' && <CostAlertDialog env={dialog.env} live={dialog.live} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'delete' && <DeleteFlow env={dialog.env} onClose={() => { setDialog(null); void refresh(); }} />}
-      {dialog?.kind === 'logs' && <LogViewer title={`${dialog.env.name} · Remote Control log`} load={() => client.envLogs(dialog.env.name, 300).then((l) => l.lines)} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'logs' && <LogViewer title={`${dialog.env.name} · Remote Control log`} load={loadRcLog} onClose={() => setDialog(null)} />}
     </div>
   );
 }
@@ -250,15 +259,22 @@ export function LogPane({ load }: { load: () => Promise<string[]> }) {
   const [lines, setLines] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
+  const seq = useRef(0);
   const refresh = useCallback(() => {
-    load().then((l) => { setLines(l); setError(null); }, (e) => setError(errorMessage(e)));
+    const mine = ++seq.current;
+    return load().then((l) => { if (mine === seq.current) { setLines(l); setError(null); } }, (e) => { if (mine === seq.current) setError(errorMessage(e)); });
   }, [load]);
   useEffect(() => {
     setLines(null);
     refresh();
     if (!follow) return;
-    const t = setInterval(refresh, 3000);
-    return () => clearInterval(t);
+    let stop = false;
+    let t: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      t = setTimeout(() => { refresh().finally(() => !stop && tick()); }, 3000);
+    };
+    tick();
+    return () => { stop = true; clearTimeout(t); };
   }, [refresh, follow]);
   return (
     <>

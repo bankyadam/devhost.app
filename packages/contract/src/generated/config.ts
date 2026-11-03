@@ -47,6 +47,9 @@ export interface DevhostConfig {
     name: string;
     default?: boolean;
     configDir?: string | null;
+    /**
+     * Absolute path, or starting with ~/.
+     */
     root: string;
     /**
      * @minItems 2

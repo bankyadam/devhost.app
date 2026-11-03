@@ -11,6 +11,7 @@ import { Sessions } from './screens/Sessions';
 import { Logs } from './screens/Logs';
 import { Monitor } from './screens/Monitor';
 import type { Transport } from './transport/types';
+import { ErrorBoundary } from './ui/error-boundary';
 import { Badge, ConfirmDialog, Field } from './ui/primitives';
 import { Plugins } from './screens/Plugins';
 import { StorageScreen } from './screens/Storage';
@@ -80,7 +81,7 @@ function MonitorWindow() {
   return (
     <div className="monitor-window">
       {connection.kind === 'unreachable' && <div className="banner bad" role="alert"><b>{hostName} is unreachable.</b> Trying again every few seconds.</div>}
-      {connection.kind === 'incompatible' ? <div className="banner bad" role="alert">The devhost on {hostName} does not match this app; open the main window for details.</div> : <Monitor />}
+      {connection.kind === 'incompatible' ? <div className="banner bad" role="alert">The devhost on {hostName} does not match this app; open the main window for details.</div> : <ErrorBoundary><Monitor /></ErrorBoundary>}
     </div>
   );
 }
@@ -102,7 +103,7 @@ function HostSetup({ initial, onConnect }: { initial: string; onConnect: (host: 
 }
 
 function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; update: (p: Partial<Prefs>) => void; screen: Screen; setScreen: (s: Screen) => void; onHost: (h: string) => void }) {
-  const { connection, transport, hostName } = useApp();
+  const { connection, transport, hostName, recheck } = useApp();
   const tray = useTraySync();
   // Not window.confirm: the macOS webview (WKWebView under Tauri v2) has no native dialog for it and returns false.
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
@@ -153,7 +154,8 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
             <b>{hostName} is unreachable.</b> {connection.message} Trying again every few seconds; the last data stays visible and everything resumes when it is back.
           </div>
         )}
-        {connection.kind === 'incompatible' && <div className="banner bad" role="alert">{connection.message}</div>}
+        {connection.kind === 'incompatible' && <div className="banner bad" role="alert">{connection.message} <button className="btn sm" onClick={recheck}>Check again</button></div>}
+        <ErrorBoundary resetKey={screen}>
         {connection.kind === 'incompatible' ? null : screen === 'dashboard' ? (
           <Dashboard params={prefs.pluginParams} onParams={(pluginParams) => update({ pluginParams })} />
         ) : screen === 'sessions' ? (
@@ -175,6 +177,7 @@ function Shell({ prefs, update, screen, setScreen, onHost }: { prefs: Prefs; upd
         ) : (
           <Doctor />
         )}
+        </ErrorBoundary>
       </div>
     </div>
   );

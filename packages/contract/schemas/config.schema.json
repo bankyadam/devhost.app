@@ -134,7 +134,9 @@
           },
           "root": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "pattern": "^(/|~/)",
+            "description": "Absolute path, or starting with ~/."
           },
           "portRange": {
             "type": "array",
@@ -549,6 +551,7 @@
         "authCheckMinutes": {
           "type": "integer",
           "minimum": 1,
+          "maximum": 1440,
           "default": 60
         },
         "authProbe": {
