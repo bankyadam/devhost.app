@@ -102,7 +102,7 @@ nav.top .links a:hover{color:var(--ink)}
 .diagram{margin-top:56px;background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:34px 20px;display:grid;grid-template-columns:1fr 1.1fr 1fr;gap:12px;align-items:center;text-align:center}
 .node{border:1px solid var(--line);border-radius:16px;padding:18px 12px;background:var(--bg)}
 .node b{display:block;font-size:18px}.node span{color:var(--ink3);font-size:14px}
-.node .emo{font-size:34px;display:grid;place-items:center;height:92px}.gfx{color:var(--ink)}.led circle{animation:pulse2 2.4s ease-in-out infinite}.led circle:nth-child(2){animation-delay:-.8s}.led circle:nth-child(3){animation-delay:-1.6s}@keyframes pulse2{50%{opacity:.3}}.spark{animation:spin 24s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.node .emo{font-size:34px;display:grid;place-items:center;height:92px}.gfx{display:block}.led circle{animation:pulse2 2.4s ease-in-out infinite}.led circle:nth-child(2){animation-delay:-.8s}.led circle:nth-child(3){animation-delay:-1.6s}@keyframes pulse2{50%{opacity:.3}}.spark{animation:spin 24s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .mini{display:flex;flex-direction:column;gap:8px;align-items:stretch}
 .mini div{font:13px var(--mono);border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:var(--bg);display:flex;justify-content:space-between;gap:10px}
 .mini em{font-style:normal;color:var(--ink3)}
@@ -180,7 +180,7 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
     <div class="shotwrap">
       <img class="shot tilt" data-shot="dashboard" alt="devhost Desktop dashboard with sample data" width="1440" height="900">
       <div class="float a"><span class="dot"></span><span><b>1 session waiting</b><br><small style="color:var(--ink3)">acme-api · needs your answer</small></span></div>
-      <div class="float b"><span class="dot g"></span><span><b>macmini online</b><br><small style="color:var(--ink3)">CPU 18% · up 9d</small></span></div>
+      <div class="float b"><span class="dot g"></span><span><b>your-mac online</b><br><small style="color:var(--ink3)">CPU 18% · up 9d</small></span></div>
     </div>
   </div>
 </div></header>
@@ -198,13 +198,13 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
 
   <div class="diagram rv">
     <div class="node"><div class="emo">💻 📱</div><b>You</b><span>MacBook · phone · browser</span></div>
-    <div class="node" style="border-color:var(--accent)"><div class="emo"><svg class="gfx" viewBox="0 0 120 84" width="120" height="84" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"><rect x="14" y="6" width="92" height="22" rx="6"/><rect x="14" y="31" width="92" height="22" rx="6"/><rect x="14" y="56" width="92" height="22" rx="6"/></g><g class="led"><circle cx="28" cy="17" r="3.5" fill="#0ca30c"/><circle cx="28" cy="42" r="3.5" fill="#0ca30c"/><circle cx="28" cy="67" r="3.5" fill="#fab219"/></g><g stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity=".45"><path d="M54 17h40M54 42h40M54 67h40"/></g></svg></div><b>Your Mac server</b><span>always on · headless</span>
+    <div class="node" style="border-color:var(--accent)"><div class="emo"><svg class="gfx" viewBox="0 0 96 96" width="88" height="88" aria-hidden="true"><defs><linearGradient id="sv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9aa7b8"/><stop offset="1" stop-color="#5d6b80"/></linearGradient><linearGradient id="sd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3c4659"/><stop offset="1" stop-color="#262d3b"/></linearGradient></defs><ellipse cx="48" cy="88" rx="32" ry="4" fill="#000" opacity=".18"/><g><rect x="12" y="8" width="72" height="24" rx="7" fill="url(#sv)"/><rect x="12" y="36" width="72" height="24" rx="7" fill="url(#sv)"/><rect x="12" y="64" width="72" height="24" rx="7" fill="url(#sv)"/><g fill="url(#sd)"><rect x="40" y="14" width="38" height="12" rx="4"/><rect x="40" y="42" width="38" height="12" rx="4"/><rect x="40" y="70" width="38" height="12" rx="4"/></g><g class="led"><circle cx="23" cy="20" r="4" fill="#3ddc4a"/><circle cx="23" cy="48" r="4" fill="#3ddc4a"/><circle cx="23" cy="76" r="4" fill="#ffb21f"/></g><g fill="#fff" opacity=".35"><rect x="16" y="11" width="64" height="3" rx="1.5"/><rect x="16" y="39" width="64" height="3" rx="1.5"/><rect x="16" y="67" width="64" height="3" rx="1.5"/></g></g></svg></div><b>Your Mac server</b><span>always on · headless</span>
       <div class="mini" style="margin-top:12px">
         <div>personal / blog <em>:3000</em></div>
         <div>business / acme-api <em>:4100</em></div>
         <div>collector <em>usage · health</em></div>
       </div></div>
-    <div class="node"><div class="emo"><svg class="gfx spark" viewBox="-50 -50 100 100" width="84" height="84" aria-hidden="true"><g stroke="#d97757" stroke-width="9" stroke-linecap="round"><path d="M0-40V-12M0 12V40M-40 0H-12M12 0H40M-28-28L-9-9M9 9L28 28M28-28L9-9M-9 9L-28 28"/></g></svg></div><b>Claude</b><span>Remote Control · claude.ai/code</span></div>
+    <div class="node"><div class="emo"><img class="gfx" src="claude-logo.svg" alt="Claude" width="84" height="84"></div><b>Claude</b><span>Remote Control · claude.ai/code</span></div>
     <div class="wires"><span>Tailscale + ssh</span><span>Remote Control</span><span>direnv per account</span><span>git identity per account</span></div>
   </div>
 </div></section>
@@ -288,7 +288,7 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
 
 // Screenshot tour
 const tour=[
-  ['dashboard','Dashboard','One view of every account','Health of the mini, today and this week tokens and cost per account, a cost-alert meter, and usage over time by account or token type.',['Filter by range, account and model','Spot a model change from the token mix','Update Claude Code from the card']],
+  ['dashboard','Dashboard','One view of every account','Health of the server, today and this week tokens and cost per account, a cost-alert meter, and usage over time by account or token type.',['Filter by range, account and model','Spot a model change from the token mix','Update Claude Code from the card']],
   ['sessions','Sessions','Who is working, who is waiting','Every idle and active Claude Code session, with context size, cost, CPU and RAM. The one waiting for input is highlighted, and a QR code opens it on your phone.',['Context over 300K is flagged','Handoff notes for a fresh start','Open in claude.ai, Terminal or VS Code']],
   ['environments','Environments','Projects as services','CPU, RAM, containers, disk and cost per project. Start, stop, restart, read logs or create a new one with a wizard.',['Per-environment cost alerts','One Remote Control link each','Docker Compose per project']],
   ['accounts','Accounts','Several logins, side by side','Add an account, re-login, or give each its own Safari web app with a coloured icon — so claude.ai/code opens as the right person.',['Wizard continues into the login','Wrong-account sign-ins refused','Per-account colour everywhere']],
@@ -306,7 +306,7 @@ function show(i){
   big.style.animation='none';big.offsetWidth;big.style.animation='';
   const tm=document.getElementById('timer');tm.classList.remove('run');tm.offsetWidth;if(auto!==null)tm.classList.add('run');
 }
-function setShot(img,id){img.src=`shots/${id}-${dark.checked?'dark':'light'}.png`}
+function setShot(img,id){img.src=`shots/${id}-${dark.checked?'dark':'light'}.png?v=3`}
 tour.forEach((t,i)=>{const b=document.createElement('button');b.role='tab';b.textContent=t[1];b.onclick=()=>show(i);tabs.append(b)});
 mq.addEventListener('change',()=>{show(cur);document.querySelectorAll('[data-shot]').forEach(i=>setShot(i,i.dataset.shot))});
 document.querySelectorAll('[data-shot]').forEach(i=>setShot(i,i.dataset.shot));
