@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>devhost — your Mac mini, always on for Claude Code</title>
+<meta name="description" content="Turn a Mac mini into an always-on Claude Code server in one command, and watch every account, project and session from one free Mac app.">
+<meta name="theme-color" content="#0d0d0d">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d0d0d'/%3E%3Cpath d='M8 10l7 6-7 6' stroke='%233987e5' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M17 22h8' stroke='%23fab219' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#f9f9f7;--surface:#fff;--ink:#0b0b0b;--ink2:#47463f;--ink3:#7a786f;--line:rgba(11,11,11,.1);
+  --accent:#2a78d6;--accent2:#e8683a;--good:#0ca30c;--warn:#fab219;--glow:rgba(42,120,214,.18);
+  --term:#0d0d0d;--termink:#e8e7e3;
+  --font:system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d0d0d;--surface:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;--ink3:#898781;--line:rgba(255,255,255,.1);
+  --accent:#3987e5;--glow:rgba(57,135,229,.22);--term:#050505;
+}}
+:root[data-theme="dark"]{
+  --bg:#0d0d0d;--surface:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;--ink3:#898781;--line:rgba(255,255,255,.1);
+  --accent:#3987e5;--glow:rgba(57,135,229,.22);--term:#050505;
+}
+*{box-sizing:border-box;margin:0}
+html{scroll-behavior:smooth;overflow-x:clip}
+body{background:var(--bg);color:var(--ink);font:17px/1.6 var(--font);overflow-x:hidden}
+a{color:inherit}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+code,.mono{font-family:var(--mono)}
+h1,h2,h3{line-height:1.1;letter-spacing:-.02em}
+h2{font-size:clamp(30px,4.5vw,48px);margin-bottom:14px}
+.lead{color:var(--ink2);font-size:19px;max-width:640px}
+.eyebrow{font:600 13px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+section{padding:96px 0;position:relative}
+
+/* nav */
+nav.top{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);background:color-mix(in srgb,var(--bg) 78%,transparent);border-bottom:1px solid var(--line)}
+nav.top .wrap{display:flex;align-items:center;gap:22px;height:60px}
+.logo{font:700 18px var(--mono);text-decoration:none;display:flex;align-items:center;gap:8px}
+.logo i{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:#0d0d0d;color:#3987e5;font-style:normal;font-size:13px}
+nav.top .links{margin-left:auto;display:flex;gap:22px;font-size:15px;color:var(--ink2)}
+nav.top .links a{text-decoration:none}
+nav.top .links a:hover{color:var(--ink)}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:12px;font-weight:600;text-decoration:none;border:1px solid var(--line);background:var(--surface);transition:transform .15s,box-shadow .15s}
+.btn:hover{transform:translateY(-2px);box-shadow:0 10px 30px var(--glow)}
+.btn.primary{background:var(--accent);border-color:transparent;color:#fff}
+.btn.small{padding:8px 16px;font-size:14px}
+@media(max-width:700px){nav.top .links a:not(.btn){display:none}nav.top .links{margin-left:auto}}
+
+/* hero */
+.hero{padding:70px 0 40px;overflow:hidden;position:relative}
+.hero::before{content:"";position:absolute;inset:-200px -10% auto;height:700px;background:radial-gradient(600px 300px at 25% 40%,var(--glow),transparent 70%),radial-gradient(500px 300px at 80% 20%,rgba(232,104,58,.14),transparent 70%);z-index:0;pointer-events:none;animation:drift 14s ease-in-out infinite alternate}
+@keyframes drift{to{transform:translateX(40px) translateY(20px)}}
+.badge{display:inline-flex;gap:8px;align-items:center;padding:6px 14px;border:1px solid var(--line);border-radius:99px;font-size:14px;background:var(--surface);margin-bottom:26px}
+.badge b{color:var(--good)}
+.hero .wrap{position:relative;z-index:1}
+.hero h1{font-size:clamp(42px,7.5vw,84px);max-width:900px}
+.grad{background:linear-gradient(100deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .lead{margin:24px 0 32px;font-size:21px}
+.cta{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.cta small{color:var(--ink3)}
+.stage{margin-top:64px;display:grid;grid-template-columns:1.05fr 1fr;gap:28px;align-items:center}
+@media(max-width:900px){.stage{grid-template-columns:1fr}}
+
+/* terminal */
+.term{background:var(--term);color:var(--termink);border-radius:16px;border:1px solid rgba(255,255,255,.1);box-shadow:0 30px 80px rgba(0,0,0,.28);overflow:hidden;font:14px/1.7 var(--mono)}
+.term .bar{display:flex;gap:7px;padding:12px 14px;background:rgba(255,255,255,.05)}
+.term .bar i{width:11px;height:11px;border-radius:50%;background:#ff5f57}
+.term .bar i:nth-child(2){background:#febc2e}.term .bar i:nth-child(3){background:#28c840}
+.term pre{padding:18px 20px;min-height:290px;white-space:pre-wrap;font:inherit}
+.term .p{color:#3987e5}.term .ok{color:#3ecf3e}.term .dim{color:#898781}.term .w{color:#fab219}
+.caret{display:inline-block;width:8px;height:16px;background:#e8e7e3;vertical-align:-3px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* hero shot */
+.shotwrap{position:relative;perspective:1400px}
+.shot{height:auto;border-radius:14px;border:1px solid var(--line);box-shadow:0 40px 90px rgba(0,0,0,.28);width:100%;display:block;background:var(--surface)}
+.tilt{transform:rotateY(-7deg) rotateX(3deg);transition:transform .5s}
+.shotwrap:hover .tilt{transform:none}
+.float{position:absolute;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 14px;font-size:14px;box-shadow:0 18px 40px rgba(0,0,0,.2);display:flex;gap:10px;align-items:center;animation:bob 5s ease-in-out infinite}
+.float.a{left:-18px;bottom:40px}.float.b{right:-10px;top:30px;animation-delay:-2.5s}
+@keyframes bob{50%{transform:translateY(-10px)}}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 0 var(--warn);animation:pulse 2s infinite}
+.dot.g{background:var(--good);box-shadow:0 0 0 0 var(--good)}
+@keyframes pulse{70%{box-shadow:0 0 0 10px transparent}}
+
+/* how it works */
+.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:48px;position:relative}
+.flow::before{content:"";position:absolute;left:8%;right:8%;top:34px;height:2px;background:repeating-linear-gradient(90deg,var(--line) 0 8px,transparent 8px 16px)}
+.flow::after{content:"";position:absolute;left:8%;top:30px;width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 18px var(--accent);animation:travel 6s linear infinite}
+@keyframes travel{from{left:8%}to{left:92%}}
+.step{position:relative;text-align:center;padding:0 6px}
+.step .n{width:68px;height:68px;margin:0 auto 16px;border-radius:20px;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;font-size:30px;position:relative;z-index:1;transition:transform .3s}
+.step:hover .n{transform:translateY(-6px) rotate(-4deg)}
+.step h3{font-size:19px;margin-bottom:6px}
+.step p{color:var(--ink2);font-size:15px}
+.step code{font-size:12.5px;background:var(--surface);border:1px solid var(--line);padding:2px 7px;border-radius:6px}
+@media(max-width:800px){.flow{grid-template-columns:1fr 1fr;row-gap:36px}.flow::before,.flow::after{display:none}}
+
+/* diagram */
+.diagram{margin-top:56px;background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:34px 20px;display:grid;grid-template-columns:1fr 1.1fr 1fr;gap:12px;align-items:center;text-align:center}
+.node{border:1px solid var(--line);border-radius:16px;padding:18px 12px;background:var(--bg)}
+.node b{display:block;font-size:18px}.node span{color:var(--ink3);font-size:14px}
+.node .emo{font-size:34px}
+.mini{display:flex;flex-direction:column;gap:8px;align-items:stretch}
+.mini div{font:13px var(--mono);border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:var(--bg);display:flex;justify-content:space-between;gap:10px}
+.mini em{font-style:normal;color:var(--ink3)}
+.pipe{position:absolute}
+@media(max-width:800px){.diagram{grid-template-columns:1fr}}
+.wires{grid-column:1/-1;font:13px var(--mono);color:var(--ink3);display:flex;justify-content:center;gap:22px;flex-wrap:wrap;margin-top:14px}
+.wires span::before{content:"⇄ ";color:var(--accent)}
+
+/* features */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:48px}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}}@media(max-width:600px){.grid{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:26px;transition:transform .25s,box-shadow .25s}
+.card:hover{transform:translateY(-6px);box-shadow:0 22px 50px var(--glow)}
+.card .ic{font-size:30px;margin-bottom:12px}
+.card h3{font-size:20px;margin-bottom:6px}
+.card p{color:var(--ink2);font-size:15.5px}
+
+/* tour */
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:36px 0 22px}
+.tabs button{font:600 15px var(--font);padding:9px 18px;border-radius:99px;border:1px solid var(--line);background:var(--surface);color:var(--ink2);cursor:pointer}
+.tabs button[aria-selected=true]{background:var(--ink);color:var(--bg)}
+.tour{display:grid;grid-template-columns:300px 1fr;gap:30px;align-items:start}
+@media(max-width:900px){.tour{grid-template-columns:1fr}}
+.tour h3{font-size:26px;margin-bottom:10px}.tour p{color:var(--ink2)}
+.tour ul{margin:16px 0 0 18px;color:var(--ink2);font-size:15.5px}
+.tour img{animation:fade .5s}
+@keyframes fade{from{opacity:0;transform:scale(.98)}}
+.theme{margin-left:auto;font-size:14px;color:var(--ink3);display:flex;align-items:center;gap:8px;cursor:pointer}
+.phone-note{margin-top:22px;font-size:14px;color:var(--ink3)}
+
+/* free */
+.free{text-align:center}
+.free .box{background:linear-gradient(135deg,var(--surface),var(--bg));border:1px solid var(--line);border-radius:28px;padding:64px 24px;position:relative;overflow:hidden}
+.price{font-size:clamp(70px,14vw,150px);font-weight:800;letter-spacing:-.05em;line-height:1}
+.free ul{list-style:none;display:flex;flex-wrap:wrap;gap:10px 26px;justify-content:center;margin:26px 0 34px;color:var(--ink2)}
+.free li::before{content:"✓ ";color:var(--good);font-weight:700}
+
+/* install */
+.code{background:var(--term);color:var(--termink);border-radius:14px;padding:18px 22px;font:14.5px/1.8 var(--mono);overflow-x:auto;margin-top:14px;position:relative}
+.code .c{color:#898781}
+.copy{position:absolute;right:12px;top:12px;font:12px var(--font);padding:5px 11px;border-radius:8px;background:rgba(255,255,255,.12);border:0;color:#fff;cursor:pointer}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:40px}
+@media(max-width:800px){.two{grid-template-columns:1fr}}
+.two h3{font-size:20px}
+.note{margin-top:34px;padding:16px 20px;border-left:3px solid var(--warn);background:var(--surface);border-radius:0 12px 12px 0;color:var(--ink2);font-size:15px}
+
+footer{padding:50px 0;border-top:1px solid var(--line);color:var(--ink3);font-size:14px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between}
+
+/* reveal */
+.rv{opacity:0;transform:translateY(26px);transition:opacity .7s,transform .7s}
+.rv.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.rv{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<nav class="top"><div class="wrap">
+  <a class="logo" href="#"><i>▸_</i>devhost</a>
+  <div class="links"><a href="#how">How it works</a><a href="#features">Features</a><a href="#tour">Screenshots</a><a href="#install">Install</a><a class="btn primary small" href="#install">Get it — free</a></div>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <div class="badge"><b>●</b> Free &amp; open source · macOS 26+ · Apple Silicon and Intel</div>
+  <h1>Your <span class="grad">Mac mini</span>, always on, for Claude&nbsp;Code.</h1>
+  <p class="lead">One command turns a fresh Mac mini into a headless dev server. Every project gets its own Remote Control service, every Claude account is tracked in one place, and a little Mac app shows you what your agents are doing — from anywhere.</p>
+  <div class="cta"><a class="btn primary" href="#install">Set it up in 10 minutes ↓</a><a class="btn" href="#tour">See the app</a><small>No account. No telemetry. No price tag.</small></div>
+
+  <div class="stage">
+    <div class="term" aria-label="Animated terminal showing devhost setup">
+      <div class="bar"><i></i><i></i><i></i></div>
+      <pre id="term"></pre>
+    </div>
+    <div class="shotwrap">
+      <img class="shot tilt" data-shot="dashboard" alt="devhost Desktop dashboard with sample data" width="1440" height="900">
+      <div class="float a"><span class="dot"></span><span><b>1 session waiting</b><br><small style="color:var(--ink3)">acme-api · needs your answer</small></span></div>
+      <div class="float b"><span class="dot g"></span><span><b>macmini online</b><br><small style="color:var(--ink3)">CPU 18% · up 9d</small></span></div>
+    </div>
+  </div>
+</div></header>
+
+<section id="how"><div class="wrap">
+  <div class="rv"><div class="eyebrow">How it works</div>
+  <h2>From a box in a box to a coding farm.</h2>
+  <p class="lead">You never sit at the Mac mini. You set it up once, then work from your phone, your MacBook or any browser.</p></div>
+  <div class="flow rv">
+    <div class="step"><div class="n">📦</div><h3>Bootstrap</h3><p>Run <code>./bootstrap.sh</code> on the mini. Homebrew, Node, Docker, Tailscale — all installed, idempotently.</p></div>
+    <div class="step"><div class="n">🔑</div><h3>Add accounts</h3><p><code>devhost account add</code> — personal, business, as many as you have. Each keeps its own login.</p></div>
+    <div class="step"><div class="n">🗂️</div><h3>Add projects</h3><p><code>devhost env create</code> — a repo, a port block, a Remote Control service. Back after every reboot.</p></div>
+    <div class="step"><div class="n">📱</div><h3>Work anywhere</h3><p>Open the Claude app or claude.ai/code. Your sessions are already there. Watch it all in devhost Desktop.</p></div>
+  </div>
+
+  <div class="diagram rv">
+    <div class="node"><div class="emo">💻 📱</div><b>You</b><span>MacBook · phone · browser</span></div>
+    <div class="node" style="border-color:var(--accent)"><div class="emo">🖥️</div><b>Mac mini</b><span>always on · headless</span>
+      <div class="mini" style="margin-top:12px">
+        <div>personal / blog <em>:3000</em></div>
+        <div>business / acme-api <em>:4100</em></div>
+        <div>collector <em>usage · health</em></div>
+      </div></div>
+    <div class="node"><div class="emo">☁️</div><b>Claude</b><span>Remote Control · claude.ai/code</span></div>
+    <div class="wires"><span>Tailscale + ssh</span><span>Remote Control</span><span>direnv per account</span><span>git identity per account</span></div>
+  </div>
+</div></section>
+
+<section id="features" style="background:var(--surface);border-block:1px solid var(--line)"><div class="wrap">
+  <div class="rv"><div class="eyebrow">Features</div>
+  <h2>Everything a headless dev box needs.</h2>
+  <p class="lead">Boring infrastructure that stays out of your way, and a dashboard that tells you the truth about what it costs.</p></div>
+  <div class="grid">
+    <div class="card rv"><div class="ic">⚡</div><h3>One idempotent command</h3><p>Run <code>apply</code> as often as you like. A second run changes nothing, and <code>--dry-run</code> prints every step, <code>sudo</code> included.</p></div>
+    <div class="card rv"><div class="ic">👥</div><h3>Many accounts, no mix-ups</h3><p>Each Claude account gets its own config, git identity and port range. A sign-in as the wrong person is refused.</p></div>
+    <div class="card rv"><div class="ic">🔁</div><h3>Survives reboots</h3><p>Every project runs as a launchd service with Remote Control. Power cut? It comes back by itself.</p></div>
+    <div class="card rv"><div class="ic">💸</div><h3>Cost you can see</h3><p>Tokens and estimated cost by account, model and token type — with daily and hourly alerts per environment.</p></div>
+    <div class="card rv"><div class="ic">🙋</div><h3>Know who's waiting</h3><p>The menu bar and Monitor screen light up when a session needs your answer. A QR code opens it on your phone.</p></div>
+    <div class="card rv"><div class="ic">🧠</div><h3>Context watch</h3><p>Sessions past 300K context get flagged; a handoff note carries the work into a fresh one before the cache expires.</p></div>
+    <div class="card rv"><div class="ic">🩺</div><h3>Doctor</h3><p>Read-only checks with a one-line fix for each. Green means green.</p></div>
+    <div class="card rv"><div class="ic">🧩</div><h3>Plugins</h3><p>Write a small ES module for your own actions, checks and dashboard cards. Disk cleanup is built in as an example.</p></div>
+    <div class="card rv"><div class="ic">🔒</div><h3>Careful by design</h3><p>No server component, no credentials stored, no telemetry. The app only speaks your own <code>ssh</code>, over Tailscale.</p></div>
+  </div>
+</div></section>
+
+<section id="tour"><div class="wrap">
+  <div class="rv" style="display:flex;align-items:end;gap:20px;flex-wrap:wrap"><div><div class="eyebrow">devhost Desktop</div>
+  <h2>A calm window onto a busy machine.</h2></div>
+  <label class="theme" title="Switch screenshot theme"><input type="checkbox" id="dark"> Dark screenshots</label></div>
+  <p class="lead rv">A native Mac app for your MacBook. Every screenshot here is the built-in demo host — invented projects, invented numbers.</p>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <div class="tour"><div id="copy"></div><div class="shotwrap"><img class="shot" id="big" alt="" width="1440" height="900"></div></div>
+  <p class="phone-note">Tip: put the <b>Monitor</b> on a second display and keep every session in sight.</p>
+</div></section>
+
+<section class="free" id="free"><div class="wrap">
+  <div class="box rv">
+    <div class="eyebrow">Price</div>
+    <div class="price grad">Free.</div>
+    <p class="lead" style="margin:18px auto 0">Not a trial, not “free for now”. The CLI and the app are open source and you run them on your own hardware.</p>
+    <ul><li>No subscription</li><li>No account with us</li><li>No telemetry</li><li>Your keys stay yours</li></ul>
+    <a class="btn primary" href="#install">Install it →</a>
+  </div>
+</div></section>
+
+<section id="install" style="padding-top:20px"><div class="wrap">
+  <div class="rv"><div class="eyebrow">Install</div><h2>Two commands and a coffee.</h2></div>
+  <div class="two">
+    <div class="rv"><h3>1 · On the Mac mini</h3>
+      <div class="code"><button class="copy" data-c="./bootstrap.sh">Copy</button><span class="c"># from a clone of the repo</span><br>./bootstrap.sh<br><br><span class="c"># add an account and a project</span><br>devhost account add --name personal --default<br>devhost env create --account personal \<br>&nbsp;&nbsp;--name blog --repo git@github.com:me/blog.git<br>devhost doctor</div></div>
+    <div class="rv"><h3>2 · On your MacBook</h3>
+      <div class="code"><button class="copy" data-c="npm ci &amp;&amp; npm run tauri:build:arm -w @devhost/app">Copy</button><span class="c"># needs Node 24 and Rust</span><br>npm ci<br>npm run tauri:build:arm -w @devhost/app<br><br><span class="c"># or try the UI in a browser, no ssh</span><br>npm run dev -w @devhost/app</div></div>
+  </div>
+  <div class="note rv"><b>Honest status:</b> the app and CLI are tested against a simulated Mac, but have not yet been run on real hardware. Builds are local and unsigned. Expect rough edges and please report them.</div>
+</div></section>
+
+<footer><div class="wrap"><span><b class="mono">▸_ devhost</b> — free, for people who like their agents working while they sleep.</span><span>Unofficial; not affiliated with Anthropic. Screenshots show demo data only.</span></div></footer>
+
+<script>
+// Animated terminal
+(function(){
+  const el=document.getElementById('term');
+  const script=[
+    ['p','$ ./bootstrap.sh'],['dim','  Homebrew, Node 24, Docker, Tailscale …'],['ok','  ✔ machine ready'],
+    ['p','$ devhost account add --name business'],['w','  → open the URL, sign in, paste the code'],['ok','  ✔ business logged in'],
+    ['p','$ devhost env create --account business --name acme-api'],['ok','  ✔ Remote Control service running on :4100'],
+    ['p','$ devhost doctor'],['ok','  ✅ 24 checks passed'],['dim','  Open the Claude app — acme-api is already there.']
+  ];
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  async function play(){
+    let html='';
+    for(const [k,t] of script){
+      if(k==='p'&&!reduce){for(let i=1;i<=t.length;i++){el.innerHTML=html+`<span class="p">${esc(t.slice(0,i))}</span><span class="caret"></span>`;await new Promise(r=>setTimeout(r,22));}}
+      html+=`<span class="${k}">${esc(t)}</span>\n`;
+      el.innerHTML=html+'<span class="caret"></span>';
+      if(!reduce)await new Promise(r=>setTimeout(r,k==='p'?350:520));
+    }
+    if(reduce)return;
+    await new Promise(r=>setTimeout(r,4500));play();
+  }
+  play();
+})();
+
+// Screenshot tour
+const tour=[
+  ['dashboard','Dashboard','One view of every account','Health of the mini, today and this week tokens and cost per account, a cost-alert meter, and usage over time by account or token type.',['Filter by range, account and model','Spot a model change from the token mix','Update Claude Code from the card']],
+  ['sessions','Sessions','Who is working, who is waiting','Every idle and active Claude Code session, with context size, cost, CPU and RAM. The one waiting for input is highlighted, and a QR code opens it on your phone.',['Context over 300K is flagged','Handoff notes for a fresh start','Open in claude.ai, Terminal or VS Code']],
+  ['environments','Environments','Projects as services','CPU, RAM, containers, disk and cost per project. Start, stop, restart, read logs or create a new one with a wizard.',['Per-environment cost alerts','One Remote Control link each','Docker Compose per project']],
+  ['accounts','Accounts','Several logins, side by side','Add an account, re-login, or give each its own Safari web app with a coloured icon — so claude.ai/code opens as the right person.',['Wizard continues into the login','Wrong-account sign-ins refused','Per-account colour everywhere']],
+  ['agents','Agents','Subagents, assigned','Choose which subagents live at account or project level — explorer, reviewer, test runner, docs.',['Built-in starter agents','Per-environment overrides','Saved in the config']],
+  ['doctor','Doctor','Green means green','Read-only checks with a one-line fix each; plugins can add their own.',['Fix hints you can copy','Same checks in the CLI','Plugin advice under a check']],
+  ['monitor','Monitor','For the second monitor','A compact card per session with a state lamp, prompt icon, cost and QR code, plus a strip of the numbers that matter. Opens from the menu bar.',['Always fits on screen','Waiting sessions glow','Full-screen friendly']]
+];
+const tabs=document.getElementById('tabs'),copy=document.getElementById('copy'),big=document.getElementById('big'),dark=document.getElementById('dark');
+let cur=0;
+const sysDark=matchMedia('(prefers-color-scheme: dark)').matches;dark.checked=sysDark;
+function show(i){
+  cur=i;const [id,name,h,p,li]=tour[i];
+  [...tabs.children].forEach((b,j)=>b.setAttribute('aria-selected',j===i));
+  copy.innerHTML=`<h3>${h}</h3><p>${p}</p><ul>${li.map(x=>`<li>${x}</li>`).join('')}</ul>`;
+  setShot(big,id);big.alt=`${name} screen of devhost Desktop (demo data)`;
+  big.style.animation='none';big.offsetWidth;big.style.animation='';
+}
+function setShot(img,id){img.src=`shots/${id}-${dark.checked?'dark':'light'}.png`}
+tour.forEach((t,i)=>{const b=document.createElement('button');b.role='tab';b.textContent=t[1];b.onclick=()=>show(i);tabs.append(b)});
+dark.onchange=()=>{show(cur);document.querySelectorAll('[data-shot]').forEach(i=>setShot(i,i.dataset.shot))};
+document.querySelectorAll('[data-shot]').forEach(i=>setShot(i,i.dataset.shot));
+show(0);
+// auto-advance until the visitor interacts
+let auto=setInterval(()=>show((cur+1)%tour.length),6000);
+tabs.addEventListener('click',()=>clearInterval(auto));
+
+// Copy buttons
+document.querySelectorAll('.copy').forEach(b=>b.onclick=()=>{navigator.clipboard?.writeText(b.dataset.c.replace(/&amp;/g,'&'));b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1400)});
+// Reveal on scroll
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.12});
+document.querySelectorAll('.rv').forEach(e=>io.observe(e));
+</script>
+</body>
+</html>
