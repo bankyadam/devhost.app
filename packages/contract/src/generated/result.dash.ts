@@ -282,6 +282,24 @@ export interface DashData {
       }[]
     | null;
   /**
+   * Requests and tokens by type per model in each time bucket of the selected range (the usage buckets), for the token mix and how it changes over time. Null before the first request carrying a source.
+   */
+  tokens?:
+    | {
+        /**
+         * Bucket start, Unix ms.
+         */
+        ts: number;
+        model: string;
+        requests: number;
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheCreation: number;
+        costUsd: number;
+      }[]
+    | null;
+  /**
    * Context habits in the selected range, from the raw requests (kept collector.retention.rawDays): main-thread requests over a large context, and resumes after the prompt cache expired. Null without main-thread requests.
    */
   context?: {

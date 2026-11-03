@@ -60,7 +60,7 @@ export interface PluginWidgetsData {
         };
       }[];
       axis: 'time' | 'date';
-      format: 'compact' | 'usd' | 'integer';
+      format: 'compact' | 'usd' | 'integer' | 'percent';
       height?: number;
     };
   }[];

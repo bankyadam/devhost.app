@@ -2279,6 +2279,54 @@ export const schemas = {
           }
         }
       },
+      "tokens": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "description": "Requests and tokens by type per model in each time bucket of the selected range (the usage buckets), for the token mix and how it changes over time. Null before the first request carrying a source.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ts",
+            "model",
+            "requests",
+            "input",
+            "output",
+            "cacheRead",
+            "cacheCreation",
+            "costUsd"
+          ],
+          "properties": {
+            "ts": {
+              "type": "integer",
+              "description": "Bucket start, Unix ms."
+            },
+            "model": {
+              "type": "string"
+            },
+            "requests": {
+              "type": "number"
+            },
+            "input": {
+              "type": "number"
+            },
+            "output": {
+              "type": "number"
+            },
+            "cacheRead": {
+              "type": "number"
+            },
+            "cacheCreation": {
+              "type": "number"
+            },
+            "costUsd": {
+              "type": "number"
+            }
+          }
+        }
+      },
       "context": {
         "type": [
           "object",
@@ -3225,7 +3273,8 @@ export const schemas = {
                   "enum": [
                     "compact",
                     "usd",
-                    "integer"
+                    "integer",
+                    "percent"
                   ]
                 },
                 "height": {

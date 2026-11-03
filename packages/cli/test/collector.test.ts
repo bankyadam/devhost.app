@@ -1019,6 +1019,31 @@ describe('where requests come from', () => {
     expect(w.tiles!.map((t) => [t.label, t.value])).toEqual([['Main thread', '$1.00'], ['Subagents', '$0.25'], ['In all', '$1.25']]);
     expect(w.rows!.map((r) => r.label)).toEqual(['main', 'Explore', 'custom agents']);
   });
+
+  it('gives the token mix per model and bucket, and the stats plugin compares the halves of the range', async () => {
+    const db = new Db(':memory:');
+    let now = T0;
+    const ingest = new Ingestor(db, () => now, () => []);
+    const call = (model: string, output: number, ts: number) => ({ timeUnixNano: String(BigInt(ts) * 1_000_000n), attributes: [kv('event.name', 'api_request'), kv('model', model), kv('input_tokens', 0), kv('output_tokens', output), kv('cache_read_tokens', 9_000), kv('cache_creation_tokens', 1_000), kv('cost_usd', 0.01), kv('query_source', 'repl_main_thread'), kv('session.id', 's1')] });
+    const body = (...records: ReturnType<typeof call>[]) => ({ resourceLogs: [{ resource: { attributes: [kv('devhost.account', 'business')] }, scopeLogs: [{ logRecords: records }] }] });
+    ingest.logs(body(call('m1', 500, T0), call('m1', 500, T0 + 60_000), call('m2', 2_000, T0 + 120_000)));
+    now = T0 + 20 * H;
+    rollup(db, now); // the early hour from rollup_source, the late one raw
+    ingest.logs(body(call('m1', 1_000, now)));
+    const dash = buildDash(db, CONFIG, { range: '24h' }, now, 'macmini', null);
+    expect(validate('result.dash', dash).ok).toBe(true);
+    expect(dash.tokens!.map((r) => [r.ts - T0, r.model, r.requests, r.output])).toEqual([[0, 'm1', 2, 1_000], [0, 'm2', 1, 2_000], [20 * H, 'm1', 1, 1_000]]);
+    expect(buildDash(db, CONFIG, { range: '24h', model: 'm2' }, now, 'macmini', null).tokens).toHaveLength(1);
+    const { stats: statsPlugin } = await import('../src/plugins/builtin/stats.js');
+    const run = async (id: string) => (await statsPlugin.widgets!.find((x) => x.id === id)!.run({ stats: async () => dash } as unknown as PluginContext, { range: '24h' })) as WidgetContent;
+    const mix = await run('tokens');
+    expect(mix.tiles!.map((t) => [t.label, t.value])).toEqual([['Input', '0%'], ['Output', '9.1%'], ['Cache read', '82%'], ['Cache write', '9.1%']]);
+    expect(mix.rows!.map((r) => [r.label, r.value])).toEqual([['m1', '667 output/request'], ['m2', '2,000 output/request']]);
+    expect(mix.chart!.format).toBe('percent');
+    const trend = await run('trend');
+    expect(trend.summary).toBe('Output per request 1,000 → 1,000 (+0%) · cache hit 90% → 90%, from the earlier half of the range to the later');
+    expect(trend.chart!.points.filter((p) => p.values['output']! > 0).map((p) => [p.ts - T0, p.values['output']])).toEqual([[0, 1_000], [20 * H, 1_000]]);
+  });
 });
 
 describe('time profile (spec A10.8)', () => {

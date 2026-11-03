@@ -206,7 +206,8 @@
                 "enum": [
                   "compact",
                   "usd",
-                  "integer"
+                  "integer",
+                  "percent"
                 ]
               },
               "height": {

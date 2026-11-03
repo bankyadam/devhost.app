@@ -73,7 +73,7 @@ export function Dashboard({ params = {}, onParams = () => undefined }: { params?
 }
 
 const STATUS_BADGE = { ok: <Badge tone="good">ok</Badge>, warn: <Badge tone="warn">warning</Badge>, fail: <Badge tone="bad">problem</Badge> } as const;
-const FORMAT = { compact, usd, integer: (v: number) => String(Math.round(v)) } as const;
+const FORMAT = { compact, usd, integer: (v: number) => String(Math.round(v)), percent: (v: number) => `${Math.round(v)}%` } as const;
 
 /**
  * Plugins' dashboard part (`devhost plugin widgets`): each plugin's filters, then its cards in
