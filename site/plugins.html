@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>devhost plugins — more from your Mac server</title>
+<meta name="description" content="Small, free devhost plugins: free disk space on your Mac server and stop a Claude Code session's process to win its memory back.">
+<meta name="theme-color" content="#0d0d0d">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d0d0d'/%3E%3Cpath d='M8 10l7 6-7 6' stroke='%233987e5' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M17 22h8' stroke='%23fab219' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<style>
+.pl-hero{padding:70px 0 30px;overflow:hidden;position:relative}
+.pl-hero::before{content:"";position:absolute;inset:-200px -10% auto;height:600px;background:radial-gradient(600px 300px at 20% 40%,var(--glow),transparent 70%),radial-gradient(500px 300px at 85% 20%,rgba(232,104,58,.14),transparent 70%);pointer-events:none;animation:drift 14s ease-in-out infinite alternate}
+.pl-hero .wrap{position:relative;z-index:1}
+.pl-hero h1{font-size:clamp(40px,7vw,76px);max-width:860px}
+.plugin{display:grid;grid-template-columns:1fr 1fr;gap:34px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:26px;padding:34px;margin-top:28px}
+@media(max-width:900px){.plugin{grid-template-columns:1fr;padding:22px}}
+.plugin .top{display:flex;align-items:center;gap:14px;margin-bottom:10px}
+.plugin .big{width:58px;height:58px;border-radius:17px;display:grid;place-items:center;font-size:30px;background:var(--bg);border:1px solid var(--line)}
+.plugin h3{font:700 24px var(--mono);letter-spacing:-.02em}
+.plugin .tag{color:var(--ink2);margin-bottom:14px}
+.plugin ul{margin:0 0 18px 18px;color:var(--ink2);font-size:15.5px}
+.plugin li{margin-bottom:6px}
+.plugin .links{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.plugin .code{margin-top:0;font-size:13.5px}
+.plugin h4{font-size:13px;font-family:var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin:18px 0 8px}
+.plugin h4:first-child{margin-top:0}
+.pill{display:inline-block;font:12px var(--mono);padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--ink2);margin:0 6px 6px 0}
+.mock{border:1px solid var(--line);border-radius:14px;background:var(--bg);padding:14px 16px;font-size:14px;margin-top:6px}
+.mock .row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0}
+.mock b{font-family:var(--mono)}
+.meter{height:8px;border-radius:8px;background:var(--line);overflow:hidden;margin-top:8px}
+.meter i{display:block;height:100%;width:78%;background:linear-gradient(90deg,var(--accent),var(--accent2));animation:shrink 5s ease-in-out infinite}
+@keyframes shrink{0%,15%{width:78%}60%,100%{width:22%}}
+.mem i{animation-name:shrink2;background:linear-gradient(90deg,var(--accent2),var(--warn))}
+@keyframes shrink2{0%,15%{width:70%}60%,100%{width:12%}}
+.fake{display:inline-block;padding:2px 10px;border-radius:8px;border:1px solid var(--line);font-size:12.5px;background:var(--surface)}
+.shotwrap .shot{height:auto}
+.anat{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:40px}
+@media(max-width:900px){.anat{grid-template-columns:1fr 1fr}}@media(max-width:560px){.anat{grid-template-columns:1fr}}
+.anat .card{padding:22px}
+</style>
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+
+<nav class="top"><div class="wrap">
+  <a class="logo" href="index.html"><i>▸_</i>devhost</a>
+  <div class="links"><a href="index.html#how">How it works</a><a href="index.html#features">Features</a><a href="index.html#tour">Screenshots</a><a href="index.html#install">Install</a><a href="plugins.html" style="color:var(--ink)">Plugins</a><a class="gh" href="https://github.com/bankyadam/devhost.app" target="_blank" rel="noopener"><svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 014 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a><a class="btn primary small" href="index.html#install">Get it — free</a></div>
+</div></nav>
+
+<header class="pl-hero"><div class="wrap">
+  <div class="badge"><b>●</b> Free &amp; open source · plain ES modules</div>
+  <h1>Teach your <span class="grad">Mac server</span> new tricks.</h1>
+  <p class="lead" style="margin:22px 0 30px;font-size:21px">devhost plugins add actions, checks and dashboard cards. One line installs one; the app picks it up. Here are two to start with.</p>
+  <div class="cta"><a class="btn primary" href="#disk-cleanup">Browse plugins ↓</a><a class="btn" href="#build">Build your own</a></div>
+
+  <div class="stage">
+    <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre id="term"></pre></div>
+    <div class="shotwrap"><img class="shot tilt" data-shot="plugins" alt="devhost Desktop Plugins screen with sample data" width="1440" height="900"></div>
+  </div>
+</div></header>
+
+<section id="plugins"><div class="wrap">
+  <div class="rv"><div class="eyebrow">Plugins</div><h2>Pick what you need.</h2>
+  <p class="lead">Each plugin is its own small repository. Install from the terminal or from the app: <b>Plugins → Install from GitHub…</b></p></div>
+
+  <article class="plugin rv" id="disk-cleanup">
+    <div>
+      <div class="top"><div class="big">🧹</div><div><h3>disk-cleanup</h3></div></div>
+      <p class="tag">Free disk space without losing anything: package caches and old Remote Control worktrees.</p>
+      <ul>
+        <li>The <b>Homebrew</b> download cache</li>
+        <li>The <b>npm</b> cache</li>
+        <li>Old <b>Remote Control worktrees</b> — only when clean, every commit pushed, nothing running in them, and idle long enough</li>
+        <li>A <b>doctor</b> check warns when a lot is reclaimable</li>
+      </ul>
+      <span class="pill">preview first</span><span class="pill">asks before it deletes</span><span class="pill">no --force</span>
+      <div class="links"><a class="btn primary small" href="https://github.com/bankyadam/devhost-plugin-disk-cleanup" target="_blank" rel="noopener">View on GitHub</a></div>
+    </div>
+    <div>
+      <h4>Install</h4>
+      <div class="code"><button class="copy" data-c="devhost plugin install git@github.com:bankyadam/devhost-plugin-disk-cleanup.git --enable">Copy</button>devhost plugin install \<br>&nbsp;&nbsp;git@github.com:bankyadam/devhost-plugin-disk-cleanup.git --enable</div>
+      <h4>Use</h4>
+      <div class="code"><button class="copy" data-c="devhost plugin run disk-cleanup clean --dry-run">Copy</button><span class="c"># sizes, and why each worktree stays</span><br>devhost plugin run disk-cleanup report<br><span class="c"># free it (asks first)</span><br>devhost plugin run disk-cleanup clean [--dry-run]</div>
+      <div class="mock"><div class="row"><span>Homebrew cache</span><b>2.4 GiB</b></div><div class="row"><span>npm cache</span><b>1.1 GiB</b></div><div class="row"><span>3 old worktrees</span><b>6.8 GiB</b></div><div class="meter"><i></i></div><div class="row" style="font-size:13px;color:var(--ink3)"><span>sample numbers · disk used</span><span class="fake">Free disk space…</span></div></div>
+    </div>
+  </article>
+
+  <article class="plugin rv" id="session-stop">
+    <div>
+      <div class="top"><div class="big">🛑</div><div><h3>session-stop</h3></div></div>
+      <p class="tag">Win a few hundred MB back: stop the local <code>claude</code> process of a Remote Control session.</p>
+      <ul>
+        <li>Stops only a process a devhost Remote Control service started, in that session's directory</li>
+        <li>Never touches the Claude app's sessions or anything else</li>
+        <li>SIGTERM first, SIGKILL after 5 s</li>
+        <li>The session stays in claude.ai's list; a new message there may start it again</li>
+      </ul>
+      <span class="pill">dry-run</span><span class="pill">asks first</span><span class="pill">in the session's Open menu</span>
+      <div class="links"><a class="btn primary small" href="https://github.com/bankyadam/devhost-plugin-session-stop" target="_blank" rel="noopener">View on GitHub</a></div>
+    </div>
+    <div>
+      <h4>Install</h4>
+      <div class="code"><button class="copy" data-c="devhost plugin install git@github.com:bankyadam/devhost-plugin-session-stop.git --enable">Copy</button>devhost plugin install \<br>&nbsp;&nbsp;git@github.com:bankyadam/devhost-plugin-session-stop.git --enable</div>
+      <h4>Use</h4>
+      <div class="code"><button class="copy" data-c="devhost plugin run session-stop stop --session 19be2a40 --dry-run">Copy</button>devhost plugin run session-stop stop \<br>&nbsp;&nbsp;--session &lt;id or first 8 characters&gt; [--dry-run]<br><span class="c"># or in the app: Dashboard → session → Open →</span><br><span class="c"># "Stop the session process…"</span></div>
+      <div class="mock"><div class="row"><span>session <b>19be2a40</b> · acme-api</span><span class="fake">Stop the session process…</span></div><div class="row"><span>memory</span><b>458 MB → 0</b></div><div class="meter mem"><i></i></div><div class="row" style="font-size:13px;color:var(--ink3)"><span>sample numbers</span></div></div>
+    </div>
+  </article>
+</div></section>
+
+<section id="build" style="background:var(--surface);border-block:1px solid var(--line)"><div class="wrap">
+  <div class="rv"><div class="eyebrow">Build your own</div><h2>A plugin is a small ES module.</h2>
+  <p class="lead">No build step. It runs on your Mac server as you, and changes things only through devhost's own helper, so <code>--dry-run</code> and the plan work for plugins like for <code>apply</code>.</p></div>
+  <div class="anat">
+    <div class="card rv"><div class="ic">⚙️</div><h3>Actions</h3><p>Do something on the host, in an environment or in a session. They show up as buttons in the app.</p></div>
+    <div class="card rv"><div class="ic">🩺</div><h3>Checks</h3><p>Add your own lines to <code>devhost doctor</code> and the Doctor screen.</p></div>
+    <div class="card rv"><div class="ic">💡</div><h3>Advice</h3><p>Attach a note and a one-click fix under another check.</p></div>
+    <div class="card rv"><div class="ic">📊</div><h3>Widgets</h3><p>Cards on the dashboard: tiles, rows, meters, charts, with filters.</p></div>
+  </div>
+  <div class="cta rv" style="margin-top:34px"><a class="btn primary" href="https://github.com/bankyadam/devhost.app#plugins" target="_blank" rel="noopener">Read the plugin docs</a><a class="btn" href="https://github.com/bankyadam/devhost-plugin-disk-cleanup" target="_blank" rel="noopener">Start from disk-cleanup</a></div>
+</div></section>
+
+<footer><div class="wrap"><span><b class="mono">▸_ devhost</b> — free, for people who like their agents working while they sleep.</span><span>Unofficial; not affiliated with Anthropic. Screenshots show demo data only.</span></div></footer>
+
+<script>
+(function(){
+  const el=document.getElementById('term');
+  const script=[
+    ['p','$ devhost plugin install git@github.com:bankyadam/\\'],['p','    devhost-plugin-disk-cleanup.git --enable'],['ok','  ✔ disk-cleanup 1.1.0 installed and enabled'],
+    ['p','$ devhost plugin run disk-cleanup clean --dry-run'],['dim','  Homebrew cache      2.4 GiB'],['dim','  npm cache           1.1 GiB'],['w','  would remove 3 worktrees (clean, pushed)'],
+    ['p','$ devhost doctor'],['ok','  ✅ plugin.disk-cleanup.reclaimable ok']
+  ];
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  async function play(){
+    let html='';
+    for(const [k,t] of script){
+      if(k==='p'&&!reduce){for(let i=1;i<=t.length;i++){el.innerHTML=html+`<span class="p">${esc(t.slice(0,i))}</span><span class="caret"></span>`;await new Promise(r=>setTimeout(r,18));}}
+      html+=`<span class="${k}">${esc(t)}</span>\n`;
+      el.innerHTML=html+'<span class="caret"></span>';
+      if(!reduce)await new Promise(r=>setTimeout(r,k==='p'?300:480));
+    }
+    if(reduce)return;
+    await new Promise(r=>setTimeout(r,4500));play();
+  }
+  play();
+})();
+const mq=matchMedia('(prefers-color-scheme: dark)');
+function shots(){document.querySelectorAll('[data-shot]').forEach(i=>i.src=`shots/${i.dataset.shot}-${mq.matches?'dark':'light'}.png?v=1`)}
+mq.addEventListener('change',shots);shots();
+document.querySelectorAll('.copy').forEach(b=>b.onclick=()=>{navigator.clipboard?.writeText(b.dataset.c);b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1400)});
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.12});
+document.querySelectorAll('.rv').forEach(e=>io.observe(e));
+</script>
+</body>
+</html>
