@@ -225,6 +225,26 @@ describe('COL-14 local midnight buckets', () => {
   });
 });
 
+describe('COL-14 buckets across a DST change', () => {
+  it('keeps one local-midnight alignment for the whole 30d range', () => {
+    const prev = process.env['TZ'];
+    process.env['TZ'] = 'Europe/Budapest';
+    try {
+      const db = new Db(':memory:');
+      const now = new Date(2026, 10, 4, 12).getTime(); // CET; the range starts in CEST (clocks changed on 25 Oct)
+      const before = new Date(2026, 9, 20, 10).getTime();
+      const after = new Date(2026, 10, 3, 10).getTime();
+      for (const ts of [before, after]) db.run("INSERT INTO usage VALUES (?, 'a', 'e', 's', 'm', 'output', 1)", ts);
+      const usage = buildRange(db, { range: '30d' }, now).usage;
+      // Every bucket starts at today's local midnight (23:00 UTC), so the 20 Oct one is 01:00 local (CEST) and matches the plugin's columns.
+      expect(usage.map((u) => u.ts)).toEqual([new Date(2026, 9, 20).getTime() + 3_600_000, new Date(2026, 10, 3).getTime()]);
+    } finally {
+      if (prev === undefined) delete process.env['TZ'];
+      else process.env['TZ'] = prev;
+    }
+  });
+});
+
 describe('COL-15 cold resume', () => {
   it('sees the previous request even outside the window or filtered out', () => {
     const db = new Db(':memory:');

@@ -1,4 +1,5 @@
 import type { DashData } from '@devhost/contract';
+import { bucketOffset } from '../../collector/query.js';
 import { definePlugin, type PluginContext, type StatsQuery, type WidgetCard, type WidgetChart, type WidgetContent } from '../api.js';
 
 /**
@@ -48,9 +49,11 @@ function query(p: Record<string, string>): StatsQuery {
 /** The range's column starts, oldest first (empty ones count as zero, so gaps show). */
 function columns(d: DashData): number[] {
   const size = BUCKET_MS[d.range];
-  const end = Math.floor(d.generatedAt / size) * size;
+  // The same alignment as the collector's buckets (local midnight for 6 h and day buckets), or no row finds its column.
+  const off = bucketOffset(size, d.generatedAt);
+  const end = Math.floor((d.generatedAt + off) / size) * size - off;
   const out: number[] = [];
-  for (let t = Math.floor((d.generatedAt - RANGE_MS[d.range]) / size) * size + size; t <= end; t += size) out.push(t);
+  for (let t = Math.floor((d.generatedAt - RANGE_MS[d.range] + off) / size) * size - off + size; t <= end; t += size) out.push(t);
   return out;
 }
 
