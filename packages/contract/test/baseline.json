@@ -1,6 +1,6 @@
 {
  "contractVersion": 1,
- "minor": 0,
+ "minor": 2,
  "surface": {
   "config": "{\"type\":\"object\"}",
   "config!required:machine": "required",
@@ -131,6 +131,9 @@
   "envelope!required:data": "required",
   "envelope!required:errors": "required",
   "envelope.contractVersion": "{\"type\":\"integer\",\"const\":1}",
+  "envelope.contractMinor": "{\"type\":\"integer\"}",
+  "envelope.capabilities": "{\"type\":\"array\"}",
+  "envelope.capabilities[]": "{\"type\":\"string\"}",
   "envelope.ok": "{\"type\":\"boolean\"}",
   "envelope.data": "{}",
   "envelope.errors": "{\"type\":\"array\"}",
@@ -884,6 +887,9 @@
   "result.plugin-widgets.widgets[].size": "{\"type\":\"string\",\"enum\":[\"normal\",\"wide\"]}",
   "result.plugin-widgets.widgets[].refreshSeconds": "{\"type\":\"integer\"}",
   "result.plugin-widgets.widgets[].account": "{\"type\":\"string\"}",
+  "result.plugin-widgets.widgets[].qr": "{\"type\":\"object\"}",
+  "result.plugin-widgets.widgets[].qr.url": "{\"type\":\"string\"}",
+  "result.plugin-widgets.widgets[].qr.label": "{\"type\":\"string\"}",
   "result.plugin-widgets.widgets[].meter": "{\"type\":\"object\"}",
   "result.plugin-widgets.widgets[].meter!required:label": "required",
   "result.plugin-widgets.widgets[].meter!required:value": "required",

@@ -40,6 +40,13 @@ export interface PluginWidgetsData {
      * The card belongs to this account (its color).
      */
     account?: string;
+    /**
+     * A link shown as a QR code for a phone to open.
+     */
+    qr?: {
+      url?: string;
+      label?: string;
+    };
     meter?: {
       label: string;
       value: number;

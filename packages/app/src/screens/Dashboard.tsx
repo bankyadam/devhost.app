@@ -6,6 +6,7 @@ import { meterTone } from '../lib/usage';
 import { Legend, StackedColumns, type Series } from '../ui/chart';
 import { Badge, Empty, Info, Segmented } from '../ui/primitives';
 import { UpdateClaude } from '../ui/update-claude';
+import { QrCode } from '../ui/qr';
 import { useDash } from '../use-dash';
 import { PluginRunDialog } from '../ui/plugin-run';
 import { usePlugins, usePluginWidgets, type PluginActionInfo, type PluginFilter, type PluginWidget } from '../use-plugins';
@@ -159,6 +160,12 @@ function WidgetCard({ w, accountNames, action, onAction }: { w: PluginWidget; ac
         <div>
           <div className="note">{w.meter.label}</div>
           <div className={`meter ${meterTone(frac)}`} role="meter" aria-valuemin={0} aria-valuemax={w.meter.max} aria-valuenow={Math.min(w.meter.value, w.meter.max)} aria-label={`${w.title}: ${w.meter.label}`}><i style={{ width: `${Math.min(100, frac * 100)}%` }} /></div>
+        </div>
+      )}
+      {w.qr?.url && (
+        <div className="row">
+          <QrCode text={w.qr.url} px={160} label={w.qr.label ?? `QR code of ${w.qr.url}`} />
+          <span className="note">{w.qr.label ? `${w.qr.label}: ` : ''}<code>{w.qr.url}</code></span>
         </div>
       )}
       {chart && (

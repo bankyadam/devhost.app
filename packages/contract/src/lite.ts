@@ -5,7 +5,7 @@ export * from './generated/types.js';
 export { schemas, type SchemaName } from './generated/schemas.js';
 
 export const CONTRACT_VERSION = 1;
-export const CONTRACT_MINOR = 1;
+export const CONTRACT_MINOR = 2;
 /** Optional features of this contract revision (envelope.capabilities). */
 export const CAPABILITIES: readonly string[] = ['snapshot-event'];
 

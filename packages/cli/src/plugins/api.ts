@@ -123,6 +123,8 @@ export interface WidgetContent {
   /** A bar filled `value / max`; warns from 80 %, fails from 100 %. */
   meter?: { label: string; value: number; max: number };
   chart?: WidgetChart;
+  /** A link shown as a QR code, for a phone to open. */
+  qr?: { url: string; label?: string };
   /** Small print under the card. */
   note?: string;
   /** One of this plugin's host actions, offered as a button on the card. */

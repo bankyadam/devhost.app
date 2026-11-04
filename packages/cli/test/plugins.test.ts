@@ -119,7 +119,7 @@ export default {
   ],
   widgets: [
     { id: 'space', title: 'Space', async run(ctx) {
-      return { status: 'warn', summary: 'for ' + ctx.options.who, tiles: [{ label: 'Cache', value: '1 GB', sub: 'npm' }], rows: [{ label: 'old', value: '2 MB', note: 'pushed' }], action: 'fix' };
+      return { status: 'warn', summary: 'for ' + ctx.options.who, tiles: [{ label: 'Cache', value: '1 GB', sub: 'npm' }], rows: [{ label: 'old', value: '2 MB', note: 'pushed' }], qr: { url: 'https://h.ts.net/', label: 'Open' }, action: 'fix' };
     } },
     { id: 'broken', title: 'Broken', async run() { throw new Error('no data'); } },
   ],
@@ -161,7 +161,7 @@ describe('plugin advice and widgets', () => {
     expect(validate('result.plugin-widgets', data).ok).toBe(true);
     expect({ widgets: others(data) }).toEqual({
       widgets: [
-        { plugin: 'advisor', id: 'space', title: 'Space', status: 'warn', summary: 'for adam', tiles: [{ label: 'Cache', value: '1 GB', sub: 'npm' }], rows: [{ label: 'old', value: '2 MB', note: 'pushed' }], action: 'fix' },
+        { plugin: 'advisor', id: 'space', title: 'Space', status: 'warn', summary: 'for adam', tiles: [{ label: 'Cache', value: '1 GB', sub: 'npm' }], rows: [{ label: 'old', value: '2 MB', note: 'pushed' }], qr: { url: 'https://h.ts.net/', label: 'Open' }, action: 'fix' },
         { plugin: 'advisor', id: 'broken', title: 'Broken', error: 'no data' },
       ],
     });

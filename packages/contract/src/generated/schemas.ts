@@ -3192,6 +3192,19 @@ export const schemas = {
               "type": "string",
               "description": "The card belongs to this account (its color)."
             },
+            "qr": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "A link shown as a QR code for a phone to open.",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              }
+            },
             "meter": {
               "type": "object",
               "additionalProperties": false,
