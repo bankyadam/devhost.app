@@ -1,6 +1,6 @@
 {
   "name": "@devhost/cli",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "license": "MIT",
   "private": true,
   "engines": {
@@ -21,7 +21,7 @@
     "build": "tsc -b && node scripts/build-info.mjs"
   },
   "dependencies": {
-    "@devhost/contract": "0.1.0",
+    "@devhost/contract": "1.0.0",
     "commander": "^12.1.0",
     "mustache": "^4.2.0",
     "yaml": "^2.6.1"

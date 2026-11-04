@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 (2026-11-05)
 
 ### Fixed
 - `storage.unlock` compares the unlock service's volume UUID with the configured one, and removes the service when no encrypted volume is configured.

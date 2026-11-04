@@ -16,7 +16,7 @@ export function createDemoTransport(host: string): Transport {
 
   const run: Transport['run'] = async (args, opts) => {
     const [a, b] = args;
-    if (a === 'version') return envelope({ cliVersion: '0.1.0', contractVersion: 1 });
+    if (a === 'version') return envelope({ cliVersion: '1.0.0', contractVersion: 1 });
     if (a === 'dash') return envelope(demoDash(Date.now(), args[args.indexOf('--range') + 1] as DashData['range']));
     if (a === 'account' && b === 'list') return envelope({ accounts: ACCOUNTS });
     if (a === 'env' && b === 'list') return envelope({ environments: ENVS });

@@ -16,7 +16,7 @@ describe('connection (spec B2, B6)', () => {
   it('connects, checks the contract version and shows the CLI version', async () => {
     const h = await makeHarness();
     mount(h);
-    expect(await screen.findByText(/connected · devhost 0\.1\.0/)).toBeInTheDocument();
+    expect(await screen.findByText(/connected · devhost 1\.0\.0/)).toBeInTheDocument();
     expect(h.transport.calls[0]).toEqual(['version', '--json']);
   });
 

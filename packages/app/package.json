@@ -1,6 +1,6 @@
 {
   "name": "@devhost/app",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "license": "MIT",
   "private": true,
   "description": "devhost Desktop: Tauri v2 + React app that controls the devhost Mac mini over ssh",
@@ -14,7 +14,7 @@
     "test:rust": "cargo test --manifest-path core/Cargo.toml"
   },
   "dependencies": {
-    "@devhost/contract": "0.1.0",
+    "@devhost/contract": "1.0.0",
     "@tauri-apps/api": "^2.1.1",
     "qrcode-generator": "2.0.4",
     "react": "^18.3.1",

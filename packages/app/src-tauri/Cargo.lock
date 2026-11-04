@@ -568,14 +568,14 @@ dependencies = [
 
 [[package]]
 name = "devhost-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "devhost-desktop"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "devhost-core",
  "objc2",
