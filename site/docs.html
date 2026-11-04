@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>devhost CLI docs — every command explained</title>
+<meta name="description" content="The devhost command line, command by command: what each one does, its flags, and how to use it. Setup, accounts, environments, sessions, dashboard, storage, plugins.">
+<meta name="theme-color" content="#0d0d0d">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d0d0d'/%3E%3Cpath d='M8 10l7 6-7 6' stroke='%233987e5' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M17 22h8' stroke='%23fab219' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<style>
+.dh{padding:56px 0 20px}
+.dh h1{font-size:clamp(36px,6vw,64px);max-width:820px}
+.layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:48px;align-items:start;padding-bottom:90px}
+@media(max-width:900px){.layout{grid-template-columns:1fr;gap:10px}}
+.toc{position:sticky;top:76px;max-height:calc(100vh - 96px);overflow:auto;font-size:14.5px;padding-right:6px}
+@media(max-width:900px){.toc{position:static;max-height:none;border:1px solid var(--line);border-radius:14px;padding:14px 16px;background:var(--surface)}}
+.toc h4{font:600 12px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin:16px 0 6px}
+.toc h4:first-child{margin-top:0}
+.toc a{display:block;text-decoration:none;color:var(--ink2);padding:3px 0;font-family:var(--mono);font-size:13.5px}
+.toc a:hover{color:var(--accent)}
+.doc section{padding:0;margin-bottom:64px;scroll-margin-top:80px}
+.doc h2{font-size:clamp(26px,3.6vw,36px);margin:0 0 6px;padding-top:8px}
+.doc h3{font:700 20px var(--mono);letter-spacing:-.01em;margin:38px 0 8px;scroll-margin-top:80px}
+.doc h3 a{text-decoration:none}
+.doc p{color:var(--ink2);margin:0 0 14px;max-width:760px}
+.doc ul{margin:0 0 14px 20px;color:var(--ink2);max-width:760px}
+.doc li{margin-bottom:5px}
+.doc code{font-size:.9em;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+.doc pre{background:var(--term);color:var(--termink);border-radius:14px;padding:16px 18px;overflow:auto;font:13.5px/1.7 var(--mono);margin:0 0 18px;border:1px solid rgba(255,255,255,.1)}
+.doc pre code{background:none;border:0;padding:0;font-size:inherit}
+.doc pre .c{color:#898781}
+.doc pre .p{color:#3987e5}
+.syn{font:600 14px var(--mono);color:var(--accent);margin:0 0 10px;overflow-wrap:anywhere}
+table.fl{width:100%;border-collapse:collapse;margin:0 0 18px;font-size:14.5px;display:block;overflow-x:auto}
+table.fl th,table.fl td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+table.fl th{font:600 12px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)}
+table.fl td:first-child{font-family:var(--mono);font-size:13.5px;white-space:nowrap}
+table.fl td:last-child{color:var(--ink2)}
+.note{border-left:3px solid var(--warn);background:var(--surface);border-radius:0 12px 12px 0;padding:12px 16px;margin:0 0 18px;color:var(--ink2);max-width:760px}
+.note b{color:var(--ink)}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px 0 0}
+@media(max-width:700px){.cards{grid-template-columns:1fr}}
+.cards .card{padding:18px}
+.cards .card h3{font:700 16px var(--mono);margin:0 0 4px}
+.cards .card p{font-size:14.5px;margin:0}
+</style>
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+
+<nav class="top"><div class="wrap">
+  <a class="logo" href="index.html"><i>▸_</i>devhost</a>
+  <div class="links"><a href="index.html#how">How it works</a><a href="index.html#features">Features</a><a href="index.html#install">Install</a><a href="docs.html" style="color:var(--ink)">Docs</a><a href="plugins.html">Plugins</a><a class="gh" href="https://github.com/bankyadam/devhost.app" target="_blank" rel="noopener"><svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 014 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a><a class="btn primary small" href="index.html#install">Get it — free</a></div>
+</div></nav>
+
+<header class="dh"><div class="wrap">
+  <div class="eyebrow">CLI reference</div>
+  <h1>Every <span class="grad">devhost</span> command, explained.</h1>
+  <p class="lead" style="margin-top:18px">What each command does, its flags, and when to reach for it. <code>devhost --help</code> and <code>devhost &lt;command&gt; --help</code> print the short version of everything on this page.</p>
+</div></header>
+
+<div class="wrap layout">
+<aside class="toc" aria-label="Contents">
+  <h4>Start</h4>
+  <a href="#concepts">Concepts</a>
+  <a href="#global">Global flags &amp; exit codes</a>
+  <a href="#quickstart">Quick start</a>
+  <h4>Set up</h4>
+  <a href="#init">init</a>
+  <a href="#apply">apply</a>
+  <a href="#config">config</a>
+  <a href="#update">update</a>
+  <a href="#uninstall">uninstall</a>
+  <h4>Accounts &amp; projects</h4>
+  <a href="#account">account</a>
+  <a href="#login">login</a>
+  <a href="#env">env</a>
+  <a href="#agents">agents</a>
+  <a href="#session">session</a>
+  <h4>Watch</h4>
+  <a href="#doctor">doctor</a>
+  <a href="#status">status</a>
+  <a href="#dash">dash &amp; top</a>
+  <a href="#notify">notify</a>
+  <a href="#collector">collector</a>
+  <h4>More</h4>
+  <a href="#storage">storage</a>
+  <a href="#plugin">plugin</a>
+  <a href="#version">version</a>
+</aside>
+
+<main class="doc">
+
+<section id="concepts">
+<h2>Concepts</h2>
+<p>Three words carry the whole tool.</p>
+<div class="cards">
+  <div class="card"><h3>Account</h3><p>One claude.ai login. At most one is the <em>default</em>; every other account gets its own config dir (<code>~/.claude-&lt;name&gt;</code>) and a root folder (<code>~/work/&lt;name&gt;</code>).</p></div>
+  <div class="card"><h3>Environment</h3><p>One project: a git repo under an account root, with its own Remote Control service, a block of 100 ports, and optional Docker Compose services.</p></div>
+  <div class="card"><h3>Routing</h3><p>direnv sets <code>CLAUDE_CONFIG_DIR</code> below each account root and git switches identity per root, so the right login and identity follow the folder.</p></div>
+</div>
+</section>
+
+<section id="global">
+<h2>Global flags &amp; exit codes</h2>
+<p>These work on every command.</p>
+<table class="fl"><tr><th>Flag</th><th>Meaning</th></tr>
+<tr><td>--json</td><td>Machine-readable output in the versioned contract envelope. What the desktop app uses.</td></tr>
+<tr><td>--verbose</td><td>Show every command devhost runs.</td></tr>
+<tr><td>-y, --yes</td><td>Never ask questions; take the defaults.</td></tr>
+<tr><td>--config &lt;path&gt;</td><td>Use another config file (default <code>~/.config/devhost/config.yaml</code>).</td></tr>
+<tr><td>-V, --cli-version</td><td>Print the CLI version.</td></tr></table>
+<table class="fl"><tr><th>Exit code</th><th>Meaning</th></tr>
+<tr><td>0</td><td>Success.</td></tr>
+<tr><td>1</td><td>A check or step failed (for example <code>doctor</code> found a ❌).</td></tr>
+<tr><td>2</td><td>Bad flags or arguments, or the config is missing or invalid.</td></tr>
+<tr><td>3</td><td>A human has to act first; the output says exactly what (for example macOS blocking Remote Login).</td></tr>
+<tr><td>130</td><td>Cancelled with Ctrl-C. devhost finishes the current step and leaves a consistent state.</td></tr></table>
+</section>
+
+<section id="quickstart">
+<h2>Quick start</h2>
+<p>On the Mac mini, from a clone of the repository, <code>./bootstrap.sh</code> installs the tools, builds <code>devhost</code>, then runs <code>init</code>, <code>apply --dry-run</code> and <code>apply</code>. After that:</p>
+<pre><code><span class="c"># your main login</span>
+<span class="p">$</span> devhost account add --name personal --default --git-email me@example.com
+<span class="c"># a second login: prints a URL, open it anywhere, sign in, paste the code</span>
+<span class="p">$</span> devhost account add --name business --git-email me@work.example
+<span class="c"># one project, with its own Remote Control service</span>
+<span class="p">$</span> devhost env create --account business --name acme-api --repo git@github.com:acme/api.git
+<span class="p">$</span> devhost doctor   <span class="c"># everything green?</span>
+<span class="p">$</span> devhost top      <span class="c"># live view, works over SSH from a phone</span></code></pre>
+<p>The environment now shows up in the Claude app under the <code>business</code> account and comes back by itself after a reboot.</p>
+</section>
+
+<section id="setup-group">
+<h2>Set up the machine</h2>
+
+<h3 id="init"><a href="#init">init</a></h3>
+<div class="syn">devhost init [--force] [--hostname &lt;name&gt;] [--docker colima|orbstack|none] [--no-tailscale]</div>
+<p>A short wizard that writes <code>~/.config/devhost/config.yaml</code>. It asks about three things (hostname, Docker runtime, Tailscale) and generates a random ntfy topic for notifications. Without a terminal it uses the flags and defaults.</p>
+<table class="fl"><tr><th>Flag</th><th>Meaning</th></tr>
+<tr><td>--force</td><td>Overwrite an existing config; a timestamped backup is kept.</td></tr>
+<tr><td>--hostname &lt;name&gt;</td><td>The host's name.</td></tr>
+<tr><td>--docker &lt;runtime&gt;</td><td><code>colima</code>, <code>orbstack</code> or <code>none</code>.</td></tr>
+<tr><td>--no-tailscale</td><td>Do not set up Tailscale.</td></tr></table>
+<div class="note"><b>Treat the ntfy topic like a password.</b> Anyone who knows it can read your notifications.</div>
+
+<h3 id="apply"><a href="#apply">apply</a></h3>
+<div class="syn">devhost apply [--dry-run] [--only &lt;step&gt;…]</div>
+<p>Makes this Mac match the config. It is idempotent: run it as often as you like, and only what differs is changed. Any existing file is backed up first, every <code>sudo</code> is announced with its reason, and it is safe to interrupt and re-run.</p>
+<table class="fl"><tr><th>Flag</th><th>Meaning</th></tr>
+<tr><td>--dry-run</td><td>Print the plan, including every sudo command, and change nothing. Run this first.</td></tr>
+<tr><td>--only &lt;step…&gt;</td><td>Run only these steps. A prefix selects a group: <code>system</code> = all <code>system.*</code>, <code>storage</code> = all <code>storage.*</code>, <code>env.acme-api</code> = one environment.</td></tr></table>
+<p>The steps, in order:</p>
+<table class="fl"><tr><th>Step</th><th>Does</th></tr>
+<tr><td>system.helper</td><td>With <code>machine.rootHelper: true</code>, installs a small root helper plus a sudoers rule so later root operations need no password (the desktop app and ssh then need nobody at the keyboard).</td></tr>
+<tr><td>system.hostname / power / ssh</td><td>Hostname, <code>pmset</code> power settings (never sleep, restart after power loss, wake on network), Remote Login.</td></tr>
+<tr><td>packages</td><td>Renders a Brewfile and installs what is missing (direnv, Colima/OrbStack + docker, tailscale, claude-code). Never upgrades; that is <code>update</code>.</td></tr>
+<tr><td>runtimes</td><td>Installs mise and the language runtimes listed in the config.</td></tr>
+<tr><td>shell</td><td>A managed block in <code>~/.zshrc</code>: Homebrew, mise, the direnv hook, <code>claude-&lt;account&gt;</code> aliases.</td></tr>
+<tr><td>docker.config / runtime</td><td>Compose plugin path; Colima as a boot-time service with the configured resources.</td></tr>
+<tr><td>tailscale</td><td>Starts the system daemon. Logging in is never automated; you get the <code>tailscale up</code> instructions.</td></tr>
+<tr><td>claude.binary</td><td>Records the absolute path of <code>claude</code> for the service definitions.</td></tr>
+<tr><td>accounts.claude / routing / git</td><td>Per account: merged Claude settings (OTel and hooks), a managed <code>CLAUDE.md</code> block, the account root with its <code>.envrc</code>, git identity per root.</td></tr>
+<tr><td>collector</td><td>The collector LaunchDaemon (<code>com.devhost.collector</code>).</td></tr>
+<tr><td>agents</td><td>The subagent definitions chosen per account and environment.</td></tr>
+<tr><td>storage.*</td><td>With a work volume: identity check, ownership, Spotlight off, automount, boot-time unlock.</td></tr>
+<tr><td>services.orphans</td><td>Finds devhost services nothing owns any more and asks before removing them.</td></tr>
+<tr><td>env.&lt;name&gt;</td><td>Per environment: repo, <code>.envrc</code>, compose, and the Remote Control LaunchDaemon (KeepAlive, waits for the network at boot).</td></tr></table>
+<pre><code><span class="p">$</span> devhost apply --dry-run          <span class="c"># read the plan</span>
+<span class="p">$</span> devhost apply                    <span class="c"># do it</span>
+<span class="p">$</span> devhost apply --only agents       <span class="c"># after changing agent choices</span>
+<span class="p">$</span> devhost apply --only env.acme-api</code></pre>
+
+<h3 id="config"><a href="#config">config</a></h3>
+<div class="syn">devhost config get [pointer] · set &lt;pointer&gt; &lt;value&gt; · validate [--stdin] · edit · raw · put</div>
+<p>Read and change the config file. Every write is validated against the schema first, comments are preserved, and a backup is kept. <b>Changing the config does not apply it</b>: run <code>devhost apply</code> afterwards.</p>
+<table class="fl"><tr><th>Subcommand</th><th>Does</th></tr>
+<tr><td>get [pointer]</td><td>Print the effective config, or the value at a JSON pointer such as <code>/machine/hostname</code>.</td></tr>
+<tr><td>set &lt;pointer&gt; &lt;value&gt;</td><td>Set a value (JSON/YAML syntax) and validate the result. Nothing is written if it is invalid.</td></tr>
+<tr><td>validate [--stdin]</td><td>Validate the file, or a candidate document read from stdin.</td></tr>
+<tr><td>edit</td><td>Open the file in <code>$VISUAL</code>/<code>$EDITOR</code> and validate afterwards. Needs a terminal.</td></tr>
+<tr><td>raw</td><td>Print the file exactly as on disk, comments included (used by the app's editor).</td></tr>
+<tr><td>put</td><td>Replace the file with the YAML on stdin, only if it validates.</td></tr></table>
+<pre><code><span class="p">$</span> devhost config get /machine/hostname
+<span class="p">$</span> devhost config set /machine/hostname mini
+<span class="p">$</span> devhost config validate</code></pre>
+
+<h3 id="update"><a href="#update">update</a></h3>
+<div class="syn">devhost update [--check] [--all] [--force] [--dry-run]</div>
+<p>Updates Claude Code and moves everything onto it. It upgrades the <code>claude-code</code> cask, restarts every Remote Control service (they run from a versioned path the upgrade deletes) and lists the sessions that were open; each continues as soon as you write in it on claude.ai. It waits while a session is in the middle of a turn, and refuses to run from inside a session of a service it would restart.</p>
+<table class="fl"><tr><th>Flag</th><th>Meaning</th></tr>
+<tr><td>--check</td><td>Only report what is outdated.</td></tr>
+<tr><td>--all</td><td>Also upgrade the other outdated Brewfile packages.</td></tr>
+<tr><td>--force</td><td>Do not wait for sessions mid-turn; they are interrupted, then continue on claude.ai.</td></tr>
+<tr><td>--dry-run</td><td>Only print the plan.</td></tr></table>
+<p>The collector can do this by itself inside <code>claude.updateWindow</code> (default 02:00–06:00) when <code>claude.update</code> is <code>auto</code>.</p>
+
+<h3 id="uninstall"><a href="#uninstall">uninstall</a></h3>
+<div class="syn">devhost uninstall [--keep-packages] [--purge-data] [--purge-storage] [--dry-run]</div>
+<p>Removes what devhost installed: launchd jobs (including orphaned <code>com.devhost.*</code> ones), the managed shell and git blocks, and generated files. It never touches your projects, Claude config dirs or credentials.</p>
+<table class="fl"><tr><th>Flag</th><th>Meaning</th></tr>
+<tr><td>--keep-packages</td><td>Leave the Homebrew packages installed.</td></tr>
+<tr><td>--purge-data</td><td>Also delete the collector database.</td></tr>
+<tr><td>--purge-storage</td><td>Also remove the work volume's unlock service and Keychain item (never the volume or its data).</td></tr>
+<tr><td>--dry-run</td><td>Print what would be removed, including every sudo command.</td></tr></table>
+</section>
+
+<section id="accounts-group">
+<h2>Accounts &amp; projects</h2>
+
+<h3 id="account"><a href="#account">account</a></h3>
+<div class="syn">devhost account list · add · remove &lt;name&gt;</div>
+<p><code>list</code> shows each account with its login state and environment count.</p>
+<p><code>add</code> creates the account's config, settings, routing and git identity, then starts the login. A second account prints a URL: open it on any device, sign in, paste the code back.</p>
+<table class="fl"><tr><th>Flag (add)</th><th>Meaning</th></tr>
+<tr><td>--name &lt;name&gt;</td><td>Required. Account name (a slug).</td></tr>
+<tr><td>--git-email &lt;email&gt;</td><td>Required. Git email for repositories under the account root.</td></tr>
+<tr><td>--git-name &lt;name&gt;</td><td>Git author name.</td></tr>
+<tr><td>--default</td><td>Use Claude Code's default config dir. Only one account may.</td></tr>
+<tr><td>--daily-cost-alert &lt;usd&gt;</td><td>Notify when the estimated cost today passes this.</td></tr>
+<tr><td>--no-login</td><td>Skip the login; <code>doctor</code> will report it as not logged in.</td></tr>
+<tr><td>--root &lt;path&gt;</td><td>Account root (default: on the work volume if configured, else <code>~/work/&lt;name&gt;</code>).</td></tr></table>
+<p><code>remove &lt;name&gt;</code> is refused while the account has environments. It never deletes the root, the config dir or credentials; <code>--logout</code> also signs the account out.</p>
+
+<h3 id="login"><a href="#login">login</a></h3>
+<div class="syn">devhost login &lt;account&gt; [--switch-login]</div>
+<p>Signs an account in (again), accepts workspace trust and the one-time Remote Control confirmation for each of its environments, and restarts their services. Use it when <code>doctor</code> reports an expired login.</p>
+<p>The first sign-in records which claude.ai login the account belongs to. A sign-in as anyone else is signed out again and refused, because the environments would otherwise register under the wrong claude.ai account. <code>--switch-login</code> accepts a new login on purpose and makes the account's environments register afresh.</p>
+
+<h3 id="env"><a href="#env">env</a></h3>
+<div class="syn">devhost env list · create · delete · start · stop · restart · sleep · wake · logs</div>
+<p>An environment is one project with its own Remote Control service.</p>
+<table class="fl"><tr><th>Subcommand</th><th>Does</th></tr>
+<tr><td>list</td><td>Environments and their service state.</td></tr>
+<tr><td>create</td><td>Clones the repo (or <code>git init</code>), allocates a port block, writes <code>.envrc</code> and compose, installs the service. Running it again continues a setup that failed part-way.</td></tr>
+<tr><td>delete &lt;name&gt;</td><td>Stops and removes the environment. Files stay unless <code>--delete-files</code> (shows unpushed commits and asks you to type the name).</td></tr>
+<tr><td>start / stop / restart &lt;name&gt;</td><td>Control the Remote Control service.</td></tr>
+<tr><td>sleep &lt;name&gt;</td><td>Stop the compose services that are running now, until a session uses the environment. Only those come back on <code>wake</code>.</td></tr>
+<tr><td>wake &lt;name&gt;</td><td>Start exactly the compose services the environment had running when it fell asleep.</td></tr>
+<tr><td>logs &lt;name&gt;</td><td>The service log. <code>-n, --lines</code> (default 50), <code>-f, --follow</code>.</td></tr></table>
+<table class="fl"><tr><th>Flag (create)</th><th>Meaning</th></tr>
+<tr><td>--account &lt;account&gt;</td><td>Required. Owning account.</td></tr>
+<tr><td>--name &lt;name&gt;</td><td>Required. Environment name (a slug).</td></tr>
+<tr><td>--repo &lt;url&gt;</td><td>Repository to clone. Omit for <code>git init</code>.</td></tr>
+<tr><td>--no-rc</td><td>Do not install a Remote Control service.</td></tr>
+<tr><td>--compose auto|off</td><td>Detect and manage Docker Compose services (default <code>auto</code>).</td></tr>
+<tr><td>--spawn worktree|same-dir</td><td>Where Remote Control sessions run; passed to <code>claude remote-control</code>.</td></tr>
+<tr><td>--permission-mode &lt;mode&gt;</td><td>Permission mode for its sessions; passed to <code>claude remote-control</code>.</td></tr>
+<tr><td>--daily-cost-alert / --hourly-cost-alert &lt;usd&gt;</td><td>Cost alerts for this environment. The hourly one names the session that spent most, to catch a runaway.</td></tr></table>
+<pre><code><span class="p">$</span> devhost env create --account business --name acme-api --repo git@github.com:acme/api.git --spawn worktree
+<span class="p">$</span> devhost env logs acme-api -f
+<span class="p">$</span> devhost env delete acme-api --delete-files</code></pre>
+<p>With <code>docker.idleSleepMinutes</code> (default 60) the collector puts an environment to sleep after an hour with no session and wakes it with the next one. A service you stopped by hand stays stopped.</p>
+
+<h3 id="agents"><a href="#agents">agents</a></h3>
+<div class="syn">devhost agents list</div>
+<p>Shows the subagent catalog (built-in <code>explorer</code>, <code>reviewer</code>, <code>test-runner</code>, <code>docs</code>, plus your <code>agents.custom</code>) and which agents each account and environment has. To change them, set <code>agents: [name, …]</code> on an account or environment with <code>config set</code>, then run <code>devhost apply --only agents</code>. Only files devhost marked are ever changed.</p>
+
+<h3 id="session"><a href="#session">session</a></h3>
+<div class="syn">devhost session reattach &lt;id&gt; [--dry-run] · handoff &lt;id&gt; [--new]</div>
+<p><code>reattach</code> brings an ended Remote Control session back (for example after a reboot) by running it again in its worktree, once, as a one-shot service. It usually is not needed: writing in the session on claude.ai continues it under the environment's service. It only works for sessions a service started in its own worktree.</p>
+<p><code>handoff</code> prints a summary of a session so you can continue its work in a new one: the note written since the session's last activity, or, with <code>--new</code>, a fresh one. The note is written by a one-off fork of the session, which costs about one cache write of its context. The collector writes one on its own for a session that has been idle for 55 minutes, just before its prompt cache expires.</p>
+</section>
+
+<section id="watch-group">
+<h2>Watch it run</h2>
+
+<h3 id="doctor"><a href="#doctor">doctor</a></h3>
+<div class="syn">devhost doctor</div>
+<p>Read-only health checks, each with a one-line fix: ✅ fine, ⚠️ worth a look, ❌ broken. Exits 1 if any check fails. It reads the service logs too, so an expired login shows up as <code>devhost login &lt;account&gt;</code>. Plugins add their own checks as <code>plugin.&lt;name&gt;.&lt;check&gt;</code>.</p>
+
+<h3 id="status"><a href="#status">status</a></h3>
+<div class="syn">devhost status</div>
+<p>A one-screen summary of the host, its accounts and environments.</p>
+
+<h3 id="dash"><a href="#dash">dash &amp; top</a></h3>
+<div class="syn">devhost dash [--range 1h|24h|7d|30d] [--account &lt;n&gt;] [--env &lt;n&gt;] [--model &lt;n&gt;] [--follow] · devhost top [--once]</div>
+<p><code>dash</code> prints a snapshot of sessions, tokens, cost and CPU/RAM; with <code>--json</code> it is the data behind the desktop app's dashboard. <code>--follow</code> streams a new snapshot every sample interval (NDJSON with <code>--json</code>). The filters narrow it to one account, environment or model.</p>
+<p><code>top</code> is the same data as a refreshing terminal table. It works over SSH, so you can check the server from a phone. <code>--once</code> prints once and exits.</p>
+<div class="note"><b>Limits.</b> Cost is an estimate (on a subscription it is API-equivalent value, not billed money). Plan usage limits are not in the telemetry. Per-session CPU/RAM covers Remote Control sessions only.</div>
+
+<h3 id="notify"><a href="#notify">notify</a></h3>
+<div class="syn">devhost notify --test</div>
+<p>Sends a test notification through your ntfy topic, so you know alerts reach your phone. Alerts cover memory, disk, cost limits, a restart loop and an expired login. The default relay is the public <code>ntfy.sh</code>; set <code>notify.server</code> to use your own.</p>
+
+<h3 id="collector"><a href="#collector">collector</a></h3>
+<div class="syn">devhost collector run · logs [-n &lt;lines&gt;]</div>
+<p>The collector is the one long-running process: it receives Claude Code telemetry and hook calls on <code>127.0.0.1:4318</code>, samples CPU, RAM, Docker, disk and Tailscale, and stores everything in a local SQLite database. launchd runs it for you; <code>run</code> starts it in the foreground for debugging, and <code>logs</code> shows its log. It listens on localhost only and requires a bearer token.</p>
+</section>
+
+<section id="more-group">
+<h2>More</h2>
+
+<h3 id="storage"><a href="#storage">storage</a></h3>
+<div class="syn">devhost storage list · status · wait · adopt · prepare · set-passphrase · migrate</div>
+<p>Keep project data on an external work volume instead of the internal disk.</p>
+<table class="fl"><tr><th>Subcommand</th><th>Does</th></tr>
+<tr><td>list</td><td>External disks and their APFS volumes.</td></tr>
+<tr><td>status</td><td>Whether the work volume is mounted, its identity, encryption, ownership, free space, Spotlight.</td></tr>
+<tr><td>wait [--timeout s]</td><td>Exit 0 once the configured volume is mounted (default 300 s). Services start through this at boot.</td></tr>
+<tr><td>adopt &lt;volume&gt; [--root p]</td><td>Make an existing APFS volume the work volume (config plus a marker file on it).</td></tr>
+<tr><td>prepare &lt;disk&gt; --label n [--encrypted] --yes-erase</td><td><b>Erases</b> the disk as APFS (encrypted with <code>--encrypted</code>, passphrase from stdin), then adopts it. CLI only, never from the app.</td></tr>
+<tr><td>set-passphrase</td><td>Store or rotate the passphrase in the System keychain (from stdin).</td></tr>
+<tr><td>migrate --account a [--cleanup] [--dry-run]</td><td>Move an account's root onto the volume. The old copy stays until a later <code>--cleanup</code>.</td></tr></table>
+<div class="note"><b>prepare is destructive.</b> Everything on the disk is destroyed. It will not run without <code>--yes-erase</code>.</div>
+
+<h3 id="plugin"><a href="#plugin">plugin</a></h3>
+<div class="syn">devhost plugin list · widgets · run · install · upgrade · uninstall · enable · disable</div>
+<p>Plugins add actions, checks and dashboard cards. <a href="plugins.html">See the plugins page</a> for what exists and how to build one.</p>
+<table class="fl"><tr><th>Subcommand</th><th>Does</th></tr>
+<tr><td>list</td><td>Plugins with their actions and checks.</td></tr>
+<tr><td>widgets [--param plugin.filter=value]</td><td>The dashboard controls and cards of enabled plugins (what the app shows).</td></tr>
+<tr><td>run &lt;plugin&gt; &lt;action&gt;</td><td>Run an action. <code>--env</code> / <code>--session</code> pick the target, <code>--dry-run</code> shows what would change. Anything that removes or stops something asks first (<code>--yes</code> answers).</td></tr>
+<tr><td>install &lt;source&gt;</td><td>From GitHub: URL or <code>owner/repo</code>, with <code>#branch</code> or <code>#tag</code>. Stays off until enabled. <code>--name</code>, <code>--enable</code>, <code>--dry-run</code>.</td></tr>
+<tr><td>upgrade &lt;name&gt;</td><td>Fetch the latest commit; its configuration stays.</td></tr>
+<tr><td>uninstall &lt;name&gt;</td><td>Remove an installed plugin and its config entry. For built-in ones, disable.</td></tr>
+<tr><td>enable / disable &lt;name&gt;</td><td>Turn a plugin on or off.</td></tr></table>
+<div class="note"><b>Only enable code you trust.</b> An enabled plugin runs code from its repository on this Mac, as you.</div>
+
+<h3 id="version"><a href="#version">version</a></h3>
+<div class="syn">devhost version</div>
+<p>Prints the CLI version, the <code>--json</code> contract version, the commit it was built from, and the Node and platform it runs on.</p>
+</section>
+
+</main>
+</div>
+
+<footer style="border-top:1px solid var(--line);padding:30px 0;color:var(--ink3);font-size:14px"><div class="wrap">
+  <a href="index.html" style="text-decoration:none">devhost</a> · <a href="plugins.html">Plugins</a> · <a href="https://github.com/bankyadam/devhost.app" target="_blank" rel="noopener">GitHub</a> · the full reference also lives in the repository README
+</div></footer>
+
+</body>
+</html>
