@@ -12,6 +12,9 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: eslint
         update-types: ["version-update:semver-major"]
+      # typescript-eslint supports TypeScript <6.1 only; 7.x breaks `npm run lint`.
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
   - package-ecosystem: cargo
     directory: /packages/app/core
     schedule:

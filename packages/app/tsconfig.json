@@ -21,7 +21,6 @@
       "vite/client",
       "node"
     ],
-    "baseUrl": ".",
     "paths": {
       "@devhost/contract/lite": [
         "../contract/src/lite.ts"
