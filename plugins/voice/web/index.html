@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<link rel="icon" href="data:,">
+<link rel="manifest" href="manifest.webmanifest">
+<title>devhost voice</title>
+<style>
+  :root { --bg:#fff; --fg:#1a1a1a; --mut:#6b6b6b; --acc:#c4572f; --card:#f3f1ee; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --mut:#999; --card:#1c1c1c; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 system-ui,sans-serif;
+         display:flex; flex-direction:column; height:100dvh; padding:0 16px; }
+  header { padding:12px 0; color:var(--mut); font-size:14px; display:flex; justify-content:space-between; }
+  #log { flex:1; overflow:auto; display:flex; flex-direction:column; gap:10px; padding-bottom:12px; }
+  .m { padding:10px 12px; border-radius:12px; background:var(--card); max-width:90%; }
+  .me { align-self:flex-end; background:var(--acc); color:#fff; }
+  #talk { margin:12px auto calc(20px + env(safe-area-inset-bottom)); width:min(78vw,260px); aspect-ratio:1;
+          border-radius:50%; border:0; background:var(--acc); color:#fff; font-size:18px; touch-action:none;
+          user-select:none; -webkit-user-select:none; }
+  #talk.rec { box-shadow:0 0 0 12px color-mix(in srgb,var(--acc) 30%,transparent); }
+  #talk:disabled { opacity:.4; }
+  form { display:flex; gap:8px; } input { flex:1; padding:10px; border-radius:10px; border:1px solid var(--mut); background:var(--bg); color:var(--fg); font-size:16px; }
+</style>
+</head>
+<body>
+<header><span id="state">kapcsolódás…</span><span id="lat"></span></header>
+<div id="log"></div>
+<form id="f"><input id="t" placeholder="vagy írj…" autocomplete="off"><button>Küld</button></form>
+<button id="talk" disabled>Nyomd és beszélj</button>
+<script>
+const $ = id => document.getElementById(id);
+const log = (txt, me) => { const d = document.createElement('div'); d.className = 'm' + (me ? ' me' : ''); d.textContent = txt; $('log').append(d); $('log').scrollTop = 1e9; return d; };
+let ws, ctx, stream, node, chunks = [], queue = [], playing = null, recording = false, reply = null;
+
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => { $('state').textContent = 'kész'; $('talk').disabled = false; };
+  ws.onclose = () => { $('state').textContent = 'újracsatlakozás…'; $('talk').disabled = true; setTimeout(connect, 1500); };
+  ws.onmessage = async e => {
+    if (e.data instanceof ArrayBuffer) { enqueue(e.data); return; }
+    const d = JSON.parse(e.data);
+    if (d.type === 'transcript') log(d.text, true), reply = null;
+    else if (d.type === 'say') { reply ? reply.textContent += ' ' + d.text : reply = log(d.text); }
+    else if (d.type === 'latency') $('lat').textContent = d.first_audio_s + ' s';
+    else if (d.type === 'error') log('Hiba: ' + d.message);
+  };
+}
+
+// playback: sentences arrive as WAV files, play them back to back; speaking stops it (barge-in)
+async function enqueue(buf) {
+  ctx ??= new AudioContext();
+  queue.push(await ctx.decodeAudioData(buf));
+  if (!playing) next();
+}
+function next() {
+  const b = queue.shift(); if (!b) { playing = null; return; }
+  playing = ctx.createBufferSource(); playing.buffer = b; playing.connect(ctx.destination);
+  playing.onended = next; playing.start();
+}
+function stopPlayback() { queue = []; if (playing) { playing.onended = null; try { playing.stop(); } catch {} playing = null; } }
+
+// capture: 16 kHz mono PCM16, as the server expects
+async function startRec() {
+  if (recording) return; recording = true; $('talk').classList.add('rec'); stopPlayback();
+  ctx ??= new AudioContext(); await ctx.resume();
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+  const src = ctx.createMediaStreamSource(stream);
+  node = ctx.createScriptProcessor(4096, 1, 1);
+  const ratio = ctx.sampleRate / 16000; chunks = [];
+  node.onaudioprocess = ev => {
+    const x = ev.inputBuffer.getChannelData(0), out = new Int16Array(Math.floor(x.length / ratio));
+    for (let i = 0; i < out.length; i++) out[i] = Math.max(-1, Math.min(1, x[Math.floor(i * ratio)])) * 32767;
+    chunks.push(out);
+  };
+  src.connect(node); node.connect(ctx.destination);
+}
+function stopRec() {
+  if (!recording) return; recording = false; $('talk').classList.remove('rec');
+  node?.disconnect(); stream?.getTracks().forEach(t => t.stop());
+  for (const c of chunks) ws.send(c.buffer);
+  ws.send(JSON.stringify({ type: 'end' })); chunks = [];
+}
+const talk = $('talk');
+talk.addEventListener('pointerdown', e => { talk.setPointerCapture(e.pointerId); startRec(); });
+talk.addEventListener('pointerup', stopRec); talk.addEventListener('pointercancel', stopRec);
+$('f').onsubmit = e => { e.preventDefault(); const v = $('t').value.trim(); if (v) { stopPlayback(); ws.send(JSON.stringify({ type: 'text', text: v })); $('t').value = ''; } };
+connect();
+</script>
+</body>
+</html>

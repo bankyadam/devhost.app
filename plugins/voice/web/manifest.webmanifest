@@ -1,0 +1,2 @@
+{ "name": "devhost voice", "short_name": "voice", "start_url": ".", "display": "standalone",
+  "background_color": "#111111", "theme_color": "#111111", "icons": [] }

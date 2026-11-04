@@ -6,6 +6,7 @@ Protocol (client → server): binary frames of 16 kHz mono PCM16, then {"type":"
 import argparse
 import asyncio
 import json
+import os
 import time
 
 from aiohttp import WSMsgType, web
@@ -22,26 +23,28 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     pcm = bytearray()
     claude = ClaudeSession(app["cwd"], app["permission_mode"])
     loop = asyncio.get_running_loop()
+    spoken: list[str] = []  # emptied per turn; non-empty once the first sentence went out
     await claude.start()  # start-up overlaps with the user speaking
 
     async def turn(prompt: str) -> None:
         t0 = time.time()
         await ws.send_json({"type": "transcript", "text": prompt})
-        stream, first = SentenceStream(), True
+        stream = SentenceStream()
+        spoken.clear()
         async for delta in claude.turn(prompt):
             for s in stream.feed(delta):
-                await say(s)
-                if first:
-                    first = False
-                    await ws.send_json({"type": "latency", "first_audio_s": round(time.time() - t0, 2)})
+                await say(s, t0)
         for s in stream.flush():
-            await say(s)
+            await say(s, t0)
         await ws.send_json({"type": "done", "session_id": claude.session_id})
 
-    async def say(sentence: str) -> None:
+    async def say(sentence: str, t0: float) -> None:
         wav = await loop.run_in_executor(None, app["tts"].synthesize, sentence)
         await ws.send_json({"type": "say", "text": sentence})
         await ws.send_bytes(wav)
+        if not spoken:
+            spoken.append(sentence)
+            await ws.send_json({"type": "latency", "first_audio_s": round(time.time() - t0, 2)})
 
     async for msg in ws:
         try:
@@ -76,7 +79,10 @@ def make_app(args: argparse.Namespace) -> web.Application:
     app["tts"] = Tts(args.voice)
     app.on_startup.append(warm_up)
     app.router.add_get("/ws", ws_handler)
+    web_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web")
+    app.router.add_get("/", lambda r: web.FileResponse(os.path.join(web_dir, "index.html")))
     app.router.add_get("/health", lambda r: web.json_response({"ok": True}))
+    app.router.add_static("/", web_dir)
     return app
 
 
