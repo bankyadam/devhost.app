@@ -15,6 +15,7 @@ export function Plugins() {
   const [run, setRun] = useState<{ action: PluginActionInfo; dryRun: boolean } | null>(null);
   const [installing, setInstalling] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [upgrading, setUpgrading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const change = async (f: () => Promise<unknown>): Promise<void> => {
     setError(null);
@@ -42,6 +43,7 @@ export function Plugins() {
             {p.error ? <Badge tone="bad">does not load</Badge> : p.enabled ? <Badge tone="good">on</Badge> : <Badge>off</Badge>}
             <span className="row" style={{ marginLeft: 'auto', gap: 6 }}>
               <button className="btn sm" onClick={() => void change(() => client.pluginToggle(p.name, !p.enabled))}>{p.enabled ? 'Disable' : 'Enable'}</button>
+              {p.installedFrom?.latestCommit && <button className="btn sm primary" title={`Newer commit ${p.installedFrom.latestCommit.slice(0, 12)}`} onClick={() => setUpgrading(p.name)}>Upgrade</button>}
               {!p.builtin && <button className="btn sm danger" onClick={() => setRemoving(p.name)}>Uninstall…</button>}
             </span>
           </header>
@@ -65,6 +67,11 @@ export function Plugins() {
         </section>
       ))}
       {installing && <InstallDialog onClose={() => { setInstalling(false); void refresh(); }} />}
+      {upgrading && (
+        <RunDialog title={`Upgrade ${upgrading}`} begin={(h) => client.pluginUpgrade(upgrading, h)} terminal={{ kind: 'devhost', args: ['plugin', 'upgrade', upgrading] }} onClose={() => { setUpgrading(null); void refresh(); }}>
+          <p className="sec">Fetching the latest commit into ~/.config/devhost/plugins/{upgrading}. Its configuration stays; restart what runs its code afterwards.</p>
+        </RunDialog>
+      )}
       {removing && (
         <ConfirmDialog title={`Uninstall ${removing}?`} confirmLabel="Uninstall" danger onCancel={() => setRemoving(null)} onConfirm={() => { const n = removing; setRemoving(null); void change(() => client.pluginUninstall(n)); }}>
           <p>Removes <span className="mono">~/.config/devhost/plugins/{removing}</span> and its entry in the configuration.</p>

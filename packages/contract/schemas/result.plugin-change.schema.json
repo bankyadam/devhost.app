@@ -17,6 +17,7 @@
       "type": "string",
       "enum": [
         "installed",
+        "upgraded",
         "uninstalled",
         "enabled",
         "disabled"

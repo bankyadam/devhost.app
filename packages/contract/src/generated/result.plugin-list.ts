@@ -31,6 +31,10 @@ export interface PluginListData {
       ref?: string;
       commit?: string;
       installedAt?: string;
+      /**
+       * The remote's current commit, when it differs from `commit` (an upgrade is available).
+       */
+      latestCommit?: string;
     };
   }[];
 }

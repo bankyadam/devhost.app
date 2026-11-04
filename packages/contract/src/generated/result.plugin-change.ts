@@ -2,7 +2,7 @@
 
 export interface PluginChangeData {
   name: string;
-  action: 'installed' | 'uninstalled' | 'enabled' | 'disabled';
+  action: 'installed' | 'upgraded' | 'uninstalled' | 'enabled' | 'disabled';
   enabled: boolean;
   url?: string;
   ref?: string;

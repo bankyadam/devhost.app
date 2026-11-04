@@ -106,6 +106,10 @@
               },
               "installedAt": {
                 "type": "string"
+              },
+              "latestCommit": {
+                "type": "string",
+                "description": "The remote's current commit, when it differs from `commit` (an upgrade is available)."
               }
             }
           }

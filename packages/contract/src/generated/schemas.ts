@@ -2883,6 +2883,7 @@ export const schemas = {
         "type": "string",
         "enum": [
           "installed",
+          "upgraded",
           "uninstalled",
           "enabled",
           "disabled"
@@ -3013,6 +3014,10 @@ export const schemas = {
                 },
                 "installedAt": {
                   "type": "string"
+                },
+                "latestCommit": {
+                  "type": "string",
+                  "description": "The remote's current commit, when it differs from `commit` (an upgrade is available)."
                 }
               }
             }

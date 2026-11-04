@@ -238,6 +238,7 @@ export class DevhostClient {
   pluginWidgets = (params: Record<string, string> = {}): Promise<PluginWidgetsData> =>
     this.short<PluginWidgetsData>(['plugin', 'widgets', ...Object.entries(params).flatMap(([k, v]) => ['--param', `${k}=${v}`])], { timeoutMs: 120_000 });
   pluginInstall = (source: string, enable: boolean, h?: LongHandlers): LongRun<PluginChangeData> => this.run<PluginChangeData>(['plugin', 'install', source, ...(enable ? ['--enable'] : [])], h);
+  pluginUpgrade = (name: string, h?: LongHandlers): LongRun<PluginChangeData> => this.run<PluginChangeData>(['plugin', 'upgrade', name], h);
   pluginUninstall = (name: string): Promise<PluginChangeData> => this.short<PluginChangeData>(['plugin', 'uninstall', name]);
   pluginToggle = (name: string, enabled: boolean): Promise<PluginChangeData> => this.short<PluginChangeData>(['plugin', enabled ? 'enable' : 'disable', name]);
   pluginRun = (plugin: string, action: string, target: PluginTarget, dryRun: boolean, h?: LongHandlers): LongRun<PluginRunData> =>

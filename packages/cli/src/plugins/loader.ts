@@ -16,7 +16,7 @@ export interface LoadedPlugin {
   /** Why it could not be loaded. */
   error?: string;
   /** From `devhost plugin install`. */
-  installedFrom?: { url: string; ref?: string; commit?: string; installedAt?: string };
+  installedFrom?: { url: string; ref?: string; commit?: string; installedAt?: string; latestCommit?: string };
 }
 
 async function readSource(dir: string): Promise<LoadedPlugin['installedFrom']> {

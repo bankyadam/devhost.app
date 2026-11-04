@@ -17,14 +17,17 @@ import { loadPlugins, userPluginsDir } from './plugins/loader.js';
 export function pluginListCommand(deps: Deps, g: GlobalOptions): Promise<number> {
   return short<PluginListData>(deps, g, async () => {
     const { config } = await loadConfig(g.configPath);
-    const plugins = (await loadPlugins(config, deps.home)).map((p) => ({
+    const loaded = await loadPlugins(config, deps.home);
+    // Newer commits on the remotes, asked in parallel; a remote that does not answer is just not shown.
+    const latest = new Map(await Promise.all(loaded.filter((p) => p.installedFrom?.commit).map(async (p) => [p.name, await remoteCommit(deps, p.installedFrom!.url, p.installedFrom!.ref)] as const)));
+    const plugins = loaded.map((p) => ({
       name: p.name,
       ...(p.plugin ? { version: p.plugin.version, description: p.plugin.description } : {}),
       builtin: p.builtin,
       enabled: p.enabled,
       source: p.source,
       ...(p.error ? { error: p.error } : {}),
-      ...(p.installedFrom ? { installedFrom: p.installedFrom } : {}),
+      ...(p.installedFrom ? { installedFrom: { ...p.installedFrom, ...(latest.get(p.name) && latest.get(p.name) !== p.installedFrom.commit ? { latestCommit: latest.get(p.name) } : {}) } } : {}),
       actions: (p.plugin?.actions ?? []).map((a) => ({ id: a.id, title: a.title, description: a.description, scope: a.scope, destructive: a.destructive === true })),
       checks: (p.plugin?.checks ?? []).map((c) => c.id),
     }));
@@ -229,6 +232,17 @@ export function pluginInstallCommand(deps: Deps, g: GlobalOptions, o: PluginInst
   });
 }
 
+/** The commit a remote's branch/tag (default HEAD) points at; undefined when it cannot be asked in time. */
+async function remoteCommit(deps: Deps, url: string, ref?: string): Promise<string | undefined> {
+  try {
+    const r = await deps.runner.run('git', ['ls-remote', '--', url, ref ?? 'HEAD'], { timeoutMs: 8000, env: { GIT_TERMINAL_PROMPT: '0' } });
+    if (r.code !== 0) return undefined;
+    return /^([0-9a-f]{40})\s/.exec(r.stdout.split('\n')[0] ?? '')?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
 function hasDependencies(packageJson: string): boolean {
   try {
     const p = JSON.parse(readFileSync(packageJson, 'utf8')) as { dependencies?: Record<string, unknown> };
@@ -243,6 +257,69 @@ const npmBin = (nodePath: string): string => (existsSync(join(dirname(nodePath),
 /** `plugins.<name>.enabled` in config.yaml (comments kept, validated, backed up). */
 async function setEnabled(deps: Deps, g: GlobalOptions, name: string, enabled: boolean): Promise<void> {
   await editConfigFile(g.configPath, deps.now(), (doc) => doc.setIn(['plugins', name, 'enabled'], enabled));
+}
+
+/**
+ * `devhost plugin upgrade <name>`: clones the recorded source again, installs its dependencies,
+ * swaps it in for the current directory and records the new commit. The configuration stays;
+ * edits made inside the plugin's directory do not.
+ */
+export function pluginUpgradeCommand(deps: Deps, g: GlobalOptions, name: string, dryRun: boolean): Promise<number> {
+  return long(deps, g, async (reporter) => {
+    await loadConfig(g.configPath);
+    if (!PLUGIN_NAME.test(name)) throw new UsageError(`"${name}" is not a plugin name`);
+    const root = userPluginsDir(deps.home);
+    const dir = pluginDir(root, name);
+    if (!existsSync(dir)) throw new UsageError(`no plugin "${name}" is installed in ${root}`);
+    let from: { url?: string; ref?: string; commit?: string } = {};
+    try {
+      from = JSON.parse(readFileSync(join(dir, SOURCE_FILE), 'utf8')) as typeof from;
+    } catch {
+      /* handled below */
+    }
+    if (typeof from.url !== 'string') throw new UsageError(`"${name}" was not installed with \`devhost plugin install\``, 'There is no source recorded to upgrade from.');
+    const url = from.url;
+    const exec = newExecutor(deps, g, reporter, dryRun);
+    const step = `plugin.upgrade.${name}`;
+    exec.beginStep(step);
+    reporter.step(step, 'start', `upgrade ${name} from ${url}${from.ref ? `#${from.ref}` : ''}`);
+    const tmp = join(root, `.installing-${name}`);
+    const old = join(root, `.replaced-${name}`);
+    await exec.remove(tmp, { recursive: true });
+    await exec.remove(old, { recursive: true });
+    try {
+      await exec.exec('git', ['clone', '--depth', '1', ...(from.ref ? ['--branch', from.ref] : []), '--', url, tmp], { progress: true });
+      let commit = '';
+      if (!exec.dryRun) {
+        if (!existsSync(join(tmp, 'index.js'))) throw new DevhostError(`${url} has no index.js at its root`, 'plugin-invalid', 1, 'The upgrade was not applied.');
+        if (hasDependencies(join(tmp, 'package.json'))) {
+          await exec.exec(npmBin(deps.nodePath), ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: tmp, progress: true, env: { PATH: `${dirname(deps.nodePath)}:${deps.env['PATH'] ?? '/usr/bin:/bin'}` } });
+        }
+        commit = (await exec.query('git', ['-C', tmp, 'rev-parse', 'HEAD'])).stdout.trim();
+      }
+      const same = commit !== '' && commit === from.commit;
+      if (same || exec.dryRun) {
+        await exec.remove(tmp, { recursive: true });
+      } else {
+        await exec.writeText(join(tmp, SOURCE_FILE), `${JSON.stringify({ url, ...(from.ref ? { ref: from.ref } : {}), commit, installedAt: deps.now().toISOString() }, null, 2)}\n`);
+        await exec.exec('mv', [dir, old]);
+        try {
+          await exec.exec('mv', [tmp, dir]);
+        } catch (err) {
+          await exec.exec('mv', [old, dir]);
+          throw err;
+        }
+        await exec.remove(old, { recursive: true });
+      }
+      reporter.step(step, same ? 'ok' : 'changed', commit ? (same ? `already at ${commit.slice(0, 12)}` : `now at ${commit.slice(0, 12)}`) : undefined);
+      const data: PluginChangeData = { name, action: 'upgraded', enabled: true, url, ...(from.ref ? { ref: from.ref } : {}), ...(commit ? { commit } : {}), ...(dryRun ? { dryRun: true } : {}) };
+      return { ok: true, data, human: [same ? `${name} is up to date.` : `Upgraded ${name}. Restart anything that runs its code (a plugin's service has a Restart action).`] };
+    } catch (err) {
+      if (!exec.dryRun) await exec.remove(tmp, { recursive: true });
+      reporter.step(step, 'failed', err instanceof Error ? err.message : String(err));
+      return { ok: false, data: null, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+  });
 }
 
 /** `devhost plugin uninstall <name>`: its directory and its config entry. Built-in ones can only be disabled. */

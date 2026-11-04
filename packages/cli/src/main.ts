@@ -22,7 +22,7 @@ import { sessionReattachCommand } from './reattach.js';
 import { sessionHandoffCommand } from './commands-session.js';
 import { updateCommand } from './update.js';
 import { storageAdoptCommand, storageListCommand, storageMigrateCommand, storagePrepareCommand, storageSetPassphraseCommand, storageStatusCommand, storageWaitCommand } from './commands-storage.js';
-import { pluginInstallCommand, pluginListCommand, pluginRunCommand, pluginToggleCommand, pluginUninstallCommand, pluginWidgetsCommand } from './commands-plugins.js';
+import { pluginInstallCommand, pluginListCommand, pluginRunCommand, pluginToggleCommand, pluginUninstallCommand, pluginUpgradeCommand, pluginWidgetsCommand } from './commands-plugins.js';
 import { closeInput } from './prompter.js';
 import { resolveConfigPath } from './config/paths.js';
 import type { Deps } from './deps.js';
@@ -336,6 +336,11 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .option('--enable', 'enable it right away (it runs code from the repository on this Mac as you)')
     .option('--dry-run', 'show what would happen')
     .action((source: string, o: { name?: string; enable?: boolean; dryRun?: boolean }) => run(() => pluginInstallCommand(deps, globals(), { source, name: o.name, enable: o.enable === true, dryRun: o.dryRun === true }))());
+  plugin
+    .command('upgrade <name>')
+    .description('Fetch the latest commit of an installed plugin (its configuration stays)')
+    .option('--dry-run', 'show what would happen')
+    .action((name: string, o: { dryRun?: boolean }) => run(() => pluginUpgradeCommand(deps, globals(), name, o.dryRun === true))());
   plugin.command('uninstall <name>').description('Remove an installed plugin and its config entry (built-in ones: disable)').action((name: string) => run(() => pluginUninstallCommand(deps, globals(), name))());
   plugin.command('enable <name>').description('Turn a plugin on').action((name: string) => run(() => pluginToggleCommand(deps, globals(), name, true))());
   plugin.command('disable <name>').description('Turn a plugin off').action((name: string) => run(() => pluginToggleCommand(deps, globals(), name, false))());

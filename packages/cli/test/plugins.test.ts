@@ -285,6 +285,35 @@ describe('plugin install / uninstall', () => {
     expect(await env.run('plugin', 'disable', 'nope')).toBe(2);
   });
 
+  it('shows a newer remote commit in the list, and upgrade swaps the plugin in and records it', async () => {
+    const fixture = join(await import('node:os').then((o) => o.tmpdir()), `upgrade-${Date.now()}`);
+    await mkdir(fixture, { recursive: true });
+    await writeFile(join(fixture, 'index.js'), HELLO);
+    const env = await installable(fixture);
+    expect(await env.run('plugin', 'install', 'someone/devhost-plugin-hello')).toBe(0);
+    let head = 'abc123def4567890';
+    const inner = env.runner.run.bind(env.runner);
+    env.runner.run = async (cmd, args, opts) => {
+      if (cmd === 'git' && args[0] === 'ls-remote') return { code: 0, stdout: `${'f'.repeat(40)}\tHEAD\n`, stderr: '' };
+      if (cmd === 'git' && args.includes('rev-parse')) return { code: 0, stdout: `${head}\n`, stderr: '' };
+      return inner(cmd, args, opts);
+    };
+    const listed = async () => {
+      env.out.length = 0;
+      await env.run('plugin', 'list', '--json');
+      return (lastEnvelope(env).data as { plugins: { name: string; installedFrom?: { commit?: string; latestCommit?: string } }[] }).plugins.find((p) => p.name === 'hello')!.installedFrom!;
+    };
+    expect((await listed()).latestCommit).toBe('f'.repeat(40));
+    head = 'f'.repeat(40);
+    env.out.length = 0;
+    expect(await env.run('plugin', 'upgrade', 'hello', '--json')).toBe(0);
+    expect(lastResult(env).data).toMatchObject({ name: 'hello', action: 'upgraded', commit: head });
+    const after = await listed();
+    expect(after.commit).toBe(head);
+    expect(after.latestCommit).toBeUndefined();
+    expect(await env.run('plugin', 'upgrade', 'nope')).toBe(2);
+  });
+
   it("npm runs only for real dependencies, with devhost's Node first on PATH (ssh has no nvm Node)", async () => {
     const fixture = join(await import('node:os').then((o) => o.tmpdir()), `deps-${Date.now()}`);
     await mkdir(fixture, { recursive: true });

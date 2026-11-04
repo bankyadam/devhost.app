@@ -1,6 +1,6 @@
 {
  "contractVersion": 1,
- "minor": 2,
+ "minor": 3,
  "surface": {
   "config": "{\"type\":\"object\"}",
   "config!required:machine": "required",
@@ -793,7 +793,7 @@
   "result.plugin-change!required:action": "required",
   "result.plugin-change!required:enabled": "required",
   "result.plugin-change.name": "{\"type\":\"string\"}",
-  "result.plugin-change.action": "{\"type\":\"string\",\"enum\":[\"installed\",\"uninstalled\",\"enabled\",\"disabled\"]}",
+  "result.plugin-change.action": "{\"type\":\"string\",\"enum\":[\"installed\",\"upgraded\",\"uninstalled\",\"enabled\",\"disabled\"]}",
   "result.plugin-change.enabled": "{\"type\":\"boolean\"}",
   "result.plugin-change.url": "{\"type\":\"string\"}",
   "result.plugin-change.ref": "{\"type\":\"string\"}",
@@ -836,6 +836,7 @@
   "result.plugin-list.plugins[].installedFrom.ref": "{\"type\":\"string\"}",
   "result.plugin-list.plugins[].installedFrom.commit": "{\"type\":\"string\"}",
   "result.plugin-list.plugins[].installedFrom.installedAt": "{\"type\":\"string\"}",
+  "result.plugin-list.plugins[].installedFrom.latestCommit": "{\"type\":\"string\"}",
   "result.plugin-run": "{\"type\":\"object\"}",
   "result.plugin-run!required:plugin": "required",
   "result.plugin-run!required:action": "required",
