@@ -11,6 +11,9 @@
 - `account remove` asks for confirmation unless `--yes`; `env logs --follow` tracks bytes and `--lines` is validated.
 - A command interrupted by SIGINT is reported as cancelled (exit 130).
 
+### Changed
+- Toolchain: vitest 5, vite 8, @vitejs/plugin-react 6, eslint 10, TypeScript 6.0 (explicit `types`, no `baseUrl`). TypeScript 7 waits for typescript-eslint support.
+
 ### Added
 - MIT license.
 - README: a verification matrix (what CI and the fake Mac cover, what is still unverified on real hardware), notes on plugin trust, the public ntfy relay, the collector's checks, the `0.0.0.0` dev-server rule and contract versioning; missing `env create` / `uninstall` flags and the `agents`, `storage.*`, `services.orphans` step ids.
