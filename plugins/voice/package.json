@@ -1,0 +1,9 @@
+{
+  "name": "devhost-plugin-voice",
+  "version": "0.1.0",
+  "description": "Talk to Claude by voice and hear the answer: local speech-to-text and text-to-speech on the host, a PWA on the tailnet",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": { "test": "node --test" }
+}
