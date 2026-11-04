@@ -1,0 +1,5 @@
+aiohttp
+faster-whisper
+piper-tts
+numpy
+pytest
