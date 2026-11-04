@@ -120,7 +120,7 @@ export function parseSettings(text: string | null, file: string): Json {
   try {
     data = JSON.parse(text);
   } catch (err) {
-    throw new Error(`${file} is not valid JSON (${(err as Error).message}); fix it by hand, devhost will not overwrite it`);
+    throw new Error(`${file} is not valid JSON (${(err as Error).message}); fix it by hand, devhost will not overwrite it`, { cause: err });
   }
   if (!isObject(data)) throw new Error(`${file} must contain a JSON object`);
   return data;

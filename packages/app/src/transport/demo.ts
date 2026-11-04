@@ -11,7 +11,6 @@ import type { RunResult, StreamHandle, TerminalRequest, Transport, TrayStatus } 
 export function createDemoTransport(host: string): Transport {
   let config = DEMO_CONFIG;
   const demoWebApps = new Set<string>();
-  const now = Date.now();
 
   const envelope = (data: unknown, ok = true, errors: unknown[] = []): RunResult => ({ code: ok ? 0 : 2, stdout: `${JSON.stringify({ contractVersion: 1, ok, data, errors })}\n`, stderr: '' });
 
@@ -131,8 +130,6 @@ export function createDemoTransport(host: string): Transport {
     onNavigate: () => () => undefined,
   };
 
-  // `now` keeps the fixtures' relative times stable within one page load.
-  void now;
 }
 
 const DEMO_CONFIG = `# devhost configuration (demo)

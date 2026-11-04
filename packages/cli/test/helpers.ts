@@ -350,7 +350,7 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       return {};
     }
     if ((m = /^git -C (\S+) log --branches --not --remotes --oneline$/.exec(line))) return { stdout: state.unpushed.get(m[1]!) ?? '' };
-    if ((m = /^git -C (\S+) status --porcelain$/.exec(line))) return { stdout: '' };
+    if (/^git -C (\S+) status --porcelain$/.test(line)) return { stdout: '' };
     if ((m = /^docker compose -p (\S+) up -d$/.exec(line))) {
       state.composeUp.add(m[1]!);
       return {};

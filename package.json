@@ -26,13 +26,13 @@
     "soak": "npm run build:core && node scripts/collector-soak.mjs"
   },
   "devDependencies": {
-    "@eslint/js": "^9.17.0",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.0.0",
-    "eslint": "^9.17.0",
-    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "json-schema-to-typescript": "^15.0.3",
     "typescript": "^5.7.2",
-    "typescript-eslint": "^8.18.0",
+    "typescript-eslint": "^8.72.1",
     "vite": "^8.3.5",
     "vitest": "^5.1.0"
   }

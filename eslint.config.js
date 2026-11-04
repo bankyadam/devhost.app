@@ -20,6 +20,7 @@ export default tseslint.config(
   {
     files: ['packages/app/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
-    rules: { ...reactHooks.configs.recommended.rules },
+    // The two classic rules; the React Compiler rules of v7's preset do not apply (no compiler here).
+    rules: { 'react-hooks/rules-of-hooks': 'error', 'react-hooks/exhaustive-deps': 'error' },
   },
 );
