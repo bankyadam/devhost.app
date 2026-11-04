@@ -18,6 +18,11 @@ export default tseslint.config(
     languageOptions: { globals: { process: 'readonly', console: 'readonly', URL: 'readonly', setTimeout: 'readonly' } },
   },
   {
+    // Plugins run under the CLI's Node.
+    files: ['plugins/**/*.js'],
+    languageOptions: { globals: { process: 'readonly', console: 'readonly', URL: 'readonly', fetch: 'readonly', AbortSignal: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly' } },
+  },
+  {
     files: ['packages/app/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
     // The two classic rules; the React Compiler rules of v7's preset do not apply (no compiler here).
