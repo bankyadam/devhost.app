@@ -33,6 +33,7 @@
     "json-schema-to-typescript": "^15.0.3",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.0",
-    "vitest": "^2.1.8"
+    "vite": "^8.3.5",
+    "vitest": "^5.1.0"
   }
 }
