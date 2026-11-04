@@ -216,7 +216,7 @@ describe('plist', () => {
       expect((await check(good, 'com.devhost.other')).error).toContain('Label must be com.devhost.other');
       expect((await check(good.replace('/Users/adam/work/a/b', '/etc'))).error).toContain('WorkingDirectory must be inside /Users/adam');
       expect((await check('not a plist')).ok).toBe(false);
-    });
+    }, 60000); // nine osascript runs in a row; a loaded machine needs more than the default
 
     it('accepts a WorkingDirectory on the work volume (marker = diskutil UUID) and under /Users/Shared, nothing else', async () => {
       const uuid = '0A1B2C3D-0000-4000-8000-123456789ABC';
