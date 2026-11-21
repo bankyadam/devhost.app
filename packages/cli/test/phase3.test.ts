@@ -246,6 +246,9 @@ describe('environments', () => {
     expect(await env.run('env', 'create', '--account', 'business', '--name', 'acme-api', '--repo', 'git@github.com:acme/other.git', '--json')).toBe(2);
     expect(lastResult(env).errors?.[0]?.message).toBe('environment "acme-api" already exists with repo git@github.com:acme/api.git');
     expect((await cfg(env)).match(/^\s+- name: acme-api$/gm)).toHaveLength(1);
+    env.out.length = 0;
+    expect(await env.run('env', 'list', '--json')).toBe(0);
+    expect((lastEnvelope(env).data as { environments: { repo: string | null }[] }).environments[0]!.repo).toBe('git@github.com:acme/api.git');
   });
 
   it('refuses to create an environment for a missing account', async () => {
@@ -316,7 +319,7 @@ describe('environments', () => {
     expect(await env.run('env', 'list', '--json')).toBe(0);
     const e = lastEnvelope(env);
     expect(validate('result.env-list', e.data).ok).toBe(true);
-    expect((e.data as { environments: { service: { state: string } }[] }).environments[0]!.service.state).toBe('disabled');
+    expect((e.data as { environments: { service: { state: string }; repo: string | null }[] }).environments[0]).toMatchObject({ service: { state: 'disabled' }, repo: null });
   });
 
   async function created() {
@@ -372,6 +375,63 @@ describe('environments', () => {
     expect(lastResult(env).errors?.[0]?.code).toBe('session-busy');
   });
 
+  it('session start runs a background Remote Control session in a new worktree and returns its claude.ai link', async () => {
+    const { env, mac, dir } = await created();
+    mac.state.bg = { jobId: 'd6886fc8', sessionId: 'd6886fc8-0000-4000-8000-000000000001', bridgeSessionId: 'session_01Start' };
+    const stdin = new PassThrough();
+    env.deps.stdin = stdin;
+    stdin.end('Fix STORY-356.\n');
+    env.out.length = 0;
+    expect(await env.run('session', 'start', 'acme-api', '--worktree', 'story-356', '--permission-mode', 'bypassPermissions', '--prompt-file', '-', '--json')).toBe(0);
+    const e = lastEnvelope(env);
+    expect(validate('result.session-start', e.data).ok).toBe(true);
+    const cwd = join(dir, '.claude', 'worktrees', 'story-356');
+    expect(e.data).toEqual({ id: 'd6886fc8-0000-4000-8000-000000000001', jobId: 'd6886fc8', env: 'acme-api', account: 'business', worktree: 'story-356', cwd, branch: 'worktree-story-356', remoteSession: 'session_01Start', url: 'https://claude.ai/code/session_01Start' });
+    const run = mac.state.bgRuns![0]!;
+    expect(run.args).toEqual(['--bg', '--remote-control', 'acme-api-story-356', '--worktree', 'story-356', '--permission-mode', 'bypassPermissions', '--', 'Fix STORY-356.\n']);
+    expect(run.cwd).toBe(dir);
+    expect(run.env).toMatchObject({ CLAUDE_CONFIG_DIR: join(env.home, '.claude-business'), DEVHOST_PORT_BASE: '3000', OTEL_RESOURCE_ATTRIBUTES: 'devhost.account=business,devhost.env=acme-api' });
+
+    env.out.length = 0;
+    expect(await env.run('session', 'start', 'acme-api', '--worktree', '../x', '--prompt', 'hi', '--json')).toBe(2);
+    expect(await env.run('session', 'start', 'acme-api', '--worktree', 'w', '--prompt', '  ', '--json')).toBe(2);
+    expect(await env.run('session', 'start', 'acme-api', '--worktree', 'w', '--prompt', 'hi', '--permission-mode', 'yolo', '--json')).toBe(2);
+    expect(await env.run('session', 'start', 'nope', '--worktree', 'w', '--prompt', 'hi', '--json')).toBe(2);
+    expect(mac.state.bgRuns).toHaveLength(1);
+    mac.state.bg = undefined;
+    env.out.length = 0;
+    expect(await env.run('session', 'start', 'acme-api', '--worktree', 'w', '--prompt', 'hi', '--json')).toBe(1);
+    expect(lastEnvelope(env).errors?.[0]?.code).toBe('session-start-failed');
+  });
+
+  it('session list shows the sessions with what a waiting one waits for, its branch and link', async () => {
+    const { env, dir } = await created();
+    const wt = join(dir, '.claude', 'worktrees', 'bridge-cse_01Wt');
+    await mkdir(wt, { recursive: true });
+    await mkdir(join(dir, '.git', 'worktrees', 'b'), { recursive: true });
+    await writeFile(join(wt, '.git'), `gitdir: ${join(dir, '.git', 'worktrees', 'b')}\n`);
+    await writeFile(join(dir, '.git', 'worktrees', 'b', 'HEAD'), 'ref: refs/heads/feature/x\n');
+    await writeFile(join(dir, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    const now = env.deps.now().getTime();
+    const db = new Db(dbPath(env.home));
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, waiting_for, started_at, last_activity_at) VALUES ('a1', 'business', 'acme-api', ?, 'waiting', 'permission', ?, ?)", join(wt, 'src'), now - 60_000, now - 1000);
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, remote_session) VALUES ('b2', 'business', 'acme-api', ?, 'idle', ?, ?, 'session_01Bg')", dir, now - 60_000, now - 2000);
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at) VALUES ('c3', 'business', 'other', '/nowhere', 'running', ?, ?)", now - 60_000, now - 3000);
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at) VALUES ('d4', 'business', 'acme-api', ?, 'ended', ?, ?, ?)", dir, now - 3 * 86_400_000, now - 3 * 86_400_000, now - 3 * 86_400_000);
+    db.close();
+    env.out.length = 0;
+    expect(await env.run('session', 'list', '--env', 'acme-api', '--json')).toBe(0);
+    const e = lastEnvelope(env);
+    expect(validate('result.session-list', e.data).ok).toBe(true);
+    expect((e.data as { sessions: unknown[] }).sessions).toEqual([
+      { id: 'a1', account: 'business', env: 'acme-api', state: 'waiting', waitingFor: 'permission', startedAt: now - 60_000, lastActivityAt: now - 1000, cwd: join(wt, 'src'), branch: 'feature/x', remoteSession: 'session_01Wt', url: 'https://claude.ai/code/session_01Wt' },
+      { id: 'b2', account: 'business', env: 'acme-api', state: 'idle', startedAt: now - 60_000, lastActivityAt: now - 2000, cwd: dir, branch: 'main', remoteSession: 'session_01Bg', url: 'https://claude.ai/code/session_01Bg' },
+    ]);
+    env.out.length = 0;
+    expect(await env.run('session', 'list', '--json')).toBe(0);
+    expect((lastEnvelope(env).data as { sessions: { id: string; branch: string | null }[] }).sessions.map((s) => [s.id, s.branch])).toEqual([['a1', 'feature/x'], ['b2', 'main'], ['c3', null]]);
+  });
+
   it('session reattach brings an ended worktree session back as a one-shot service, and clears ended ones', async () => {
     const { env, mac, dir } = await created();
     const wt = join(dir, '.claude', 'worktrees', 'bridge-cse_01Abc');
@@ -415,7 +475,7 @@ describe('environments', () => {
     env.out.length = 0;
     await env.run('dash', '--json');
     const sessions = (lastEnvelope(env).data as { sessions: { id: string; remoteSession: string | null }[] }).sessions;
-    expect(Object.fromEntries(sessions.map((x) => [x.id, x.remoteSession]))).toEqual({ '6a7802e0-1111': 'session_01Abc', '7b000000-2222': 'session_01Abc', '8c000000-3333': null });
+    expect(Object.fromEntries(sessions.map((x) => [x.id, x.remoteSession]))).toEqual({ '6a7802e0-1111': 'session_01Abc', '7b000000-2222': 'session_01Abc', '8c000000-3333': 'session_01Own' });
   });
 
   it('a Remote Control service renews its bridge pointer before it starts, and drops one it could not start with', async () => {

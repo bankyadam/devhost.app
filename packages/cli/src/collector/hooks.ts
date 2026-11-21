@@ -58,15 +58,21 @@ export function parseHook(body: unknown): HookEvent | null {
   return { event, sessionId, cwd };
 }
 
-/** Notification types that mean the session waits for the user (a permission or a question). */
-const WAITING_NOTIFICATIONS = ['permission_prompt', 'elicitation_dialog'];
+export type WaitingFor = 'permission' | 'question';
+
+/** Notification types that mean the session waits for the user, and what it waits for. */
+const WAITING_NOTIFICATIONS: Record<string, WaitingFor> = { permission_prompt: 'permission', elicitation_dialog: 'question' };
+
+/** What a session waits for after this event: only a waiting notification says; anything else clears it. */
+export const waitingForEvent = (event: string, notificationType?: string): WaitingFor | null =>
+  event === 'Notification' && notificationType !== undefined ? (Object.hasOwn(WAITING_NOTIFICATIONS, notificationType) ? WAITING_NOTIFICATIONS[notificationType]! : null) : null;
 
 /**
  * The state an event sets, or undefined when it leaves it alone: other notifications (an idle
  * reminder, a finished login) say nothing about what the session is doing.
  */
 export function stateForEvent(event: string, notificationType?: string): SessionState | undefined {
-  if (event === 'Notification') return notificationType !== undefined && WAITING_NOTIFICATIONS.includes(notificationType) ? 'waiting' : undefined;
+  if (event === 'Notification') return notificationType !== undefined && Object.hasOwn(WAITING_NOTIFICATIONS, notificationType) ? 'waiting' : undefined;
   return STATE_FOR[event];
 }
 

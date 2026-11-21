@@ -113,6 +113,10 @@ const MIGRATIONS: string[] = [
   ALTER TABLE sessions ADD COLUMN turn_open INTEGER NOT NULL DEFAULT 0;
   UPDATE sessions SET turn_open = 1 WHERE state = 'running';
   `,
+  // What a waiting session waits for (from its Notification's type): 'permission' or 'question'.
+  `
+  ALTER TABLE sessions ADD COLUMN waiting_for TEXT;
+  `,
 ];
 
 export class Db {

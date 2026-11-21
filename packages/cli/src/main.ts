@@ -19,7 +19,7 @@ import { collectorLogsCommand, collectorRunCommand, dashCommand, notifyCommand, 
 import { doctorCommand, statusCommand, uninstallCommand } from './commands-doctor.js';
 import { agentsListCommand } from './commands-agents.js';
 import { sessionReattachCommand } from './reattach.js';
-import { sessionHandoffCommand } from './commands-session.js';
+import { sessionHandoffCommand, sessionListCommand, sessionStartCommand } from './commands-session.js';
 import { updateCommand } from './update.js';
 import { storageAdoptCommand, storageListCommand, storageMigrateCommand, storagePrepareCommand, storageSetPassphraseCommand, storageStatusCommand, storageWaitCommand } from './commands-storage.js';
 import { pluginInstallCommand, pluginListCommand, pluginRunCommand, pluginToggleCommand, pluginUninstallCommand, pluginUpgradeCommand, pluginWidgetsCommand } from './commands-plugins.js';
@@ -274,6 +274,23 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .action((o: { check?: boolean; all?: boolean; force?: boolean; dryRun?: boolean }) => run(() => updateCommand(deps, globals(), { check: o.check === true, all: o.all === true, force: o.force === true, dryRun: o.dryRun === true }))());
 
   const session = program.command('session').description('Claude Code sessions on this host');
+  session
+    .command('list')
+    .description('The open sessions and those that ended today: state, what a waiting one waits for, branch, claude.ai link')
+    .option('--account <name>', 'only this account')
+    .option('--env <name>', 'only this environment')
+    .action((o: { account?: string; env?: string }) => run(() => sessionListCommand(deps, globals(), o))());
+  session
+    .command('start <env>')
+    .description('A new session in a new worktree of the environment, in the background and on Remote Control')
+    .requiredOption('--worktree <name>', 'the worktree to create (<env dir>/.claude/worktrees/<name>)')
+    .option('--account <name>', "the environment's account (checked)")
+    .option('--permission-mode <mode>', "default: the environment's Remote Control permission mode")
+    .option('--model <model>', 'the model')
+    .option('--name <name>', 'the session name on claude.ai (default <env>-<worktree>)')
+    .option('--prompt <text>', 'the first message')
+    .option('--prompt-file <path>', 'read the first message from a file; - is stdin')
+    .action((env: string, o: { worktree: string; account?: string; permissionMode?: string; model?: string; name?: string; prompt?: string; promptFile?: string }) => run(() => sessionStartCommand(deps, globals(), { env, ...o }))());
   session
     .command('reattach <id>')
     .description('Bring an ended Remote Control session back (e.g. after a reboot): runs it again in its worktree, once')

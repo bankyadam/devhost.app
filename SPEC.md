@@ -486,6 +486,8 @@ A session left alone for an hour loses its prompt cache, and a Remote Control se
 | `devhost account list \| add \| remove` | A7.11. |
 | `devhost login <account> [--switch-login]` | A7.10. |
 | `devhost env list \| create \| delete \| start \| stop \| restart \| sleep \| wake \| logs` | A7.9. `create` flags: `--account`, `--name`, `--repo`, `--no-rc`, `--compose auto\|off`, `--spawn worktree\|same-dir`, `--permission-mode`, `--daily-cost-alert`, `--hourly-cost-alert`. |
+| `devhost session start <env> --worktree <name> [--account] [--permission-mode] [--model] [--name] (--prompt \| --prompt-file <path\|->)` | A7.9. A background session on Remote Control (`claude --bg --remote-control --worktree`) in the environment folder with its account and ports; `result.session-start`. The session id comes from `<config dir>/sessions/<pid>.json` (matched by the `backgrounded · <jobId>` line), its claude.ai session from `bridgeSessionId` there. |
+| `devhost session list [--env] [--account]` | Collector database only (polling); `result.session-list`. `waitingFor` comes from the waiting Notification's type: `permission_prompt` → `permission`, `elicitation_dialog` → `question`. |
 | `devhost session reattach <id> [--dry-run]` | A7.9. |
 | `devhost session handoff <id> [--new]` | A10.10. |
 | `devhost update [--check] [--all] [--force] [--dry-run]` | A7.5: update Claude Code, restart the Remote Control services onto it, list their detached sessions (they continue from claude.ai); `--all` also upgrades the Brewfile packages. |

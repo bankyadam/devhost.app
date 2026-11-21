@@ -1,5 +1,5 @@
 import { cpus, loadavg, totalmem, freemem, hostname, platform as osPlatform, uptime } from 'node:os';
-import { stat, statfs } from 'node:fs/promises';
+import { readdir, stat, statfs } from 'node:fs/promises';
 import type { Server } from 'node:http';
 import type { DashData, DevhostConfig, UpdateData } from '@devhost/contract';
 import { inWindow } from '../update.js';
@@ -101,8 +101,8 @@ export class Collector {
   private prevCpu: { idle: number; total: number } | null = null;
   private docker = new Map<string, { cpu: number; memBytes: number }>();
   private lastPid = new Map<string, number>();
-  /** Remote Control session processes whose claude.ai session is recorded already. */
-  private bridged = new Set<number>();
+  /** Session processes whose claude.ai session is recorded already: pid → session_…. */
+  private bridged = new Map<number, string>();
   private servicePids = new Map<string, { pid: number | null; at: number }>();
   private lastVolumeAt = 0;
   private range: { at: number; parts: RangeParts } | null = null;
@@ -361,8 +361,10 @@ export class Collector {
    * subtree's CPU and memory are sampled. Gone and quiet for SESSION_GONE_MS: ended (its process
    * went down with a service restart, or was stopped). Other sessions cannot be told apart by
    * process: they end with their SessionEnd hook, or after SESSION_STALE_MS without hooks. A
-   * session the service runs in the environment's own folder is told by its claude.ai session,
-   * which Claude Code keeps in `<config dir>/sessions/<pid>.json` while it runs (recordBridged).
+   * session the service runs in the environment's own folder, or a background session started with
+   * `--remote-control` (`devhost session start`; its process carries no id), is told by its
+   * claude.ai session, which Claude Code keeps in `<config dir>/sessions/<pid>.json` while it runs
+   * (recordBridged).
    */
   private async sampleSessions(procs: Proc[], now: number): Promise<void> {
     if (procs.length === 0) return; // no ps output: nothing is known
@@ -371,7 +373,12 @@ export class Collector {
       const key = /--session-id (cse_[A-Za-z0-9]+)/.exec(p.command)?.[1];
       if (key && !/remote-control/.test(p.command)) byKey.set(key, p);
     }
-    await this.recordBridged([...byKey.values()]);
+    await this.recordBridged(procs);
+    for (const [pid, remote] of this.bridged) {
+      const key = `cse_${remote.slice('session_'.length)}`;
+      const proc = procs.find((p) => p.pid === pid);
+      if (proc && !byKey.has(key)) byKey.set(key, proc);
+    }
     const open = this.db.all<{ session_id: string; cwd: string; last_activity_at: number; remote_session: string | null }>(
       "SELECT session_id, cwd, last_activity_at, remote_session FROM sessions WHERE state <> 'ended'",
     );
@@ -395,27 +402,34 @@ export class Collector {
     }
   }
 
-  /** Records the claude.ai session of each Remote Control session process, once per process. */
+  /** Records the claude.ai session of each live session process with a session file, once per process. */
   private async recordBridged(procs: Proc[]): Promise<void> {
     const live = new Set(procs.map((p) => p.pid));
-    for (const pid of this.bridged) if (!live.has(pid)) this.bridged.delete(pid);
+    for (const pid of this.bridged.keys()) if (!live.has(pid)) this.bridged.delete(pid);
     const dirs = [...new Set(accountsOf(this.config).map((a) => effectiveClaudeDir(a, this.opts.deps.home)))];
-    for (const p of procs) {
-      if (this.bridged.has(p.pid)) continue;
-      for (const dir of dirs) {
-        const text = await this.exec.readText(`${dir}/sessions/${p.pid}.json`);
+    for (const dir of dirs) {
+      let files: string[];
+      try {
+        files = await readdir(`${dir}/sessions`);
+      } catch {
+        continue;
+      }
+      for (const f of files) {
+        const pid = Number(/^(\d+)\.json$/.exec(f)?.[1]);
+        if (!live.has(pid) || this.bridged.has(pid)) continue;
+        const text = await this.exec.readText(`${dir}/sessions/${f}`);
         if (text === null) continue;
         try {
           const { sessionId, bridgeSessionId } = JSON.parse(text) as { sessionId?: unknown; bridgeSessionId?: unknown };
-          if (typeof sessionId !== 'string' || typeof bridgeSessionId !== 'string' || !/^session_[A-Za-z0-9]+$/.test(bridgeSessionId)) break;
+          // No claude.ai session (yet: a background session connects a few seconds after it starts).
+          if (typeof sessionId !== 'string' || typeof bridgeSessionId !== 'string' || !/^session_[A-Za-z0-9]+$/.test(bridgeSessionId)) continue;
           // The session row comes with its first hook or OTel event: until then, try again.
-          if (!this.db.get('SELECT 1 FROM sessions WHERE session_id = ?', sessionId)) break;
+          if (!this.db.get('SELECT 1 FROM sessions WHERE session_id = ?', sessionId)) continue;
           this.db.run('UPDATE sessions SET remote_session = ? WHERE session_id = ?', bridgeSessionId, sessionId);
-          this.bridged.add(p.pid);
+          this.bridged.set(pid, bridgeSessionId);
         } catch {
           /* written while we read: next tick */
         }
-        break;
       }
     }
   }

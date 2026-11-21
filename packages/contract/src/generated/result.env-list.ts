@@ -6,6 +6,10 @@ export interface EnvListData {
     account: string;
     dir: string;
     dirExists?: boolean;
+    /**
+     * The repository's origin URL (git remote get-url origin), else the config's repo; null when neither.
+     */
+    repo?: string | null;
     portBase: number | null;
     remoteControl: {
       enabled: boolean;

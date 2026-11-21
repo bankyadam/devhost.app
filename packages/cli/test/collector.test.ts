@@ -75,7 +75,7 @@ const attribution = () => {
 describe('db', () => {
   it('migrates once and keeps the version', () => {
     const db = new Db(':memory:');
-    expect(db.schemaVersion).toBe(8);
+    expect(db.schemaVersion).toBe(9);
     db.kvSet('a', '1', 5);
     expect(db.kvGet('a')).toBe('1');
     expect(db.kvGet('missing')).toBeNull();
@@ -438,6 +438,48 @@ environments:
     expect(db.get("SELECT state FROM sessions WHERE session_id = 'own-dir'")).toEqual({ state: 'ended' });
   });
 
+  it('records the claude.ai session of a background session (claude --bg) and keeps it open while its process lives', async () => {
+    const claudeDir = await mkdtemp(join(tmpdir(), 'claude-'));
+    await mkdir(join(claudeDir, 'sessions'));
+    await writeFile(join(claudeDir, 'sessions', '201.json'), JSON.stringify({ pid: 201, sessionId: 'bg-one', kind: 'bg', jobId: 'bg-one', bridgeSessionId: 'session_01Bg' }));
+    const config = parseConfig(
+      `
+machine: { hostname: macmini }
+notify: { topic: devhost-abcdefgh }
+accounts:
+  - { name: personal, default: true, root: ${HOME}/work/personal, portRange: [3000, 3999], git: { name: A, email: a@b.c } }
+  - { name: business, configDir: ${claudeDir}, root: ${HOME}/work/business, portRange: [4000, 4999], git: { name: A, email: a@b.c } }
+environments:
+  - { name: acme-api, account: business, portBase: 4100 }
+`,
+      '/c',
+    );
+    let ps = ` 201 1 3.0 20480 /opt/homebrew/bin/claude bg-spare --bg-spare\n`;
+    const runner = new MockRunner().on('launchctl print', { code: 113 }).on('ps', () => ({ stdout: ps }));
+    const { db, collector, clock } = setup({ runner, config });
+    collector.ingest.hook({ hook_event_name: 'SessionStart', session_id: 'bg-one', cwd: `${HOME}/work/business/acme-api/.claude/worktrees/story-356` }, 'business');
+    await collector.sampleTick();
+    expect(db.get("SELECT state, remote_session FROM sessions WHERE session_id = 'bg-one'")).toEqual({ state: 'idle', remote_session: 'session_01Bg' });
+    clock.now += 11 * 60_000;
+    await collector.sampleTick();
+    expect(db.get("SELECT state FROM sessions WHERE session_id = 'bg-one'")).toEqual({ state: 'idle' });
+    ps = ` 300 1 0.1 1024 /usr/sbin/cron\n`;
+    clock.now += 11 * 60_000;
+    await collector.sampleTick();
+    expect(db.get("SELECT state FROM sessions WHERE session_id = 'bg-one'")).toEqual({ state: 'ended' });
+  });
+
+  it('records what a waiting session waits for, and clears it when it moves on', async () => {
+    const { db, collector } = setup({ runner: new MockRunner().on('ps', { stdout: '' }) });
+    const cwd = `${HOME}/work/business/acme-api`;
+    collector.ingest.hook({ hook_event_name: 'Notification', session_id: 'w', cwd, notification_type: 'permission_prompt' }, 'business');
+    expect(db.get("SELECT state, waiting_for FROM sessions WHERE session_id = 'w'")).toEqual({ state: 'waiting', waiting_for: 'permission' });
+    collector.ingest.hook({ hook_event_name: 'Notification', session_id: 'w', cwd, notification_type: 'elicitation_dialog' }, 'business');
+    expect(db.get("SELECT waiting_for FROM sessions WHERE session_id = 'w'")).toEqual({ waiting_for: 'question' });
+    collector.ingest.hook({ hook_event_name: 'UserPromptSubmit', session_id: 'w', cwd }, 'business');
+    expect(db.get("SELECT state, waiting_for FROM sessions WHERE session_id = 'w'")).toEqual({ state: 'running', waiting_for: null });
+  });
+
   it('nothing is ended when ps gave no answer', async () => {
     const runner = new MockRunner().on('ps', { code: 1 });
     const { db, collector, clock } = setup({ runner });
@@ -783,7 +825,7 @@ describe('dashboard', () => {
     expect(data.sessions[0]).toMatchObject({ id: 'sess-aaaa1111', state: 'waiting', tokensToday: 1200, costToday: 1.25, cpuPercent: 3 });
     expect(data.usage.reduce((a, r) => a + r.input + r.output, 0)).toBe(1200);
     expect(data.limits.join(' ')).toContain('estimate');
-    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 8 });
+    expect(data.collector).toMatchObject({ dbSizeBytes: 4096, schemaVersion: 9 });
 
     expect(buildDash(db, CONFIG, { range: '24h', account: 'personal' }, now, 'm', null).sessions).toEqual([]);
     expect(buildDash(db, CONFIG, { range: '24h', env: 'acme-api', model: 'other' }, now, 'm', null).usage).toEqual([]);

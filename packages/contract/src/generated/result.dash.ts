@@ -108,7 +108,7 @@ export interface DashData {
       types: string[];
     };
     /**
-     * The Remote Control session (session_…) of a session a Remote Control service started in its own worktree; `devhost session reattach` can bring it back after it ended.
+     * The Remote Control session (session_…) on claude.ai: of a session a Remote Control service started in its own worktree (`devhost session reattach` can bring it back after it ended), or of one on Remote Control in the environment folder or in the background (`devhost session start`).
      */
     remoteSession?: string | null;
     /**

@@ -165,6 +165,12 @@ export interface FakeState {
   forks?: Record<string, string>;
   /** The `claude -p` fork commands run. */
   forked?: string[];
+  /** What `claude --bg` starts: its job id, session id and (once on Remote Control) claude.ai session; it writes the session file. */
+  bg?: { jobId: string; sessionId: string; bridgeSessionId?: string };
+  /** The `claude --bg` commands run (args, cwd, env). */
+  bgRuns?: { args: string[]; cwd?: string; env?: Record<string, string> }[];
+  /** `git remote get-url origin` per directory (a clone records its URL). */
+  origins?: Record<string, string>;
 }
 
 const BREWED = ['git', 'claude', 'colima', 'docker', 'tailscale', 'direnv', 'curl'];
@@ -340,6 +346,7 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
     if ((m = /^git -C (\S+) rev-parse --show-toplevel$/.exec(line))) return existsSync(join(m[1]!, '.git')) ? { stdout: `${m[1]}\n` } : { code: 128 };
     if ((m = /^git clone (?:--no-checkout )?-- (\S+) (\S+)$/.exec(line))) {
       mkdirSync(join(m[2]!, '.git', 'info'), { recursive: true });
+      (state.origins ??= {})[m[2]!] = m[1]!;
       if (!state.emptyRemotes?.has(m[1]!)) (state.commits ??= new Set()).add(m[2]!);
       return {};
     }
@@ -395,6 +402,20 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       (state.forked ??= []).push(fork[1]!);
       const note = state.forks?.[fork[1]!];
       return note ? { stdout: note } : { code: 1, stderr: 'No conversation found with session ID' };
+    }
+    if ((m = /^git -C (\S+) remote get-url origin$/.exec(line))) return state.origins?.[m[1]!] ? { stdout: `${state.origins[m[1]!]}\n` } : { code: 2, stderr: "error: No such remote 'origin'\n" };
+    if (line.startsWith(`${brewBin()}/claude --bg `)) {
+      (state.bgRuns ??= []).push({ args: call.args, ...(call.opts?.cwd ? { cwd: call.opts.cwd } : {}), ...(call.opts?.env ? { env: call.opts.env as Record<string, string> } : {}) });
+      if (!state.bg) return { code: 1, stderr: 'Error: not logged in\n' };
+      const cwd = join(call.opts?.cwd ?? '', '.claude', 'worktrees', call.args[call.args.indexOf('--worktree') + 1]!);
+      mkdirSync(cwd, { recursive: true });
+      writeFileSync(join(cwd, '.git'), `gitdir: ${join(call.opts?.cwd ?? '', '.git', 'worktrees', 'wt')}\n`);
+      mkdirSync(join(call.opts?.cwd ?? '', '.git', 'worktrees', 'wt'), { recursive: true });
+      writeFileSync(join(call.opts?.cwd ?? '', '.git', 'worktrees', 'wt', 'HEAD'), `ref: refs/heads/worktree-${call.args[call.args.indexOf('--worktree') + 1]}\n`);
+      const claudeDir = (call.opts?.env as Record<string, string> | undefined)?.['CLAUDE_CONFIG_DIR'] ?? join(runner.context['home'] ?? '', '.claude');
+      mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
+      writeFileSync(join(claudeDir, 'sessions', '9001.json'), JSON.stringify({ pid: 9001, sessionId: state.bg.sessionId, cwd, kind: 'bg', jobId: state.bg.jobId, ...(state.bg.bridgeSessionId ? { bridgeSessionId: state.bg.bridgeSessionId } : {}) }));
+      return { stdout: `\x1b[2mbackgrounded · ${state.bg.jobId}\x1b[0m\n` };
     }
     if (line === `${brewBin()}/claude doctor`) return { stdout: 'Remote Control: available\n' };
     if (line.startsWith('curl -s -m 2 http://127.0.0.1:')) return state.loaded.has('com.devhost.collector') ? { stdout: '{"ok":true}' } : { code: 7 };

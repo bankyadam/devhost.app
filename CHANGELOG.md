@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `devhost session start <env> --worktree <name>`: a new background session on Remote Control in a new worktree of the environment (account, ports and OTel attributes of the environment), prompt from `--prompt` or `--prompt-file` (`-` is stdin); returns its session id, job id, branch and claude.ai link.
+- `devhost session list [--env] [--account]`: the open sessions and today's ended ones with state, `waitingFor` (permission / question), branch and claude.ai link, from the collector's database only.
+- `env list --json`: `repo`, the environment's origin URL.
+- Contract minor 4: `result.session-start`, `result.session-list`, `repo` in `result.env-list`.
+
+### Fixed
+- Sessions on Remote Control outside a service worktree (background sessions, a session in the environment folder) got no claude.ai link in `dash` and were ended after 10 minutes: the collector reads every live session process's session file (`bridgeSessionId`), and `dash` uses the recorded link.
+
 ## 1.0.0 (2026-11-05)
 
 ### Fixed

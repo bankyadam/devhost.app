@@ -1811,7 +1811,7 @@ export const schemas = {
                 "string",
                 "null"
               ],
-              "description": "The Remote Control session (session_…) of a session a Remote Control service started in its own worktree; `devhost session reattach` can bring it back after it ended."
+              "description": "The Remote Control session (session_…) on claude.ai: of a session a Remote Control service started in its own worktree (`devhost session reattach` can bring it back after it ended), or of one on Remote Control in the environment folder or in the background (`devhost session start`)."
             },
             "contextTokens": {
               "type": [
@@ -2655,6 +2655,13 @@ export const schemas = {
             "dirExists": {
               "type": "boolean"
             },
+            "repo": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The repository's origin URL (git remote get-url origin), else the config's repo; null when neither."
+            },
             "portBase": {
               "type": [
                 "integer",
@@ -3424,6 +3431,98 @@ export const schemas = {
       }
     }
   },
+  "result.session-list": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.session-list.schema.json",
+    "title": "SessionListData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "sessions"
+    ],
+    "properties": {
+      "sessions": {
+        "type": "array",
+        "description": "Newest activity first: the open sessions and those that ended today.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "account",
+            "env",
+            "state",
+            "startedAt",
+            "lastActivityAt",
+            "cwd",
+            "branch",
+            "remoteSession",
+            "url"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "account": {
+              "type": "string"
+            },
+            "env": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "idle",
+                "running",
+                "waiting",
+                "ended"
+              ]
+            },
+            "waitingFor": {
+              "type": "string",
+              "enum": [
+                "permission",
+                "question"
+              ],
+              "description": "Only while waiting, when its notification says what for."
+            },
+            "startedAt": {
+              "type": "integer",
+              "description": "Unix ms."
+            },
+            "lastActivityAt": {
+              "type": "integer",
+              "description": "Unix ms."
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "branch": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The branch checked out in cwd; null when detached or not a repository."
+            },
+            "remoteSession": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "session_… on claude.ai."
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "https://claude.ai/code/<remoteSession>"
+            }
+          }
+        }
+      }
+    }
+  },
   "result.session-reattach": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://devhost.app/schemas/result.session-reattach.schema.json",
@@ -3474,6 +3573,68 @@ export const schemas = {
           "type": "string"
         },
         "description": "Earlier reattach jobs that had ended and were removed."
+      }
+    }
+  },
+  "result.session-start": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://devhost.app/schemas/result.session-start.schema.json",
+    "title": "SessionStartData",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "id",
+      "jobId",
+      "env",
+      "account",
+      "worktree",
+      "cwd",
+      "branch",
+      "remoteSession",
+      "url"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "The local session id (a UUID)."
+      },
+      "jobId": {
+        "type": "string",
+        "description": "Claude Code's background job id (claude agents, claude stop, claude rm)."
+      },
+      "env": {
+        "type": "string"
+      },
+      "account": {
+        "type": "string"
+      },
+      "worktree": {
+        "type": "string"
+      },
+      "cwd": {
+        "type": "string",
+        "description": "The worktree's directory: <env dir>/.claude/worktrees/<worktree>."
+      },
+      "branch": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "The worktree's branch, when it is on one."
+      },
+      "remoteSession": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "session_… on claude.ai; null when the session did not connect to Remote Control in time."
+      },
+      "url": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "https://claude.ai/code/<remoteSession>"
       }
     }
   },

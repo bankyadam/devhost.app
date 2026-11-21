@@ -1,5 +1,5 @@
 import type { Db } from './db.js';
-import { locate, parseHook, stateForEvent, turnOpenFor, type EnvLocation } from './hooks.js';
+import { locate, parseHook, stateForEvent, turnOpenFor, waitingForEvent, type EnvLocation } from './hooks.js';
 import { CumulativeTracker, parseLogs, parseMetrics, parseToolRuns, type Attribution } from './otlp.js';
 
 /** Writes received telemetry to SQLite. Stateless apart from the cumulative-counter tracker. */
@@ -106,17 +106,18 @@ export class Ingestor {
       this.db.run('INSERT INTO hook_events (ts, session_id, account, event, cwd) VALUES (?, ?, ?, ?, ?)', now, evt.sessionId, account, evt.event, evt.cwd);
       if (set === undefined) return;
       this.db.run(
-        `INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at, turn_open)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at, turn_open, waiting_for)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(session_id) DO UPDATE SET
            state = excluded.state,
+           waiting_for = excluded.waiting_for,
            turn_open = CASE WHEN ? IS NULL THEN sessions.turn_open ELSE excluded.turn_open END,
            last_activity_at = excluded.last_activity_at,
            cwd = CASE WHEN excluded.cwd <> '' THEN excluded.cwd ELSE sessions.cwd END,
            account = CASE WHEN excluded.account <> '' THEN excluded.account ELSE sessions.account END,
            env = CASE WHEN excluded.env <> '' THEN excluded.env ELSE sessions.env END,
            ended_at = excluded.ended_at`,
-        evt.sessionId, account, env, evt.cwd, state, now, now, state === 'ended' ? now : null, turn ? 1 : 0, turn === undefined ? null : 1,
+        evt.sessionId, account, env, evt.cwd, state, now, now, state === 'ended' ? now : null, turn ? 1 : 0, waitingForEvent(evt.event, evt.notificationType), turn === undefined ? null : 1,
       );
       if (state === 'ended') this.db.run('UPDATE agents SET ended_at = ? WHERE session_id = ? AND ended_at IS NULL', now, evt.sessionId);
     });

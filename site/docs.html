@@ -233,7 +233,7 @@ table.fl td:last-child{color:var(--ink2)}
 <div class="syn">devhost env list · create · delete · start · stop · restart · sleep · wake · logs</div>
 <p>An environment is one project with its own Remote Control service.</p>
 <table class="fl"><tr><th>Subcommand</th><th>Does</th></tr>
-<tr><td>list</td><td>Environments and their service state.</td></tr>
+<tr><td>list</td><td>Environments and their service state; with <code>--json</code> also each one's <code>repo</code> (its <code>origin</code> URL).</td></tr>
 <tr><td>create</td><td>Clones the repo (or <code>git init</code>), allocates a port block, writes <code>.envrc</code> and compose, installs the service. Running it again continues a setup that failed part-way.</td></tr>
 <tr><td>delete &lt;name&gt;</td><td>Stops and removes the environment. Files stay unless <code>--delete-files</code> (shows unpushed commits and asks you to type the name).</td></tr>
 <tr><td>start / stop / restart &lt;name&gt;</td><td>Control the Remote Control service.</td></tr>
@@ -259,7 +259,11 @@ table.fl td:last-child{color:var(--ink2)}
 <p>Shows the subagent catalog (built-in <code>explorer</code>, <code>reviewer</code>, <code>test-runner</code>, <code>docs</code>, plus your <code>agents.custom</code>) and which agents each account and environment has. To change them, set <code>agents: [name, …]</code> on an account or environment with <code>config set</code>, then run <code>devhost apply --only agents</code>. Only files devhost marked are ever changed.</p>
 
 <h3 id="session"><a href="#session">session</a></h3>
-<div class="syn">devhost session reattach &lt;id&gt; [--dry-run] · handoff &lt;id&gt; [--new]</div>
+<div class="syn">devhost session start &lt;env&gt; --worktree &lt;name&gt; · list · reattach &lt;id&gt; [--dry-run] · handoff &lt;id&gt; [--new]</div>
+<p><code>start</code> runs a new session in a new worktree of the environment (<code>&lt;env dir&gt;/.claude/worktrees/&lt;name&gt;</code>), in the background and on Remote Control, with the environment's account and ports, and prints its claude.ai link. Give the first message with <code>--prompt &lt;text&gt;</code> or <code>--prompt-file &lt;path&gt;</code> (<code>-</code> reads stdin). <code>--permission-mode</code> defaults to the environment's; <code>--model</code> and <code>--name</code> are optional. Stop it with <code>claude stop &lt;jobId&gt;</code>.</p>
+<pre><code>echo "Fix STORY-356" | devhost --json session start acme-api --worktree story-356 \
+  --permission-mode bypassPermissions --prompt-file -</code></pre>
+<p><code>list</code> shows the open sessions and those that ended today: state (<code>idle</code>, <code>running</code>, <code>waiting</code>, <code>ended</code>), what a waiting one waits for (<code>permission</code> or <code>question</code>), its branch and claude.ai link. It reads only the collector's database, so it is cheap to poll. <code>--env</code> and <code>--account</code> filter.</p>
 <p><code>reattach</code> brings an ended Remote Control session back (for example after a reboot) by running it again in its worktree, once, as a one-shot service. It usually is not needed: writing in the session on claude.ai continues it under the environment's service. It only works for sessions a service started in its own worktree.</p>
 <p><code>handoff</code> prints a summary of a session so you can continue its work in a new one: the note written since the session's last activity, or, with <code>--new</code>, a fresh one. The note is written by a one-off fork of the session, which costs about one cache write of its context. The collector writes one on its own for a session that has been idle for 55 minutes, just before its prompt cache expires.</p>
 </section>

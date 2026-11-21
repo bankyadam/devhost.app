@@ -68,11 +68,14 @@ export function envListCommand(deps: Deps, g: GlobalOptions): Promise<number> {
       const a = findAccount(config, e.account);
       if (!a) continue;
       const dir = envDir(a, e, deps.home);
+      const dirExists = (await exec.query('test', ['-d', dir])).code === 0;
+      const origin = dirExists ? await exec.query('git', ['-C', dir, 'remote', 'get-url', 'origin']) : null;
       environments.push({
         name: e.name,
         account: e.account,
         dir,
-        dirExists: (await exec.query('test', ['-d', dir])).code === 0,
+        dirExists,
+        repo: (origin?.code === 0 && origin.stdout.trim()) || (e.repo ?? null),
         portBase: e.portBase ?? null,
         remoteControl: { enabled: e.remoteControl?.enabled !== false, spawn: e.remoteControl?.spawn ?? 'worktree', permissionMode: e.remoteControl?.permissionMode ?? 'acceptEdits', ...(await environmentUrl(rcLogPath(deps.home, e.account, e.name))) },
         compose: e.compose ?? 'auto',
