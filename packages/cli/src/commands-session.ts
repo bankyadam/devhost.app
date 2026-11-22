@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { ExitCode, type SessionHandoffData, type SessionListData, type SessionStartData } from '@devhost/contract';
 import { Db, dbPath } from './collector/db.js';
@@ -10,7 +10,7 @@ import { loadConfig } from './config/load.js';
 import type { Deps } from './deps.js';
 import { DevhostError } from './errors.js';
 import { handoffPath, lastMainRequest, MODEL_RE, readHandoff, writeHandoff } from './handoff.js';
-import { remoteSessionFrom, sessionRow } from './reattach.js';
+import { bgSessionFile, remoteSessionFrom, sessionRow } from './reattach.js';
 import { toolPath } from './state.js';
 
 /**
@@ -77,14 +77,18 @@ const claudeUrl = (remote: string | null): string | null => (remote ? `https://c
 export interface SessionListOptions {
   account?: string;
   env?: string;
+  /** One session (an id or its first 8 characters), whenever it ended. */
+  id?: string;
 }
 
 /**
- * `devhost session list`: the open sessions and those that ended today, from the collector's
- * database only (no usage, cost or process figures: cheap enough to poll).
+ * `devhost session list`: the open sessions and those that ended today (with `--id`, that one
+ * session however long ago it ended), from the collector's database only (no usage, cost or process
+ * figures: cheap enough to poll).
  */
 export function sessionListCommand(deps: Deps, g: GlobalOptions, opts: SessionListOptions): Promise<number> {
   return short<SessionListData>(deps, g, async () => {
+    if (opts.id !== undefined && !/^[A-Za-z0-9-]{8,}$/.test(opts.id)) throw new DevhostError('give a session id (at least its first 8 characters)', 'usage', ExitCode.Usage);
     const path = dbPath(deps.home);
     // `*`: a database the collector has not migrated yet (it migrates when it starts) has no waiting_for.
     const rows: { session_id: string; account: string; env: string; cwd: string; state: SessionListData['sessions'][number]['state']; waiting_for?: string | null; started_at: number; last_activity_at: number; remote_session: string | null }[] = [];
@@ -94,9 +98,9 @@ export function sessionListCommand(deps: Deps, g: GlobalOptions, opts: SessionLi
         rows.push(
           ...db.all<(typeof rows)[number]>(
             `SELECT * FROM sessions
-             WHERE (state <> 'ended' OR ended_at >= ?) AND (? = '' OR account = ?) AND (? = '' OR env = ?)
+             WHERE (? <> '' OR state <> 'ended' OR ended_at >= ?) AND (? = '' OR session_id LIKE ? || '%') AND (? = '' OR account = ?) AND (? = '' OR env = ?)
              ORDER BY last_activity_at DESC LIMIT 200`,
-            localMidnight(deps.now().getTime()), opts.account ?? '', opts.account ?? '', opts.env ?? '', opts.env ?? '',
+            opts.id ?? '', localMidnight(deps.now().getTime()), opts.id ?? '', opts.id ?? '', opts.account ?? '', opts.account ?? '', opts.env ?? '', opts.env ?? '',
           ),
         );
       } finally {
@@ -123,7 +127,7 @@ export function sessionListCommand(deps: Deps, g: GlobalOptions, opts: SessionLi
     });
     const human =
       sessions.length === 0
-        ? 'No sessions today.'
+        ? opts.id !== undefined ? `No session ${opts.id}.` : 'No sessions today.'
         : ['ID\tENV\tSTATE\tLAST ACTIVITY\tBRANCH\tURL', ...sessions.map((s) => [s.id.slice(0, 8), s.env, s.waitingFor ? `waiting (${s.waitingFor})` : s.state, new Date(s.lastActivityAt).toLocaleTimeString(), s.branch ?? '-', s.url ?? '-'].join('\t'))].join('\n');
     return { data: { sessions }, human };
   });
@@ -148,27 +152,6 @@ export interface SessionStartOptions {
   promptFile?: string;
   /** Tests shorten the wait for Remote Control. */
   waitMs?: number;
-}
-
-/** A background session's file (`<claude dir>/sessions/<pid>.json`), found by its job id. */
-async function bgSessionFile(claudeDir: string, jobId: string): Promise<{ sessionId: string; cwd: string | null; bridgeSessionId: string | null } | null> {
-  let names: string[];
-  try {
-    names = (await readdir(join(claudeDir, 'sessions'))).filter((f) => /^\d+\.json$/.test(f));
-  } catch {
-    return null;
-  }
-  for (const f of names) {
-    try {
-      const j = JSON.parse(await readFile(join(claudeDir, 'sessions', f), 'utf8')) as { sessionId?: unknown; jobId?: unknown; cwd?: unknown; bridgeSessionId?: unknown };
-      if (j.jobId !== jobId || typeof j.sessionId !== 'string') continue;
-      const bridge = typeof j.bridgeSessionId === 'string' && /^session_[A-Za-z0-9]+$/.test(j.bridgeSessionId) ? j.bridgeSessionId : null;
-      return { sessionId: j.sessionId, cwd: typeof j.cwd === 'string' ? j.cwd : null, bridgeSessionId: bridge };
-    } catch {
-      /* a file being written, or not one of ours */
-    }
-  }
-  return null;
 }
 
 async function readPrompt(deps: Deps, opts: SessionStartOptions): Promise<string> {

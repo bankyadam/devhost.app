@@ -180,6 +180,9 @@ describe('hooks', () => {
       expect(db.get<{ state: string }>('SELECT state FROM sessions WHERE session_id = ?', 's1')?.state).toBe(state);
     }
     expect(db.get('SELECT account, env, ended_at FROM sessions')).toMatchObject({ account: 'business', env: 'acme-api', ended_at: T0 + 5000 });
+    // A resumed background session's SessionStart names the environment folder: the worktree stays.
+    ingest.hook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: `${HOME}/work/business/acme-api` }, '');
+    expect(db.get("SELECT cwd, state FROM sessions WHERE session_id = 's1'")).toMatchObject({ cwd, state: 'idle' });
     // A session outside any environment keeps the account from the URL and env ''.
     ingest.hook({ hook_event_name: 'SessionStart', session_id: 's2', cwd: '/tmp/elsewhere' }, 'personal');
     expect(db.get("SELECT account, env FROM sessions WHERE session_id = 's2'")).toMatchObject({ account: 'personal', env: '' });

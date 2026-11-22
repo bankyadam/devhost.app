@@ -113,7 +113,8 @@ export class Ingestor {
            waiting_for = excluded.waiting_for,
            turn_open = CASE WHEN ? IS NULL THEN sessions.turn_open ELSE excluded.turn_open END,
            last_activity_at = excluded.last_activity_at,
-           cwd = CASE WHEN excluded.cwd <> '' THEN excluded.cwd ELSE sessions.cwd END,
+           -- A resumed background session's SessionStart reports its environment folder, not its worktree: keep the worktree.
+           cwd = CASE WHEN excluded.cwd <> '' AND substr(sessions.cwd, 1, length(excluded.cwd) + 19) <> excluded.cwd || '/.claude/worktrees/' THEN excluded.cwd ELSE sessions.cwd END,
            account = CASE WHEN excluded.account <> '' THEN excluded.account ELSE sessions.account END,
            env = CASE WHEN excluded.env <> '' THEN excluded.env ELSE sessions.env END,
            ended_at = excluded.ended_at`,

@@ -7,8 +7,12 @@
 - `devhost session list [--env] [--account]`: the open sessions and today's ended ones with state, `waitingFor` (permission / question), branch and claude.ai link, from the collector's database only.
 - `env list --json`: `repo`, the environment's origin URL.
 - Contract minor 4: `result.session-start`, `result.session-list`, `repo` in `result.env-list`.
+- `devhost session reattach <id>` also continues an ended background session (from `session start` or any `claude --bg`): it runs `claude --bg --resume <session-id>`, with no other options, in the session's worktree with the account's config dir. The same job continues (same session id, job id and claude.ai link, with its saved options), so `claude attach/logs/stop/rm <jobId>` keep working. A running session is refused (exit 2); a missing worktree fails with `worktree-missing`; a copy Claude starts anyway is stopped and removed (`reattach-failed`). The Remote Control service reattach is unchanged.
+- `devhost session list --id <id>` (full id or its first 8+ characters) returns that session however long ago it ended.
+- Contract minor 5: `kind` (`rc-service` | `background`) and `jobId` in `result.session-reattach`.
 
 ### Fixed
+- A resumed background session's `SessionStart` hook names the environment folder: the collector keeps the session's worktree as its cwd (and branch).
 - Sessions on Remote Control outside a service worktree (background sessions, a session in the environment folder) got no claude.ai link in `dash` and were ended after 10 minutes: the collector reads every live session process's session file (`bridgeSessionId`), and `dash` uses the recorded link.
 
 ## 1.0.0 (2026-11-05)

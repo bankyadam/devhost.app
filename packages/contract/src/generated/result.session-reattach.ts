@@ -2,6 +2,10 @@
 
 export interface SessionReattachData {
   /**
+   * rc-service: a session a Remote Control service ran in its worktree, run again by a one-shot LaunchDaemon; background: a claude --bg session (devhost session start), continued under its id with claude --bg --resume.
+   */
+  kind?: 'rc-service' | 'background';
+  /**
    * The local session id.
    */
   session: string;
@@ -16,13 +20,20 @@ export interface SessionReattachData {
    */
   url: string;
   /**
-   * The one-shot LaunchDaemon that runs it (com.devhost.reattach.…).
+   * rc-service: the one-shot LaunchDaemon that runs it (com.devhost.reattach.…); background: the job id.
    */
   label: string;
+  /**
+   * rc-service: the LaunchDaemon's log; background: the account's Claude daemon log (claude logs <jobId> shows the session).
+   */
   logPath: string;
   dryRun?: boolean;
   /**
    * Earlier reattach jobs that had ended and were removed.
    */
   removed?: string[];
+  /**
+   * background: the id claude attach, logs, stop and rm take (the same as before).
+   */
+  jobId?: string;
 }

@@ -14,6 +14,14 @@
     "logPath"
   ],
   "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "rc-service",
+        "background"
+      ],
+      "description": "rc-service: a session a Remote Control service ran in its worktree, run again by a one-shot LaunchDaemon; background: a claude --bg session (devhost session start), continued under its id with claude --bg --resume."
+    },
     "session": {
       "type": "string",
       "description": "The local session id."
@@ -34,10 +42,11 @@
     },
     "label": {
       "type": "string",
-      "description": "The one-shot LaunchDaemon that runs it (com.devhost.reattach.…)."
+      "description": "rc-service: the one-shot LaunchDaemon that runs it (com.devhost.reattach.…); background: the job id."
     },
     "logPath": {
-      "type": "string"
+      "type": "string",
+      "description": "rc-service: the LaunchDaemon's log; background: the account's Claude daemon log (claude logs <jobId> shows the session)."
     },
     "dryRun": {
       "type": "boolean"
@@ -48,6 +57,10 @@
         "type": "string"
       },
       "description": "Earlier reattach jobs that had ended and were removed."
+    },
+    "jobId": {
+      "type": "string",
+      "description": "background: the id claude attach, logs, stop and rm take (the same as before)."
     }
   }
 }

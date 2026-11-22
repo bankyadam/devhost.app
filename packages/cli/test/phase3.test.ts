@@ -514,6 +514,83 @@ describe('environments', () => {
     expect(mac.runner.lines().filter((l) => /brew upgrade|kickstart/.test(l))).toEqual([]);
   });
 
+  it('session reattach continues an ended background session (session start) under its id, and refuses a running one', async () => {
+    const { env, mac, dir } = await created();
+    const wt = join(dir, '.claude', 'worktrees', 'probe');
+    await mkdir(wt, { recursive: true });
+    const claudeDir = join(env.home, '.claude-business');
+    const sid = 'd00b2a45-deda-43a3-865a-894ffb412cf2';
+    await mkdir(join(claudeDir, 'jobs', 'd00b2a45'), { recursive: true });
+    await writeFile(join(claudeDir, 'jobs', 'd00b2a45', 'state.json'), JSON.stringify({ sessionId: sid, cwd: dir, worktreePath: wt, bridgeSessionId: 'cse_01Bg', respawnFlags: ['--remote-control', '--permission-mode', 'plan'] }));
+    // Left behind by a reboot: names a process that is gone, and an old claude.ai session.
+    await mkdir(join(claudeDir, 'sessions'), { recursive: true });
+    await writeFile(join(claudeDir, 'sessions', '9001.json'), JSON.stringify({ pid: 9001, sessionId: sid, jobId: 'd00b2a45', bridgeSessionId: 'session_01Old' }));
+    const now = env.deps.now().getTime();
+    const db = new Db(dbPath(env.home));
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at) VALUES (?, 'business', 'acme-api', ?, 'ended', ?, ?, ?)", sid, wt, now - 3 * 86_400_000, now - 3 * 86_400_000, now - 3 * 86_400_000);
+    db.run("INSERT INTO sessions (session_id, account, env, cwd, state, started_at, last_activity_at, ended_at) VALUES ('e1000000-0000-4000-8000-000000000001', 'business', 'acme-api', ?, 'ended', ?, ?, ?)", join(dir, 'gone'), now - 60_000, now - 30_000, now - 1000);
+    db.close();
+    await mkdir(join(claudeDir, 'jobs', 'e1000000'), { recursive: true });
+    await writeFile(join(claudeDir, 'jobs', 'e1000000', 'state.json'), JSON.stringify({ sessionId: 'e1000000-0000-4000-8000-000000000001', worktreePath: join(dir, '.claude', 'worktrees', 'gone') }));
+    mac.state.bg = { jobId: 'd00b2a45', sessionId: sid, bridgeSessionId: 'session_01Bg' };
+
+    // Ended three days ago: session list shows it only by its id.
+    env.out.length = 0;
+    expect(await env.run('session', 'list', '--json')).toBe(0);
+    expect((lastEnvelope(env).data as { sessions: { id: string }[] }).sessions.map((x) => x.id)).toEqual(['e1000000-0000-4000-8000-000000000001']);
+    expect(await env.run('session', 'list', '--account', 'business', '--id', 'd00b2a45', '--json')).toBe(0);
+    expect((lastEnvelope(env).data as { sessions: { id: string; state: string }[] }).sessions.map((x) => [x.id, x.state])).toEqual([[sid, 'ended']]);
+    expect(await env.run('session', 'list', '--id', 'd00', '--json')).toBe(2);
+
+    // The dry run plans the same command and runs none.
+    env.out.length = 0;
+    expect(await env.run('session', 'reattach', '--dry-run', 'd00b2a45', '--json')).toBe(0);
+    expect(lastResult(env).data).toMatchObject({ kind: 'background', dryRun: true, jobId: 'd00b2a45', remoteSession: 'session_01Bg' });
+    expect(mac.state.bgRuns).toBeUndefined();
+
+    env.out.length = 0;
+    expect(await env.run('session', 'reattach', 'd00b2a45', '--json')).toBe(0);
+    const data = lastResult(env).data;
+    expect(validate('result.session-reattach', data).ok).toBe(true);
+    expect(data).toEqual({ kind: 'background', session: sid, remoteSession: 'session_01Bg', account: 'business', env: 'acme-api', url: 'https://claude.ai/code/session_01Bg', label: 'd00b2a45', jobId: 'd00b2a45', logPath: join(claudeDir, 'daemon.log') });
+    // No options: given any, claude would start a copy instead of continuing the job.
+    expect(mac.state.bgRuns!.map((r) => r.args)).toEqual([['--bg', '--resume', sid]]);
+    expect(mac.state.bgRuns![0]!.cwd).toBe(wt);
+    expect(mac.state.bgRuns![0]!.env).toMatchObject({ CLAUDE_CONFIG_DIR: claudeDir, DEVHOST_PORT_BASE: '3000' });
+
+    // Its process is alive: refused, though the collector has not seen it yet; nothing is run.
+    mac.state.procs = ['9002 1 0.0 1000 claude --bg'];
+    env.out.length = 0;
+    expect(await env.run('session', 'reattach', 'd00b2a45', '--json')).toBe(2);
+    expect(lastResult(env).errors?.[0]?.message).toContain('already running');
+    expect(await env.run('session', 'reattach', '--dry-run', 'd00b2a45', '--json')).toBe(2);
+    expect(mac.state.bgRuns).toHaveLength(1);
+    // So it is when the collector has it open.
+    const db2 = new Db(dbPath(env.home));
+    db2.run("UPDATE sessions SET state = 'idle', ended_at = NULL WHERE session_id = ?", sid);
+    db2.close();
+    mac.state.procs = [];
+    env.out.length = 0;
+    expect(await env.run('session', 'reattach', 'd00b2a45', '--json')).toBe(2);
+    expect(lastResult(env).errors?.[0]?.message).toBe('session d00b2a45 is already running (idle)');
+
+    // claude starts a copy anyway: it is stopped and removed again.
+    const db3 = new Db(dbPath(env.home));
+    db3.run("UPDATE sessions SET state = 'ended', ended_at = ? WHERE session_id = ?", now - 1000, sid);
+    db3.close();
+    mac.state.bgCopy = 'abdb76a8';
+    env.out.length = 0;
+    expect(await env.run('session', 'reattach', 'd00b2a45', '--json')).toBe(1);
+    expect(lastResult(env).errors?.[0]?.code).toBe('reattach-failed');
+    expect(mac.state.bgControl).toEqual(['stop abdb76a8', 'rm abdb76a8']);
+
+    // The worktree is gone: the dry run says so too.
+    env.out.length = 0;
+    expect(await env.run('session', 'reattach', '--dry-run', 'e1000000', '--json')).toBe(1);
+    expect(lastResult(env).errors?.[0]).toMatchObject({ code: 'worktree-missing' });
+    expect(lastResult(env).errors?.[0]?.message).toContain(join(dir, '.claude', 'worktrees', 'gone'));
+  });
+
   it('update upgrades Claude Code, restarts the services onto it, removes reattach jobs and lists the detached sessions', async () => {
     const { env, mac, dir } = await created();
     mac.state.binaries.add('claude');

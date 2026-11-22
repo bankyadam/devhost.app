@@ -276,10 +276,11 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
   const session = program.command('session').description('Claude Code sessions on this host');
   session
     .command('list')
-    .description('The open sessions and those that ended today: state, what a waiting one waits for, branch, claude.ai link')
+    .description('The open sessions and those that ended today (with --id, that session): state, what a waiting one waits for, branch, claude.ai link')
     .option('--account <name>', 'only this account')
     .option('--env <name>', 'only this environment')
-    .action((o: { account?: string; env?: string }) => run(() => sessionListCommand(deps, globals(), o))());
+    .option('--id <id>', 'only this session (an id or its first 8 characters), however long ago it ended')
+    .action((o: { account?: string; env?: string; id?: string }) => run(() => sessionListCommand(deps, globals(), o))());
   session
     .command('start <env>')
     .description('A new session in a new worktree of the environment, in the background and on Remote Control')
@@ -293,9 +294,9 @@ async function mainInner(argv: string[], deps: Deps): Promise<number> {
     .action((env: string, o: { worktree: string; account?: string; permissionMode?: string; model?: string; name?: string; prompt?: string; promptFile?: string }) => run(() => sessionStartCommand(deps, globals(), { env, ...o }))());
   session
     .command('reattach <id>')
-    .description('Bring an ended Remote Control session back (e.g. after a reboot): runs it again in its worktree, once')
+    .description('Bring an ended Remote Control session back (e.g. after a reboot or claude stop): a background one from session start continues under its id, a Remote Control service one runs again in its worktree, once')
     .option('--dry-run', 'only print the plan')
-    .action((id: string, o: { dryRun?: boolean }) => run(() => sessionReattachCommand(deps, globals(), id, o.dryRun === true))());
+    .action((id: string, o: { dryRun?: boolean }) => run(() => sessionReattachCommand(deps, globals(), id, { dryRun: o.dryRun === true }))());
   session
     .command('handoff <id>')
     .description('A summary of the session to continue its work in a new one: shows the note written since its last activity, or writes one')

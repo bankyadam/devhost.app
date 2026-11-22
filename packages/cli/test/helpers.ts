@@ -169,6 +169,10 @@ export interface FakeState {
   bg?: { jobId: string; sessionId: string; bridgeSessionId?: string };
   /** The `claude --bg` commands run (args, cwd, env). */
   bgRuns?: { args: string[]; cwd?: string; env?: Record<string, string> }[];
+  /** `claude --bg --resume <id>` starts a copy with this job id instead of continuing the job (a running session). */
+  bgCopy?: string;
+  /** The `claude stop|rm <job>` commands run. */
+  bgControl?: string[];
   /** `git remote get-url origin` per directory (a clone records its URL). */
   origins?: Record<string, string>;
 }
@@ -404,9 +408,21 @@ export function fakeMac(initial: Partial<FakeState> = {}): { runner: MockRunner;
       return note ? { stdout: note } : { code: 1, stderr: 'No conversation found with session ID' };
     }
     if ((m = /^git -C (\S+) remote get-url origin$/.exec(line))) return state.origins?.[m[1]!] ? { stdout: `${state.origins[m[1]!]}\n` } : { code: 2, stderr: "error: No such remote 'origin'\n" };
+    if ((m = new RegExp(`^${brewBin()}/claude (stop|rm) ([0-9a-f]+)$`).exec(line))) {
+      (state.bgControl ??= []).push(`${m[1]} ${m[2]}`);
+      return { stdout: `${m[1] === 'stop' ? 'stopped' : 'removed'} ${m[2]}\n` };
+    }
     if (line.startsWith(`${brewBin()}/claude --bg `)) {
       (state.bgRuns ??= []).push({ args: call.args, ...(call.opts?.cwd ? { cwd: call.opts.cwd } : {}), ...(call.opts?.env ? { env: call.opts.env as Record<string, string> } : {}) });
       if (!state.bg) return { code: 1, stderr: 'Error: not logged in\n' };
+      if (call.args[1] === '--resume') {
+        // Continues the saved job: a new process writes a new session file.
+        if (state.bgCopy) return { stdout: `note: started a copy as ${state.bgCopy}\nbackgrounded · ${state.bgCopy}\n` };
+        const claudeDir = (call.opts?.env as Record<string, string> | undefined)?.['CLAUDE_CONFIG_DIR'] ?? join(runner.context['home'] ?? '', '.claude');
+        mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
+        writeFileSync(join(claudeDir, 'sessions', '9002.json'), JSON.stringify({ pid: 9002, sessionId: state.bg.sessionId, cwd: call.opts?.cwd, kind: 'bg', jobId: state.bg.jobId, ...(state.bg.bridgeSessionId ? { bridgeSessionId: state.bg.bridgeSessionId } : {}) }));
+        return { stdout: `note: woke session ${state.bg.jobId} with its saved options (--remote-control, --permission-mode).\nbackgrounded · ${state.bg.jobId} · probe (idle)\n` };
+      }
       const cwd = join(call.opts?.cwd ?? '', '.claude', 'worktrees', call.args[call.args.indexOf('--worktree') + 1]!);
       mkdirSync(cwd, { recursive: true });
       writeFileSync(join(cwd, '.git'), `gitdir: ${join(call.opts?.cwd ?? '', '.git', 'worktrees', 'wt')}\n`);

@@ -1,15 +1,17 @@
 import { existsSync } from 'node:fs';
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SessionReattachData } from '@devhost/contract';
 import { Db, dbPath } from './collector/db.js';
 import { long, newExecutor, newStepContext, type GlobalOptions } from './command-support.js';
-import { environmentsOf, findAccount, logsDir, type Account, type Environment } from './config/accounts.js';
+import { accountEnv, effectiveClaudeDir, environmentsOf, findAccount, logsDir, type Account, type Environment } from './config/accounts.js';
 import { loadConfig } from './config/load.js';
 import type { Deps } from './deps.js';
 import { DevhostError, UsageError } from './errors.js';
 import { stripAnsi } from './login.js';
 import { applyDaemon, daemonState, launchDaemonsDir, removeDaemon, type DaemonSpec } from './launchd.js';
+import type { Executor } from './runner/executor.js';
+import { toolPath } from './state.js';
 import { rcSpec } from './steps/env.js';
 import type { StepContext } from './steps/types.js';
 import type { Reporter } from './reporter.js';
@@ -62,33 +64,203 @@ export function sessionRow(home: string, id: string): { session_id: string; acco
   }
 }
 
+/** A background session's file (`<claude dir>/sessions/<pid>.json`) while it runs, found by its job id (and, given `accept`, its pid). */
+export async function bgSessionFile(claudeDir: string, jobId: string, accept: (pid: number) => boolean = () => true): Promise<{ pid: number; sessionId: string; cwd: string | null; bridgeSessionId: string | null } | null> {
+  let names: string[];
+  try {
+    names = (await readdir(join(claudeDir, 'sessions'))).filter((f) => /^\d+\.json$/.test(f) && accept(Number(f.slice(0, -'.json'.length))));
+  } catch {
+    return null;
+  }
+  for (const f of names) {
+    try {
+      const j = JSON.parse(await readFile(join(claudeDir, 'sessions', f), 'utf8')) as { sessionId?: unknown; jobId?: unknown; cwd?: unknown; bridgeSessionId?: unknown };
+      if (j.jobId !== jobId || typeof j.sessionId !== 'string') continue;
+      const bridge = typeof j.bridgeSessionId === 'string' && /^session_[A-Za-z0-9]+$/.test(j.bridgeSessionId) ? j.bridgeSessionId : null;
+      return { pid: Number(f.slice(0, -'.json'.length)), sessionId: j.sessionId, cwd: typeof j.cwd === 'string' ? j.cwd : null, bridgeSessionId: bridge };
+    } catch {
+      /* a file being written, or not one of ours */
+    }
+  }
+  return null;
+}
+
 /**
- * `devhost session reattach <id>`: bring an ended Remote Control session back, e.g. after a reboot,
- * when the environment's service registered itself anew and the old session is left without a
- * machine. Runs `claude remote-control --session-id session_…` in the session's worktree as a
- * one-shot LaunchDaemon (no GUI login needed; not restarted when the session ends). Reattach jobs
- * that have ended are removed first.
+ * The saved job of a background session (`claude --bg`, e.g. `devhost session start`):
+ * `<claude dir>/jobs/<short id>/state.json`, kept after `claude stop` and a reboot until `claude rm`.
+ * It holds the options the session was started with, which `claude --bg --resume <id>` reuses.
  */
-export function sessionReattachCommand(deps: Deps, g: GlobalOptions, id: string, dryRun: boolean): Promise<number> {
+export async function bgJobOf(claudeDir: string, sessionId: string): Promise<{ jobId: string; dir: string | null; remoteSession: string | null } | null> {
+  const read = async (short: string): Promise<{ jobId: string; dir: string | null; remoteSession: string | null } | null> => {
+    try {
+      const j = JSON.parse(await readFile(join(claudeDir, 'jobs', short, 'state.json'), 'utf8')) as { sessionId?: unknown; worktreePath?: unknown; cwd?: unknown; bridgeSessionId?: unknown };
+      if (j.sessionId !== sessionId) return null;
+      const dir = typeof j.worktreePath === 'string' ? j.worktreePath : typeof j.cwd === 'string' ? j.cwd : null;
+      const m = typeof j.bridgeSessionId === 'string' ? /^(?:cse|session)_([A-Za-z0-9]+)$/.exec(j.bridgeSessionId) : null;
+      return { jobId: short, dir, remoteSession: m ? `session_${m[1]}` : null };
+    } catch {
+      return null;
+    }
+  };
+  // The job is named after the session id's first block; a copy started from it is not.
+  const own = await read(sessionId.slice(0, 8));
+  if (own) return own;
+  let shorts: string[];
+  try {
+    shorts = (await readdir(join(claudeDir, 'jobs'))).filter((f) => /^[0-9a-f]{6,}$/.test(f));
+  } catch {
+    return null;
+  }
+  for (const short of shorts) {
+    const job = await read(short);
+    if (job) return job;
+  }
+  return null;
+}
+
+export interface SessionReattachOptions {
+  dryRun: boolean;
+  /** Tests shorten the wait for Remote Control. */
+  waitMs?: number;
+}
+
+/** How long a resumed background session gets to write its session file and connect to Remote Control. */
+const RESUME_WAIT_MS = 30_000;
+const RESUME_POLL_MS = 500;
+
+/**
+ * `devhost session reattach <id>`: bring an ended Remote Control session back, e.g. after a reboot
+ * or `claude stop`.
+ * - A session a Remote Control service ran in its worktree (`--spawn worktree`): the environment's
+ *   service registered itself anew and the old session is left without a machine. Runs
+ *   `claude remote-control --session-id session_…` in the session's worktree as a one-shot
+ *   LaunchDaemon (no GUI login needed; not restarted when the session ends). Reattach jobs that
+ *   have ended are removed first.
+ * - A background session (`devhost session start`, `claude --bg`): `claude --bg --resume <id>` in
+ *   its worktree with its account, which continues the same job (same id, claude.ai session, name,
+ *   permission mode and model).
+ */
+export function sessionReattachCommand(deps: Deps, g: GlobalOptions, id: string, opts: SessionReattachOptions): Promise<number> {
+  const { dryRun } = opts;
   return long(deps, g, async (reporter) => {
     const { config } = await loadConfig(g.configPath);
     const s = sessionRow(deps.home, id);
-    const remote = remoteSessionOf(s.cwd);
-    if (!remote) throw new UsageError(`session ${s.session_id.slice(0, 8)} did not run in a Remote Control worktree (${s.cwd || 'no directory'})`, 'Only sessions a Remote Control service started with --spawn worktree can be reattached; resume others with `claude --resume` in their directory.');
-    if (s.state !== 'ended') throw new UsageError(`session ${s.session_id.slice(0, 8)} is still ${s.state}`, 'Open it on claude.ai; reattach is for a session whose process is gone.');
+    const short = s.session_id.slice(0, 8);
     const env = environmentsOf(config).find((e) => e.name === s.env && e.account === s.account);
     const account = findAccount(config, s.account);
+    const remote = remoteSessionOf(s.cwd);
+    const job = !remote && account ? await bgJobOf(effectiveClaudeDir(account, deps.home), s.session_id) : null;
+    if (!remote && !job) {
+      throw new UsageError(
+        `session ${short} did not run in a Remote Control worktree or as a background session (${s.cwd || 'no directory'})`,
+        'Sessions from devhost session start (claude --bg) and those a Remote Control service started with --spawn worktree can be reattached; resume others with `claude --resume` in their directory.',
+      );
+    }
+    if (s.state !== 'ended') throw new UsageError(`session ${short} is already running (${s.state})`, job ? `Open it on claude.ai or with claude attach ${job.jobId}.` : 'Open it on claude.ai; reattach is for a session whose process is gone.');
     if (!env || !account) throw new UsageError(`environment ${s.account}/${s.env} is not in the config any more`);
-    if (!existsSync(remote.dir)) throw new DevhostError(`the session's worktree is gone: ${remote.dir}`, 'worktree-missing', 1);
 
     const exec = newExecutor(deps, g, reporter, dryRun);
+    const plan = (): string[] => (dryRun && exec.plan.length > 0 ? ['', 'Dry run plan (nothing was changed):', ...exec.plan.map((p) => `  ${p.sudo ? '[sudo] ' : ''}${p.action}${p.reason ? `  — ${p.reason}` : ''}`)] : []);
+    if (job) {
+      const r = await resumeBackground(deps, exec, reporter, account, env, s.session_id, job, s.cwd, opts);
+      const url = `https://claude.ai/code/${r.remoteSession}`;
+      const data: SessionReattachData = { kind: 'background', session: s.session_id, remoteSession: r.remoteSession, account: s.account, env: s.env, url, label: job.jobId, jobId: job.jobId, logPath: r.logPath, ...(dryRun ? { dryRun: true } : {}) };
+      return { ok: true, data, human: [dryRun ? `Would resume ${short} (job ${job.jobId}) in ${r.dir}.` : `✅ Resumed ${short} (job ${job.jobId}): ${url}`, ...plan()] };
+    }
+    if (!existsSync(remote!.dir)) throw new DevhostError(`the session's worktree is gone: ${remote!.dir}`, 'worktree-missing', 1);
     const ctx = newStepContext(deps, g, config, exec);
-    const { label, logPath, removed } = await reattachInWorktree(ctx, reporter, account, env, remote, dryRun);
-    const url = `https://claude.ai/code/${remote.id}`;
-    const data: SessionReattachData = { session: s.session_id, remoteSession: remote.id, account: s.account, env: s.env, url, label, logPath, ...(removed.length ? { removed } : {}), ...(dryRun ? { dryRun: true } : {}) };
-    const plan = dryRun && exec.plan.length > 0 ? ['', 'Dry run plan (nothing was changed):', ...exec.plan.map((p) => `  ${p.sudo ? '[sudo] ' : ''}${p.action}${p.reason ? `  — ${p.reason}` : ''}`)] : [];
-    return { ok: true, data, human: [dryRun ? `Would reattach ${remote.id}.` : `✅ Reattached: ${url}`, ...plan] };
+    const { label, logPath, removed } = await reattachInWorktree(ctx, reporter, account, env, remote!, dryRun);
+    const url = `https://claude.ai/code/${remote!.id}`;
+    const data: SessionReattachData = { kind: 'rc-service', session: s.session_id, remoteSession: remote!.id, account: s.account, env: s.env, url, label, logPath, ...(removed.length ? { removed } : {}), ...(dryRun ? { dryRun: true } : {}) };
+    return { ok: true, data, human: [dryRun ? `Would reattach ${remote!.id}.` : `✅ Reattached: ${url}`, ...plan()] };
   });
+}
+
+/**
+ * `claude --bg --resume <id>` without options: it continues the saved job under the same id with the
+ * options it was started with. Given options, or while the session runs, it would start a copy
+ * instead, so a running session (its session file's process is alive) is refused first, and a copy
+ * that starts anyway is stopped again.
+ */
+async function resumeBackground(
+  deps: Deps,
+  exec: Executor,
+  reporter: Reporter,
+  account: Account,
+  env: Environment,
+  sessionId: string,
+  job: { jobId: string; dir: string | null; remoteSession: string | null },
+  lastCwd: string,
+  opts: SessionReattachOptions,
+): Promise<{ remoteSession: string; logPath: string; dir: string }> {
+  const claudeDir = effectiveClaudeDir(account, deps.home);
+  const logPath = join(claudeDir, 'daemon.log');
+  const dir = job.dir ?? lastCwd;
+  if (!dir || !existsSync(dir)) {
+    throw new DevhostError(`the session's worktree is gone: ${dir || 'no directory'}`, 'worktree-missing', 1, `It was removed (claude rm ${job.jobId}, or by hand); start a new session with devhost session start.`);
+  }
+  const step = `session.reattach.${job.jobId}`;
+  exec.beginStep(step);
+  reporter.step(step, 'start', `resume ${sessionId.slice(0, 8)} in ${env.name}`);
+
+  // A session file names the process while it runs; one left behind by a crash or a reboot names a dead one.
+  const ps = await exec.query('ps', ['-axo', 'pid=,ppid=,pcpu=,rss=,command='], { timeoutMs: 10_000 });
+  const live = new Set(ps.stdout.split('\n').map((l) => Number(l.trim().split(/\s+/)[0])).filter((n) => n > 0));
+  const running = await bgSessionFile(claudeDir, job.jobId, (pid) => live.has(pid));
+  if (running) {
+    reporter.step(step, 'failed', 'already running');
+    throw new UsageError(`session ${sessionId.slice(0, 8)} is already running (pid ${running.pid})`, `Open it on claude.ai or with claude attach ${job.jobId}.`);
+  }
+  let stale = new Set<number>();
+  try {
+    stale = new Set((await readdir(join(claudeDir, 'sessions'))).filter((f) => /^\d+\.json$/.test(f)).map((f) => Number(f.slice(0, -'.json'.length))));
+  } catch {
+    /* no sessions folder yet */
+  }
+
+  const claude = await toolPath(exec, deps.home, 'claudePath', 'claude', `${deps.brewPrefix}/bin/claude`);
+  const aenv = accountEnv(account, deps.home);
+  const r = await exec.exec(claude, ['--bg', '--resume', sessionId], {
+    cwd: dir,
+    timeoutMs: 60_000,
+    allowFailure: true,
+    reason: `continue background job ${job.jobId} with its saved options`,
+    env: { ...aenv, DEVHOST_PORT_BASE: String(env.portBase ?? 0), OTEL_RESOURCE_ATTRIBUTES: `devhost.account=${account.name},devhost.env=${env.name}` },
+    ...(aenv['CLAUDE_CONFIG_DIR'] ? {} : { unsetEnv: ['CLAUDE_CONFIG_DIR'] }),
+  });
+  if (exec.dryRun) {
+    reporter.step(step, 'ok', 'planned');
+    return { remoteSession: job.remoteSession ?? '', logPath, dir };
+  }
+  // eslint-disable-next-line no-control-regex
+  const out = `${r.stdout}\n${r.stderr}`.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+  const started = /backgrounded\s*·\s*([0-9a-f]{6,})/.exec(out)?.[1];
+  if (r.code !== 0 || !started) {
+    reporter.step(step, 'failed');
+    throw new DevhostError(`claude did not resume the session (exit ${r.code}): ${out.trim().split('\n').pop() ?? ''}`, 'reattach-failed', 1, `Log: ${logPath}`);
+  }
+  if (started !== job.jobId) {
+    // A copy, not the session: stop and remove it (it has no worktree of its own).
+    await exec.exec(claude, ['stop', started], { cwd: dir, env: aenv, allowFailure: true, timeoutMs: 30_000 });
+    await exec.exec(claude, ['rm', started], { cwd: dir, env: aenv, allowFailure: true, timeoutMs: 30_000 });
+    reporter.step(step, 'failed', `claude started a copy (${started}); it was removed`);
+    throw new DevhostError(`claude started a copy of ${sessionId.slice(0, 8)} instead of continuing it`, 'reattach-failed', 1, `Is it running elsewhere? See claude agents.`);
+  }
+
+  const fresh = (pid: number): boolean => !stale.has(pid);
+  const deadline = Date.now() + (opts.waitMs ?? RESUME_WAIT_MS);
+  let file = await bgSessionFile(claudeDir, job.jobId, fresh);
+  while (!file?.bridgeSessionId && Date.now() < deadline) {
+    await new Promise((res) => setTimeout(res, RESUME_POLL_MS));
+    file = await bgSessionFile(claudeDir, job.jobId, fresh);
+  }
+  const remoteSession = file?.bridgeSessionId ?? job.remoteSession;
+  if (!file || !remoteSession) {
+    reporter.step(step, 'failed', file ? 'not on Remote Control' : 'no session file');
+    throw new DevhostError(`session ${sessionId.slice(0, 8)} was resumed but ${file ? 'is not on Remote Control' : 'wrote no session file'}`, 'reattach-failed', 1, `See claude logs ${job.jobId}; stop it with claude stop ${job.jobId}.`);
+  }
+  reporter.step(step, 'changed', file.bridgeSessionId ? 'connected' : 'resumed');
+  return { remoteSession, logPath, dir };
 }
 
 /**
